@@ -1,0 +1,47 @@
+{
+    "name": "@flowfuse/nr-assistant",
+    "version": "0.1.0",
+    "description": "FlowFuse Node-RED assistant plugin",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 0",
+        "lint": "eslint -c .eslintrc --ext js,html *.js *.html",
+        "lint:fix": "eslint -c .eslintrc --ext js,html *.js  *.html --fix"
+    },
+    "keywords": [
+        "node-red",
+        "nodered",
+        "flowfuse",
+        "plugin",
+        "ai",
+        "lowcode"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/FlowFuse/nr-assistant.git"
+    },
+    "bugs": {
+        "url": "https://github.com/FlowFuse/nr-assistant/issues"
+    },
+    "homepage": "https://github.com/FlowFuse/nr-assistant#readme",
+    "author": "FlowFuse Inc.",
+    "license": "Apache-2.0",
+    "node-red": {
+        "version": ">=2.2.0",
+        "plugins": {
+            "flowfuse-nr-assistant": "index.js"
+        }
+    },
+    "engines": {
+        "node": ">=16.x"
+    },
+    "dependencies": {
+        "got": "^11.8.6"
+    },
+    "devDependencies": {
+        "eslint": "^8.48.0",
+        "eslint-config-standard": "^17.1.0",
+        "eslint-plugin-html": "7.1.0",
+        "eslint-plugin-no-only-tests": "^3.1.0"
+    }
+}
