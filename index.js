@@ -64,6 +64,9 @@ module.exports = (RED) => {
                         data
                     })
                 }).catch((error) => {
+                    const errorData = { status: 'error', message: 'Request to FlowFuse Assistant was unsuccessful', body: error.response?.body }
+                    const errorCode = error.response?.statusCode || 500
+                    res.status(errorCode).json({ status: 'error', message: errorData })
                     console.warn('nr-assistant error:', error)
                     RED.log.warn('FlowFuse Assistant request was unsuccessful')
                 })
