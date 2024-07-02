@@ -10,7 +10,7 @@ module.exports = (RED) => {
         onadd: function () {
             const assistantSettings = RED.settings.flowforge?.assistant || { enabled: false }
             const clientSettings = {
-                enabled: assistantSettings.enabled !== false && !!assistantSettings.baseUrl,
+                enabled: assistantSettings.enabled !== false && !!assistantSettings.url,
                 requestTimeout: assistantSettings.requestTimeout || 60000
             }
             RED.comms.publish('nr-assistant/initialise', clientSettings, true /* retain */)
@@ -47,8 +47,8 @@ module.exports = (RED) => {
                     context: input.context, // this is used to provide additional context to the AI (e.g. the selected text of the function node)
                     transactionId: input.transactionId // used to correlate the request with the response
                 }
-                // join url baseUrl & method (taking care of trailing slashes)
-                const url = `${assistantSettings.baseUrl.replace(/\/$/, '')}/${method.replace(/^\//, '')}`
+                // join url & method (taking care of trailing slashes)
+                const url = `${assistantSettings.url.replace(/\/$/, '')}/${method.replace(/^\//, '')}`
                 got.post(url, {
                     headers: {
                         Accept: '*/*',
