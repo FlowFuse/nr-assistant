@@ -489,7 +489,7 @@
         function showNotification (message, options) {
             options = options || {}
             options.type = options.type || 'success'
-            options.timeout = options.timeout || 5000
+            options.timeout = Object.prototype.hasOwnProperty.call(options, 'timeout') ? options.timeout : 5000
             options.fixed = options.fixed || false
             options.modal = options.modal || false
             const pendingNotification = RED.notify(message, options)
