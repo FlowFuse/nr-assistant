@@ -8,7 +8,7 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
-        console.debug('nr-assistant loading...')
+        debug('nr-assistant loading...')
         RED.plugins.registerPlugin('flowfuse-nr-assistant', {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
@@ -29,7 +29,7 @@
             if (assistantInitialised) {
                 return
             }
-            console.debug('nr-assistant initialising...')
+            debug('nr-assistant initialising...')
             if (!assistantOptions.enabled) {
                 console.warn('The FlowFuse Assistant is not enabled')
                 return
@@ -545,7 +545,7 @@
             return bytes.join('').substring(0, length)
         }
         function debug () {
-            if (RED.assistantPlugin?.DEBUG) {
+            if (RED.nrAssistant?.DEBUG) {
                 // eslint-disable-next-line no-console
                 console.log('[nr-assistant]', ...arguments)
             }
