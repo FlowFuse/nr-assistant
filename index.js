@@ -1,6 +1,5 @@
 module.exports = (RED) => {
     const { default: got } = require('got')
-    RED.log.info('Registering FlowFuse Node-RED Assistant Plugin...')
     RED.plugins.registerPlugin('flowfuse-nr-assistant', {
         type: 'assistant',
         name: 'Node-RED Assistant Plugin',
@@ -17,15 +16,15 @@ module.exports = (RED) => {
             RED.comms.publish('nr-assistant/initialise', clientSettings, true /* retain */)
 
             if (!assistantSettings || !assistantSettings.enabled) {
-                RED.log.info('FlowFuse Node-RED Assistant Plugin is disabled')
+                RED.log.info('FlowFuse Assistant Plugin is disabled')
                 return
             }
-            if (!assistantSettings.baseUrl) {
-                RED.log.info('FlowFuse Node-RED Assistant Plugin is missing baseUrl')
+            if (!assistantSettings.url) {
+                RED.log.info('FlowFuse Assistant Plugin is missing url')
                 return
             }
 
-            RED.log.info('FlowFuse Node-RED Assistant Plugin loaded')
+            RED.log.info('FlowFuse Assistant Plugin loaded')
 
             RED.httpAdmin.post('/nr-assistant/:method', RED.auth.needsPermission('write'), function (req, res) {
                 const method = req.params.method || 'fn'
@@ -66,7 +65,7 @@ module.exports = (RED) => {
                     })
                 }).catch((error) => {
                     console.warn('nr-assistant error:', error)
-                    RED.log.warn('Request to was FlowFuse assistant unsuccessful')
+                    RED.log.warn('FlowFuse Assistant request was unsuccessful')
                 })
             })
         }
