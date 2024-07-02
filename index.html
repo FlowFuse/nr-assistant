@@ -277,15 +277,15 @@
                 form.append(input)
                 containerDiv.append(form)
                 dialog.append(containerDiv)
-                const minHeight = 220 + (description ? 30 : 0)
-                const minWidth = 520
+                const minHeight = 200 + (description ? 32 : 0)
+                const minWidth = 480
                 dialog.dialog({
                     autoOpen: true,
                     title: title || 'FlowFuse Assistant',
                     modal: true,
                     closeOnEscape: true,
                     height: minHeight,
-                    width: 660,
+                    width: 580,
                     minHeight,
                     minWidth,
                     resizable: true,
