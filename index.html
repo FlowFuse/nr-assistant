@@ -141,9 +141,9 @@
                                 previousPrompt = prompt
                                 const data = {
                                     prompt,
-                                    promptHint: 'inline', // inline denotes that the prompt is for a code lens to generate specific node code for inside a function node
                                     transactionId,
                                     context: {
+                                        scope: 'inline', // inline denotes that the prompt is for a inline code (i.e. the monaco editor)
                                         modulesAllowed,
                                         codeSection: editorSection
                                         // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
@@ -336,8 +336,11 @@
                     const transactionId = generateId(8) + '-' + Date.now() // a unique id for this transaction
                     const body = {
                         prompt,
-                        promptHint: 'node', // "node" denotes that the prompt is for a generating a function node (as importable JSON flow code)
-                        transactionId
+                        transactionId,
+                        context: {
+                            scope: 'node', // "node" denotes that the prompt is for a generating a function node (as importable JSON flow code)
+                            modulesAllowed
+                        }
                     }
                     const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
                         if (xhr) {
@@ -398,7 +401,10 @@
                     const transactionId = generateId(8) + '-' + Date.now() // a unique id for this transaction
                     const body = {
                         prompt,
-                        transactionId
+                        transactionId,
+                        context: {
+                            modulesAllowed
+                        }
                     }
                     const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
                         if (xhr) {
