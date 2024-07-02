@@ -125,7 +125,8 @@
                             }
                             parent = parent.parentNode
                         }
-                        const editorSection = parent?.id || ''
+                        // const editorSection = parent?.id || '' // FUTURE: determine the code section users code lens was triggered in. Will be used to help the assistant understand the context of the code
+                        const editorSection = 'on message' // hard coded for now since the code lens is only available in the "on message" editor in this first iteration
 
                         // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
                         // const userSelection = triggeredEditor.getSelection()
