@@ -90,7 +90,7 @@
                         codeLens.command = {
                             id: codeLens.id,
                             title: 'Ask the FlowFuse Assistant 🪄',
-                            tooltip: 'Click to ask FlowFuse Assistant for help writing JavaScript',
+                            tooltip: 'Click to ask FlowFuse Assistant for help writing code',
                             arguments: [model, codeLens, token]
                         }
                         return codeLens
@@ -134,8 +134,9 @@
 
                         getUserInput({
                             defaultInput: previousPrompt,
-                            title: 'FlowFuse JavaScript Assistant',
-                            description: 'Enter a short prompt explaining what you want the function to do.'
+                            title: 'FlowFuse Assistant : Function Code',
+                            explanation: 'The FlowFuse Assistant can help you write code.',
+                            description: 'Enter a short description of what you want the function to do.'
                         }).then((prompt) => {
                             if (prompt) {
                                 previousPrompt = prompt
@@ -247,37 +248,43 @@
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
             // RED.actions.add('ff:nr-assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
 
-            // Add toolbar button with menu items
+            // Add toolbar button
             const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button fa fa-magic" href="#"></a></li>')
             toolbarMenuButton.prependTo('.red-ui-header-toolbar')
-            RED.menu.init({
-                id: 'red-ui-header-button-ff-ai',
-                options: [
-                    { id: 'menu-item-ff-ai-new-func', label: funcBuilderTitle, disabled: !assistantOptions.enabled, onselect: 'ff:nr-assistant-function-builder' }
-                    // { id: "menu-item-ff-ai-new-flow", label: flowBuilderTitle, disabled: !assistantOptions.enabled, onselect: "ff:nr-assistant-flow-builder" } // FUTURE: enable this when the flow builder is ready
-                ]
+            toolbarMenuButton.on('click', function (e) {
+                RED.actions.invoke('ff:nr-assistant-function-builder')
             })
+            RED.popover.tooltip(toolbarMenuButton, 'FlowFuse Assistant')
             assistantInitialised = true
         }
 
-        function getUserInput ({ title, description, placeholder, defaultInput } = {
+        function getUserInput ({ title, explanation, description, placeholder, defaultInput } = {
             title: 'FlowFuse Assistant',
-            description: 'Enter a short prompt explaining what you want the function node to do.',
-            placeholder: 'Example: convert the payload to uppercase',
+            explanation: 'The FlowFuse Assistant can help you create things.',
+            description: 'Enter a short description explaining what you want it to do.',
+            placeholder: '',
             defaultInput: ''
         }) {
+            const bodyText = []
+            if (explanation) {
+                bodyText.push(`<p style="">${explanation}</p>`)
+            }
+            if (description) {
+                bodyText.push(`<p>${description}</p>`)
+            }
+            const body = bodyText.join('')
             return new Promise((resolve, reject) => {
                 const dialog = $('<div id="ff-nr-ai-dialog-input" class="hide red-ui-editor"></div>')
                 const containerDiv = $('<div style="height: 100%;display: flex;flex-direction: column; height: calc(100% - 12px);">')
-                if (description) {
-                    containerDiv.append('<div style="margin-bottom: 12px; margin-top: -8px">' + description + '</div>')
+                if (body) {
+                    containerDiv.append('<div style="margin-bottom: 8px; margin-top: -10px">' + body + '</div>')
                 }
                 const form = $('<form id="ff-nr-ai-dialog-input-fields" style="flex-grow: 1; margin-bottom: 6px;"></form>')
                 const input = $('<textarea id="ff-nr-ai-dialog-input-editor" style="height:100%;width:100%; position:relative; resize: none;" maxlength="400" placeholder="' + (placeholder || '') + '">' + (defaultInput || '') + '</textarea>')
                 form.append(input)
                 containerDiv.append(form)
                 dialog.append(containerDiv)
-                const minHeight = 200 + (description ? 32 : 0)
+                const minHeight = 260 + (description ? 32 : 0) + (explanation ? 32 : 0)
                 const minWidth = 480
                 dialog.dialog({
                     autoOpen: true,
@@ -285,7 +292,7 @@
                     modal: true,
                     closeOnEscape: true,
                     height: minHeight,
-                    width: 580,
+                    width: minWidth,
                     minHeight,
                     minWidth,
                     resizable: true,
@@ -318,15 +325,16 @@
         }
 
         let previousFunctionBuilderPrompt
-        function showFunctionBuilderPrompt (title, description) {
+        function showFunctionBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
                 RED.notify('The FlowFuse Assistant is not enabled', 'warning')
                 return
             }
             getUserInput({
                 defaultInput: previousFunctionBuilderPrompt,
-                title: title || 'FlowFuse Function Node Assistant',
-                description: description || 'Enter a short prompt explaining what you want the function node to do.'
+                title: title || 'FlowFuse Assistant : Create A Function Node',
+                explanation: 'The FlowFuse Assistant can help you create a Function Node.',
+                description: 'Enter a short description of what you want it to do.'
             }).then((prompt) => {
                 /** @type {JQueryXHR} */
                 let xhr = null
@@ -383,15 +391,16 @@
 
         let previousFlowBuilderPrompt
         // eslint-disable-next-line no-unused-vars
-        function showFlowBuilderPrompt (title, description) {
+        function showFlowBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
                 RED.notify('The FlowFuse Assistant is not enabled', 'warning')
                 return
             }
             getUserInput({
                 defaultInput: previousFlowBuilderPrompt,
-                title: title || 'FlowFuse Flow Builder',
-                description: description || 'Enter a short prompt explaining what you want the flow to do.'
+                title: title || 'FlowFuse Assistant : Flow Builder',
+                explanation: 'The FlowFuse Assistant can help you create a new flow.',
+                description: 'Enter a short description of what you want the flow to do.'
             }).then((prompt) => {
                 /** @type {JQueryXHR} */
                 let xhr = null
