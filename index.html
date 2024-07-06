@@ -24,7 +24,7 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
-        debug('nr-assistant loading...')
+        debug('loading...')
         RED.plugins.registerPlugin('flowfuse-nr-assistant', {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
@@ -45,7 +45,7 @@
             if (assistantInitialised) {
                 return
             }
-            debug('nr-assistant initialising...')
+            debug('initialising...')
             if (!assistantOptions.enabled) {
                 console.warn('The FlowFuse Assistant is not enabled')
                 return
@@ -564,7 +564,7 @@
                                 if (flowJson && Array.isArray(flowJson) && flowJson.length > 0) {
                                     importFlow(flowJson)
                                 } else {
-                                    processAIErrorResponse(jqXHR, textStatus, 'No response from server')
+                                    processAIErrorResponse(jqXHR, textStatus, 'No data in response from server')
                                 }
                             } catch (error) {
                                 RED.notify('Sorry, something went wrong, please try again', 'error')
@@ -628,7 +628,7 @@
                                 if (flowJson && Array.isArray(flowJson) && flowJson.length > 0) {
                                     importFlow(flowJson)
                                 } else {
-                                    processAIErrorResponse(jqXHR, textStatus, 'No response from server')
+                                    processAIErrorResponse(jqXHR, textStatus, 'No data in response from server')
                                 }
                             } catch (error) {
                                 RED.notify('Sorry, something went wrong, please try again', 'error')
