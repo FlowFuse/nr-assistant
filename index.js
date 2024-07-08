@@ -29,7 +29,7 @@ module.exports = (RED) => {
             RED.httpAdmin.post('/nr-assistant/:method', RED.auth.needsPermission('write'), function (req, res) {
                 const method = req.params.method
                 // limit method to prevent path traversal
-                if (!method || typeof method !== 'string' || /[^a-zA-Z0-9-_]/.test(method)) {
+                if (!method || typeof method !== 'string' || /[^a-z0-9-_]/.test(method)) {
                     res.status(400)
                     res.json({ status: 'error', message: 'Invalid method' })
                     return
