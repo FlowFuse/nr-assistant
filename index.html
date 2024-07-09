@@ -1,6 +1,22 @@
 <script>
     (function (RED, n) {
         'use strict'
+
+        /**
+         * @typedef {Object} PromptOptions
+         * @property {string} method - The method used for routing the call in the API (e.g. 'function', 'json').
+         * @property {string} lang - The language type to be generated (e.g. 'javascript', 'json', 'yaml').
+         * @property {string} type - The type of the node.
+         * @property {string} [selectedText] - Any selected text. // future feature
+         */
+
+        /**
+         * @typedef {Object} PromptUIOptions
+         * @property {string} title - The title of the FlowFuse Assistant.
+         * @property {string} explanation - The explanation of what the FlowFuse Assistant can help with.
+         * @property {string} description - A short description of what you want the FlowFuse Assistant to do.
+         */
+
         const AI_TIMEOUT = 90000 // default request timeout in milliseconds
         const modulesAllowed = RED.settings.functionExternalModules !== false
         const assistantOptions = {
@@ -8,7 +24,7 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
-        debug('nr-assistant loading...')
+        debug('loading...')
         RED.plugins.registerPlugin('flowfuse-nr-assistant', {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
@@ -29,7 +45,7 @@
             if (assistantInitialised) {
                 return
             }
-            debug('nr-assistant initialising...')
+            debug('initialising...')
             if (!assistantOptions.enabled) {
                 console.warn('The FlowFuse Assistant is not enabled')
                 return
@@ -39,7 +55,11 @@
                 console.warn('Monaco editor not found. Unable to register code lens provider. Consider using the Monaco editor for a better experience.')
                 return
             } else {
-                const commandId = 'nr-assistant-fn-inline'
+                const funcCommandId = 'nr-assistant-fn-inline'
+                const jsonCommandId = 'nr-assistant-json-inline'
+
+                debug('registering code lens providers...')
+
                 monaco.languages.registerCodeLensProvider('javascript', {
                     provideCodeLenses: function (model, token) {
                         const thisEditor = getMonacoEditorForModel(model)
@@ -77,14 +97,14 @@
                                         endLineNumber: 2,
                                         endColumn: 1
                                     },
-                                    id: commandId
+                                    id: funcCommandId
                                 }
                             ],
                             dispose: () => { }
                         }
                     },
                     resolveCodeLens: function (model, codeLens, token) {
-                        if (codeLens.id !== commandId) {
+                        if (codeLens.id !== funcCommandId) {
                             return codeLens
                         }
                         codeLens.command = {
@@ -97,8 +117,45 @@
                     }
                 })
 
-                let previousPrompt = null
-                monaco.editor.registerCommand(commandId, function (accessor, model, codeLens, token) {
+                monaco.languages.registerCodeLensProvider('json', {
+                    provideCodeLenses: function (model, token) {
+                        const thisEditor = getMonacoEditorForModel(model)
+                        if (!thisEditor) {
+                            return
+                        }
+                        return {
+                            lenses: [
+                                {
+                                    range: {
+                                        startLineNumber: 1,
+                                        startColumn: 1,
+                                        endLineNumber: 2,
+                                        endColumn: 1
+                                    },
+                                    id: jsonCommandId
+                                }
+                            ],
+                            dispose: () => { }
+                        }
+                    },
+                    resolveCodeLens: function (model, codeLens, token) {
+                        if (codeLens.id !== jsonCommandId) {
+                            return codeLens
+                        }
+                        codeLens.command = {
+                            id: codeLens.id,
+                            title: 'Ask the FlowFuse Assistant 🪄',
+                            tooltip: 'Click to ask FlowFuse Assistant for help with JSON',
+                            arguments: [model, codeLens, token]
+                        }
+                        return codeLens
+                    }
+                })
+
+                debug('registering commands...')
+
+                monaco.editor.registerCommand(funcCommandId, function (accessor, model, codeLens, token) {
+                    debug('running command', funcCommandId)
                     const node = RED.view.selection()?.nodes?.[0]
                     if (!node) {
                         console.warn('No node selected') // should not happen
@@ -108,16 +165,15 @@
                         RED.notify('The FlowFuse Assistant is not enabled', 'warning')
                         return
                     }
-                    let xhr = null
-                    const nodeId = node.id
-                    const transactionId = `${nodeId}-${Date.now()}` // a unique id for this transaction
                     const thisEditor = getMonacoEditorForModel(model)
                     if (thisEditor) {
                         if (!document.body.contains(thisEditor.getDomNode())) {
                             console.warn('Editor is no longer in the DOM, cannot proceed.')
                             return
                         }
+
                         // walk up the tree to find the parent div with an id and include that in context
+                        let subType = 'on message'
                         let parent = thisEditor.getDomNode().parentNode
                         while (parent?.tagName !== 'FORM') {
                             if (parent.id) {
@@ -125,113 +181,163 @@
                             }
                             parent = parent.parentNode
                         }
-                        // const editorSection = parent?.id || '' // FUTURE: determine the code section users code lens was triggered in. Will be used to help the assistant understand the context of the code
-                        const editorSection = 'on message' // hard coded for now since the code lens is only available in the "on message" editor in this first iteration
+                        switch (parent?.id) {
+                        case 'func-tab-init':
+                        case 'node-input-init-editor':
+                            subType = 'on start'
+                            break
+                        case 'func-tab-body':
+                        case 'node-input-func-editor':
+                            subType = 'on message'
+                            break
+                        case 'func-tab-finalize':
+                        case 'node-input-finalize-editor':
+                            subType = 'on message'
+                            break
+                        }
 
                         // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
                         // const userSelection = triggeredEditor.getSelection()
                         // const selectedText = model.getValueInRange(userSelection)
-
-                        getUserInput({
-                            defaultInput: previousPrompt,
+                        /** @type {PromptOptions} */
+                        const promptOptions = {
+                            method: 'function',
+                            lang: 'javascript',
+                            type: 'function',
+                            subType
+                            // selectedText: model.getValueInRange(userSelection)
+                        }
+                        /** @type {PromptUIOptions} */
+                        const uiOptions = {
                             title: 'FlowFuse Assistant : Function Code',
-                            explanation: 'The FlowFuse Assistant can help you write code.',
-                            description: 'Enter a short description of what you want the function to do.'
-                        }).then((prompt) => {
-                            if (prompt) {
-                                previousPrompt = prompt
-                                const data = {
-                                    prompt,
-                                    transactionId,
-                                    context: {
-                                        scope: 'inline', // inline denotes that the prompt is for a inline code (i.e. the monaco editor)
-                                        modulesAllowed,
-                                        codeSection: editorSection
-                                        // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
+                            explanation: 'The FlowFuse Assistant can help you write JavaScript code.',
+                            description: 'Enter a short description of what you want it to do.'
+                        }
+                        doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
+                            if (error) {
+                                console.warn('Error processing request', error)
+                                return
+                            }
+                            debug('function response', response)
+                            const responseData = response?.data
+                            if (responseData?.func?.length > 0) {
+                                // ensure the editor is still present in the DOM
+                                if (!document.body.contains(thisEditor.getDomNode())) {
+                                    console.warn('Editor is no longer in the DOM')
+                                    return
+                                }
+                                thisEditor.focus()
+                                // insert the generated code at the current cursor position overwriting any selected text
+                                const currentSelection = thisEditor.getSelection()
+                                thisEditor.executeEdits('', [
+                                    {
+                                        range: new monaco.Range(currentSelection.startLineNumber, currentSelection.startColumn, currentSelection.endLineNumber, currentSelection.endColumn),
+                                        text: responseData.func
+                                    }
+                                ])
+                                // update the nodes output count the AI suggests a different number of outputs
+                                if (typeof responseData?.outputs === 'number' && responseData.outputs >= 0) {
+                                    const outputsField = $('#node-input-outputs')
+                                    const currentOutputs = parseInt(outputsField.val())
+                                    if (!isNaN(currentOutputs) && typeof currentOutputs === 'number' && currentOutputs !== responseData.outputs) {
+                                        outputsField.val(responseData.outputs)
+                                        outputsField.trigger('change')
                                     }
                                 }
-                                const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
-                                    if (xhr) {
-                                        xhr.abort('abort')
-                                        xhr = null
-                                    }
-                                })
-                                xhr = $.ajax({
-                                    url: 'nr-assistant/function', // /function denotes this is a request for NODE JavaScript code
-                                    type: 'POST',
-                                    data,
-                                    success: function (reply, textStatus, jqXHR) {
-                                        const responseData = reply?.data?.data
-                                        if (responseData?.func?.length > 0) {
-                                            const currentSelection = thisEditor.getSelection()
-                                            // ensure the editor is still present in the DOM
-                                            if (!document.body.contains(thisEditor.getDomNode())) {
-                                                console.warn('Editor is no longer in the DOM')
+
+                                // update libs - get the current list of libs then scan the response for any new ones
+                                // if the lib is not already in the list, add it
+                                if (modulesAllowed) {
+                                    if (Array.isArray(responseData?.node_modules) && responseData.node_modules.length > 0) {
+                                        const _libs = []
+                                        const libs = $('#node-input-libs-container').editableList('items')
+                                        libs.each(function (i) {
+                                            const item = $(this)
+                                            const v = item.find('.node-input-libs-var').val()
+                                            let n = item.find('.node-input-libs-val').typedInput('type')
+                                            if (n === '_custom_') {
+                                                n = item.find('.node-input-libs-val').val()
+                                            }
+                                            if ((!v || (v === '')) ||
+                                                (!n || (n === ''))) {
                                                 return
                                             }
-                                            busyNotification.close()
-                                            thisEditor.focus()
-                                            // insert the generated code at the current cursor position overwriting any selected text
-                                            thisEditor.executeEdits('', [
-                                                {
-                                                    range: new monaco.Range(currentSelection.startLineNumber, currentSelection.startColumn, currentSelection.endLineNumber, currentSelection.endColumn),
-                                                    text: responseData.func
-                                                }
-                                            ])
-                                            // update the nodes output count the AI suggests a different number of outputs
-                                            if (typeof responseData?.outputs === 'number' && responseData.outputs >= 0) {
-                                                const outputsField = $('#node-input-outputs')
-                                                const currentOutputs = parseInt(outputsField.val())
-                                                if (!isNaN(currentOutputs) && typeof currentOutputs === 'number' && currentOutputs !== responseData.outputs) {
-                                                    outputsField.val(responseData.outputs)
-                                                    outputsField.trigger('change')
-                                                }
-                                            }
+                                            _libs.push({
+                                                var: v,
+                                                module: n
+                                            })
+                                        })
 
-                                            // update libs - get the current list of libs then scan the response for any new ones
-                                            // if the lib is not already in the list, add it
-                                            if (modulesAllowed) {
-                                                if (Array.isArray(responseData?.node_modules) && responseData.node_modules.length > 0) {
-                                                    const _libs = []
-                                                    const libs = $('#node-input-libs-container').editableList('items')
-                                                    libs.each(function (i) {
-                                                        const item = $(this)
-                                                        const v = item.find('.node-input-libs-var').val()
-                                                        let n = item.find('.node-input-libs-val').typedInput('type')
-                                                        if (n === '_custom_') {
-                                                            n = item.find('.node-input-libs-val').val()
-                                                        }
-                                                        if ((!v || (v === '')) ||
-                                                            (!n || (n === ''))) {
-                                                            return
-                                                        }
-                                                        _libs.push({
-                                                            var: v,
-                                                            module: n
-                                                        })
-                                                    })
-
-                                                    responseData.node_modules.forEach((lib) => {
-                                                        const existing = _libs.find(l => l.module === lib.module)
-                                                        if (!existing) {
-                                                            $('#node-input-libs-container').editableList('addItem', { var: lib.var, module: lib.module })
-                                                        }
-                                                    })
-                                                }
+                                        responseData.node_modules.forEach((lib) => {
+                                            const existing = _libs.find(l => l.module === lib.module)
+                                            if (!existing) {
+                                                $('#node-input-libs-container').editableList('addItem', { var: lib.var, module: lib.module })
                                             }
-                                        } else {
-                                            processAIErrorResponse(jqXHR, textStatus, 'No response from server')
-                                        }
-                                    },
-                                    error: (jqXHR, textStatus, errorThrown) => {
-                                        busyNotification.close()
-                                        if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
-                                            // user cancelled
-                                            return
-                                        }
-                                        processAIErrorResponse(jqXHR, textStatus, errorThrown)
+                                        })
                                     }
-                                })
+                                }
+                            }
+                        })
+                    } else {
+                        console.warn('Could not find editor for model', model.uri.toString())
+                    }
+                })
+
+                monaco.editor.registerCommand(jsonCommandId, function (accessor, model, codeLens, token) {
+                    debug('running command', jsonCommandId)
+                    const node = RED.view.selection()?.nodes?.[0]
+                    if (!node) {
+                        console.warn('No node selected') // should not happen
+                        return
+                    }
+                    if (!assistantOptions.enabled) {
+                        RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                        return
+                    }
+                    const thisEditor = getMonacoEditorForModel(model)
+                    if (thisEditor) {
+                        if (!document.body.contains(thisEditor.getDomNode())) {
+                            console.warn('Editor is no longer in the DOM, cannot proceed.')
+                            return
+                        }
+
+                        // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
+                        // const userSelection = triggeredEditor.getSelection()
+                        // const selectedText = model.getValueInRange(userSelection)
+                        /** @type {PromptOptions} */
+                        const promptOptions = {
+                            method: 'json',
+                            lang: 'json',
+                            type: node.type
+                            // selectedText: model.getValueInRange(userSelection)
+                        }
+                        /** @type {PromptUIOptions} */
+                        const uiOptions = {
+                            title: 'FlowFuse Assistant : JSON',
+                            explanation: 'The FlowFuse Assistant can help you write JSON.',
+                            description: 'Enter a short description of what you want it to do.'
+                        }
+                        doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
+                            if (error) {
+                                console.warn('Error processing request', error)
+                                return
+                            }
+                            debug('json response', response)
+                            const responseData = response?.data
+                            if (responseData && responseData.json) {
+                                // ensure the editor is still present in the DOM
+                                if (!document.body.contains(thisEditor.getDomNode())) {
+                                    console.warn('Editor is no longer in the DOM')
+                                    return
+                                }
+                                thisEditor.focus()
+                                const currentSelection = thisEditor.getSelection()
+                                thisEditor.executeEdits('', [
+                                    {
+                                        range: new monaco.Range(currentSelection.startLineNumber, currentSelection.startColumn, currentSelection.endLineNumber, currentSelection.endColumn),
+                                        text: responseData.json
+                                    }
+                                ])
                             }
                         })
                     } else {
@@ -256,6 +362,95 @@
             })
             RED.popover.tooltip(toolbarMenuButton, 'FlowFuse Assistant')
             assistantInitialised = true
+        }
+
+        const previousPrompts = {}
+
+        /**
+         * Prompts the user for input and sends the input to the AI for processing
+         * @param {import('node-red').Node} node - The node to associate the prompt with
+         * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor - The editor to associate the prompt with
+         * @param {PromptOptions} promptOptions - The options to pass to the prompt
+         * @param {PromptUIOptions} [uiOptions] - The options to pass to the prompt
+         * @param {(error, response) => {}} callback - The callback function to call when the prompt is complete
+         * @returns {void}
+         */
+        function doPrompt (node, editor, promptOptions, uiOptions, callback) {
+            const thisEditor = editor
+            let xhr = null
+            if (!node || !thisEditor) {
+                console.warn('No node or editor found')
+                callback(null, null)
+            }
+            const modulesAllowed = RED.settings.functionExternalModules !== false
+            promptOptions = promptOptions || {}
+
+            const nodeId = node.id
+            const transactionId = `${nodeId}-${Date.now()}` // a unique id for this transaction
+            const prevPromptKey = `${promptOptions?.method}-${promptOptions?.subType || 'default'}`
+            const defaultInput = Object.prototype.hasOwnProperty.call(uiOptions, 'defaultInput') ? uiOptions.defaultInput : previousPrompts[prevPromptKey] || ''
+            debug('doPrompt', promptOptions, uiOptions)
+            getUserInput({
+                defaultInput: defaultInput || '',
+                title: uiOptions?.title || 'FlowFuse Assistant',
+                explanation: uiOptions?.explanation || 'The FlowFuse Assistant can help you write code.',
+                description: uiOptions?.description || 'Enter a short description of what you want it to do.'
+            }).then((prompt) => {
+                if (!prompt) {
+                    callback(null, null)
+                }
+                previousPrompts[prevPromptKey] = prompt
+                const data = {
+                    prompt,
+                    transactionId,
+                    context: {
+                        type: promptOptions.type,
+                        subType: promptOptions.subType,
+                        scope: 'inline', // inline denotes that the prompt is for a inline code (i.e. the monaco editor)
+                        modulesAllowed,
+                        codeSection: promptOptions.subType
+                        // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
+                    }
+                }
+                const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                    if (xhr) {
+                        xhr.abort('abort')
+                        xhr = null
+                    }
+                })
+                xhr = $.ajax({
+                    url: 'nr-assistant/' + (promptOptions.method || promptOptions.lang), // e.g. 'nr-assistant/json'
+                    type: 'POST',
+                    data,
+                    success: function (reply, textStatus, jqXHR) {
+                        debug('doPrompt -> ajax -> success', reply)
+                        if (reply?.error) {
+                            RED.notify(reply.error, 'error')
+                            callback(new Error(reply.error), null)
+                            return
+                        }
+                        if (reply?.data?.transactionId !== transactionId) {
+                            callback(new Error('Transaction ID mismatch'), null)
+                            return
+                        }
+                        callback(null, reply?.data)
+                    },
+                    error: (jqXHR, textStatus, errorThrown) => {
+                        debug('doPrompt -> ajax -> error', jqXHR, textStatus, errorThrown)
+                        if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
+                            // user cancelled
+                            callback(null, null)
+                            return
+                        }
+                        processAIErrorResponse(jqXHR, textStatus, errorThrown)
+                        callback(new Error('Error processing request'), null)
+                    },
+                    complete: function () {
+                        xhr = null
+                        busyNotification.close()
+                    }
+                })
+            })
         }
 
         function getUserInput ({ title, explanation, description, placeholder, defaultInput } = {
@@ -369,7 +564,7 @@
                                 if (flowJson && Array.isArray(flowJson) && flowJson.length > 0) {
                                     importFlow(flowJson)
                                 } else {
-                                    processAIErrorResponse(jqXHR, textStatus, 'No response from server')
+                                    processAIErrorResponse(jqXHR, textStatus, 'No data in response from server')
                                 }
                             } catch (error) {
                                 RED.notify('Sorry, something went wrong, please try again', 'error')
@@ -433,7 +628,7 @@
                                 if (flowJson && Array.isArray(flowJson) && flowJson.length > 0) {
                                     importFlow(flowJson)
                                 } else {
-                                    processAIErrorResponse(jqXHR, textStatus, 'No response from server')
+                                    processAIErrorResponse(jqXHR, textStatus, 'No data in response from server')
                                 }
                             } catch (error) {
                                 RED.notify('Sorry, something went wrong, please try again', 'error')

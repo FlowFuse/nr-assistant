@@ -27,22 +27,21 @@ module.exports = (RED) => {
             RED.log.info('FlowFuse Assistant Plugin loaded')
 
             RED.httpAdmin.post('/nr-assistant/:method', RED.auth.needsPermission('write'), function (req, res) {
-                const method = req.params.method || 'fn'
+                const method = req.params.method
                 // limit method to prevent path traversal
-                if (/[^a-zA-Z0-9-_]/.test(method)) {
+                if (!method || typeof method !== 'string' || /[^a-z0-9-_]/.test(method)) {
                     res.status(400)
                     res.json({ status: 'error', message: 'Invalid method' })
                     return
                 }
                 const input = req.body
-                const prompt = input.prompt
-                if (!input.prompt) {
+                if (!input || !input.prompt || typeof input.prompt !== 'string') {
                     res.status(400)
                     res.json({ status: 'error', message: 'prompt is required' })
                     return
                 }
                 const body = {
-                    prompt, // this is the prompt to the AI
+                    prompt: input.prompt, // this is the prompt to the AI
                     promptHint: input.promptHint, // this is used to let the AI know what we are generating (`function node? Node JavaScript? flow?)
                     context: input.context, // this is used to provide additional context to the AI (e.g. the selected text of the function node)
                     transactionId: input.transactionId // used to correlate the request with the response
