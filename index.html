@@ -701,6 +701,9 @@
         }
 
         function importFlow (flow, addFlow) {
+            if (RED.workspaces.isLocked && RED.workspaces.isLocked()) {
+                addFlow = true // force import to create a new tab
+            }
             let newNodes = flow
             try {
                 if (typeof flow === 'string') {
