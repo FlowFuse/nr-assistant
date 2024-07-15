@@ -354,13 +354,22 @@
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
             // RED.actions.add('ff:nr-assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
 
-            // Add toolbar button
-            const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button fa fa-magic" href="#"></a></li>')
-            toolbarMenuButton.prependTo('.red-ui-header-toolbar')
-            toolbarMenuButton.on('click', function (e) {
+            const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
+            const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
+            toolbarMenuButtonAnchor.css('mask-image', 'url("/resources/@flowfuse/nr-assistant/assistant-button.svg")')
+            toolbarMenuButtonAnchor.css('mask-repeat', 'no-repeat')
+            toolbarMenuButtonAnchor.css('mask-position', 'center')
+            toolbarMenuButtonAnchor.css('background-color', 'currentColor')
+            const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
+            if (deployButtonLi.length) {
+                deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
+            } else {
+                toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
+            }
+            toolbarMenuButtonAnchor.on('click', function (e) {
                 RED.actions.invoke('ff:nr-assistant-function-builder')
             })
-            RED.popover.tooltip(toolbarMenuButton, 'FlowFuse Assistant')
+            RED.popover.tooltip(toolbarMenuButtonAnchor, 'FlowFuse Assistant')
             assistantInitialised = true
         }
 
