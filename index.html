@@ -360,6 +360,7 @@
             toolbarMenuButtonAnchor.css('mask-repeat', 'no-repeat')
             toolbarMenuButtonAnchor.css('mask-position', 'center')
             toolbarMenuButtonAnchor.css('background-color', 'currentColor')
+            toolbarMenuButtonAnchor.css('height', '28px') // for backwards compatibility with <= NR3.x inline-block toolbar styling
             const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
             if (deployButtonLi.length) {
                 deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
