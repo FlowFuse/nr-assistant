@@ -730,6 +730,42 @@
 
         function processAIErrorResponse (jqXHR, textStatus, errorThrown) {
             console.warn('error', jqXHR, textStatus, errorThrown)
+            if (jqXHR.status === 429) {
+                // get x- rate limit reset header
+                const reset = jqXHR.getResponseHeader('x-ratelimit-reset')
+                if (reset) {
+                    const resetTime = new Date(reset * 1000)
+                    const now = new Date()
+                    const diff = resetTime - now
+                    const seconds = Math.floor(diff / 1000)
+                    const minutes = Math.floor(seconds / 60)
+                    const remainingSeconds = seconds % 60
+                    if (minutes > 0) {
+                        RED.notify(`Sorry, the FlowFuse Assistant is busy. Please try again in ${minutes} minute${minutes > 1 ? 's' : ''}.`, 'warning')
+                    } else {
+                        RED.notify(`Sorry, the FlowFuse Assistant is busy. Please try again in ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}.`, 'warning')
+                    }
+                    return
+                }
+                RED.notify('Sorry, the FlowFuse Assistant is busy. Please try again later.', 'warning')
+                return
+            }
+            if (jqXHR.status === 404) {
+                RED.notify('Sorry, the FlowFuse Assistant is not available at the moment', 'warning')
+                return
+            }
+            if (jqXHR.status === 401) {
+                RED.notify('Sorry, you are not authorised to use the FlowFuse Assistant', 'warning')
+                return
+            }
+            if (jqXHR.status >= 400 && jqXHR.status < 500) {
+                let message = 'Sorry, the FlowFuse Assistant cannot help with this request'
+                if (jqXHR.responseJSON?.body?.code === 'assistant_service_denied' && jqXHR.responseJSON?.body?.error) {
+                    message = jqXHR.responseJSON.body.error
+                }
+                RED.notify(message, 'warning')
+                return
+            }
             RED.notify('Sorry, something went wrong, please try again', 'error')
         }
 
