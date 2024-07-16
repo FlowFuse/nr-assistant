@@ -25,7 +25,7 @@ The capabilities it adds to Node-RED can be found in Node-RED editor on the main
 {
     "flowforge": {
         "assistant": {
-            "enabled": true
+            "enabled": true,
             "url": "https://", // URL of the AI service
             "token": "", // API token for the AI service
             "requestTimeout": 60000 // Timeout value for the AI service request
