@@ -63,11 +63,23 @@ module.exports = (RED) => {
                         data
                     })
                 }).catch((error) => {
-                    const errorData = { status: 'error', message: 'Request to FlowFuse Assistant was unsuccessful', body: error.response?.body }
+                    let body = error.response?.body
+                    if (typeof body === 'string') {
+                        try {
+                            body = JSON.parse(body)
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
+                    let message = 'FlowFuse Assistant request was unsuccessful'
+                    const errorData = { status: 'error', message, body }
                     const errorCode = error.response?.statusCode || 500
-                    res.status(errorCode).json({ status: 'error', message: errorData })
-                    console.warn('nr-assistant error:', error)
-                    RED.log.warn('FlowFuse Assistant request was unsuccessful')
+                    res.status(errorCode).json(errorData)
+                    RED.log.trace('nr-assistant error:', error)
+                    if (body && typeof body === 'object' && body.error) {
+                        message = `${message}: ${body.error}`
+                    }
+                    RED.log.warn(message)
                 })
             })
         }
