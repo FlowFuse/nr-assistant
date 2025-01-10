@@ -1,7 +1,8 @@
 # FlowFuse Node-RED Assistant
 
-A Node-RED plugin to assist FlowFuse users
+A Node-RED plugin to assist FlowFuse users.
 
+This plugin can only be used within FlowFuse-managed Node-RED instances.
 
 ## Installation
 
@@ -11,7 +12,7 @@ npm install @flowfuse/nr-assistant
 
 ## Development
 
-Client-side portion of the plugin is in `index.js`. The server side code is in `index.js`
+Client-side portion of the plugin is in `index.html`. The server side code is in `index.js`
 
 ## About
 
@@ -20,7 +21,9 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 The capabilities it adds to Node-RED can be found in Node-RED editor on the main toolbar and within the function node editor.
 
 ## NOTES:
+
 * Requires the settings.js file to contain the following:
+
 ```json
 {
     "flowforge": {
@@ -33,6 +36,10 @@ The capabilities it adds to Node-RED can be found in Node-RED editor on the main
     }
 }
 ```
+
+These values are automatically set when running within the FlowFuse platform via the `nr-launcher` component.
+
+The `url` and `token` are for an AI service hosted by FlowFuse; it is not publicly available for use outside of the FlowFuse platform.
 
 
 ## Limitations
