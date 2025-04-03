@@ -1,5 +1,5 @@
 module.exports = (RED) => {
-    const { default: got } = require('got')
+    const { default: got } = require ('got')
     RED.plugins.registerPlugin('flowfuse-nr-assistant', {
         type: 'assistant',
         name: 'Node-RED Assistant Plugin',
