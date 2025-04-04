@@ -5,8 +5,8 @@
     "main": "index.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 0",
-        "lint": "eslint -c .eslintrc --ext js,html *.js *.html",
-        "lint:fix": "eslint -c .eslintrc --ext js,html *.js  *.html --fix"
+        "lint": "eslint -c .eslintrc --ext js,html \"*.js\" \"*.html\"",
+        "lint:fix": "eslint -c .eslintrc --ext js,html \"*.js\"  \"*.html\" --fix"
     },
     "keywords": [
         "node-red",
