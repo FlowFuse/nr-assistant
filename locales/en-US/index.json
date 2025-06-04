@@ -1,0 +1,8 @@
+{
+    "nr-assistant": {
+        "actions": {
+            "function-builder": "FlowFuse Function Node Assistant",
+            "explain-selected-nodes": "Explain Selected Nodes"
+        }
+    }
+}

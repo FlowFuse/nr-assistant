@@ -347,12 +347,12 @@
             })
 
             // setup actions for function builder
-            const funcBuilderTitle = 'FlowFuse Function Node Assistant'
+            RED.actions.add('ff:assistant-function-builder', showFunctionBuilderPrompt, { label: 'nr-assistant.actions.function-builder' })
             RED.actions.add('ff:assistant-explain-selected-nodes', explainSelectedNodes, { label: 'nr-assistant.actions.explain-selected-nodes' })
 
             // FUTURE: setup actions for flow builder
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
-            // RED.actions.add('ff:nr-assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
+            // RED.actions.add('ff:assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
 
             const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
             const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
@@ -368,7 +368,7 @@
                 toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
             }
             toolbarMenuButtonAnchor.on('click', function (e) {
-                RED.actions.invoke('ff:nr-assistant-function-builder')
+                RED.actions.invoke('ff:assistant-function-builder')
             })
             RED.popover.tooltip(toolbarMenuButtonAnchor, 'FlowFuse Assistant')
             assistantInitialised = true
