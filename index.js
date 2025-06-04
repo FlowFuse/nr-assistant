@@ -1,5 +1,13 @@
 module.exports = (RED) => {
     const { default: got } = require('got')
+    const { z } = require('zod')
+
+    /** @type {import('@modelcontextprotocol/sdk/client/index.js').Client} */
+    let mcpClient = null
+    /** @type {import('@modelcontextprotocol/sdk/server/index.js').Server} */
+    // eslint-disable-next-line no-unused-vars
+    let mcpServer = null
+
     RED.plugins.registerPlugin('flowfuse-nr-assistant', {
         type: 'assistant',
         name: 'Node-RED Assistant Plugin',
@@ -23,6 +31,16 @@ module.exports = (RED) => {
                 RED.log.info('FlowFuse Assistant Plugin is missing url')
                 return
             }
+
+            mcp().then(({ client, server }) => {
+                RED.log.info('FlowFuse Assistant MCP Client and Server initialized')
+                mcpClient = client
+                mcpServer = server
+            }).catch((error) => {
+                mcpClient = null
+                mcpServer = null
+                RED.log.error('Failed to initialize FlowFuse Assistant MCP Client and Server:', error)
+            })
 
             RED.log.info('FlowFuse Assistant Plugin loaded')
 
@@ -82,6 +100,153 @@ module.exports = (RED) => {
                     RED.log.warn(message)
                 })
             })
+
+            RED.httpAdmin.get('/nr-assistant/mcp/prompts', RED.auth.needsPermission('write'), async function (req, res) {
+                // console.log('nr-assistant/mcp/prompts') // TODO: remove this
+                if (!mcpClient) {
+                    res.status(500).json({ status: 'error', message: 'MCP Client is not initialized' })
+                    return
+                }
+                try {
+                    const prompts = await mcpClient.getPrompts()
+                    // console.log('Retrieved MCP prompts:', prompts) // TODO: remove this
+                    res.json({ status: 'ok', data: prompts })
+                } catch (error) {
+                    RED.log.error('Failed to retrieve MCP prompts:', error)
+                    res.status(500).json({ status: 'error', message: 'Failed to retrieve MCP prompts' })
+                }
+            })
+
+            RED.httpAdmin.post('/nr-assistant/mcp/prompts/:promptId', RED.auth.needsPermission('write'), async function (req, res) {
+                // RED.log.info('Received request for MCP prompt:', req.params.promptId) // TODO: remove this
+                // console.log('nr-assistant/mcp/prompts/:promptId', req.params.promptId, req.body) // TODO: remove this
+                if (!mcpClient) {
+                    res.status(500).json({ status: 'error', message: 'MCP Client is not initialized' })
+                    return
+                }
+                const promptId = req.params.promptId
+                if (!promptId || typeof promptId !== 'string') {
+                    res.status(400).json({ status: 'error', message: 'Invalid prompt ID' })
+                    return
+                }
+                const input = req.body
+                // console.log('Input for MCP prompt:', input) // TODO: remove this
+                if (!input || !input.nodes || typeof input.nodes !== 'string') {
+                    res.status(400).json({ status: 'error', message: 'nodes selection is required' })
+                    return
+                }
+                try {
+                    const response = await mcpClient.getPrompt({
+                        name: promptId,
+                        arguments: {
+                            nodes: input.nodes,
+                            flowName: input.flowName ?? undefined,
+                            userContext: input.userContext ?? undefined
+                        }
+                    })
+
+                    const body = {
+                        prompt: promptId, // this is the prompt to the AI
+                        transactionId: input.transactionId, // used to correlate the request with the response
+                        context: {
+                            type: 'prompt',
+                            promptId,
+                            prompt: response
+                        }
+                    }
+
+                    // join url & method (taking care of trailing slashes)
+                    const url = `${assistantSettings.url.replace(/\/$/, '')}/mcp`
+                    const responseFromAI = await got.post(url, {
+                        headers: {
+                            Accept: '*/*',
+                            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,es;q=0.7',
+                            Authorization: `Bearer ${assistantSettings.token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        json: body
+                    })
+                    // console.log('Response from AI:', responseFromAI.body) // TODO: remove this
+                    const responseBody = JSON.parse(responseFromAI.body)
+                    // Assuming the response from the AI is in the expected format
+                    if (!responseBody || responseFromAI.statusCode !== 200) {
+                        res.status(responseFromAI.statusCode || 500).json({ status: 'error', message: 'AI response was not successful', data: responseBody })
+                        return
+                    }
+                    // If the response is successful, return the data
+                    res.json({
+                        status: 'ok',
+                        data: responseBody.data || responseBody // Use data if available, otherwise return the whole response
+                    })
+                } catch (error) {
+                    RED.log.error('Failed to execute MCP prompt:', error)
+                    res.status(500).json({ status: 'error', message: 'Failed to execute MCP prompt' })
+                }
+            })
         }
     })
+
+    async function mcp () {
+        const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+        const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js')
+        const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+        // Create in-process server
+        const server = new McpServer({
+            name: 'NR MCP Server',
+            version: '1.0.0'
+        })
+
+        server.prompt('explain_flow', 'Explain what the selected node-red flow of nodes do', {
+            nodes: z
+                .string()
+                .startsWith('[')
+                .endsWith(']')
+                .min(23) // Minimum length for a valid JSON array
+                .max(100000) // on average, an exported node is ~400-1000 characters long, 100000 characters _should_ realistically be enough for a flow of 100 nodes
+                .describe('JSON string that represents a flow of Node-RED nodes'),
+            flowName: z.string().optional().describe('Optional name of the flow to explain'),
+            userContext: z.string().optional().describe('Optional user context to aid explanation')
+        }, async ({ nodes, flowName, userContext }) => {
+            const promptBuilder = []
+            promptBuilder.push('Generate a concise overview of what the below Node-RED flow JSON does.')
+            if (flowName) {
+                promptBuilder.push(`The parent flow is named "${flowName}".`)
+                promptBuilder.push('')
+            }
+            if (userContext) {
+                promptBuilder.push(`User Context: "${userContext}".`)
+                promptBuilder.push('')
+            }
+            promptBuilder.push('Here are the nodes in the flow:')
+            promptBuilder.push('```json')
+            promptBuilder.push(nodes)
+            promptBuilder.push('```')
+            return {
+                messages: [{
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: promptBuilder.join('\n')
+                    }
+                }]
+            }
+        })
+
+        // Create in-process client
+        const client = new Client({
+            name: 'NR MCP Client',
+            version: '1.0.0'
+        })
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+        await Promise.all([
+            server.connect(serverTransport),
+            client.connect(clientTransport)
+        ])
+
+        return {
+            client,
+            server
+        }
+    }
 }
