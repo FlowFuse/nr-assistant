@@ -701,13 +701,24 @@
          * @returns {{close: () => {}}} - The notification object
          */
         function showNotification (message, options) {
+            let notification = null
             options = options || {}
             options.type = options.type || 'success'
             options.timeout = Object.prototype.hasOwnProperty.call(options, 'timeout') ? options.timeout : 5000
             options.fixed = options.fixed || false
             options.modal = options.modal || false
-            const pendingNotification = RED.notify(message, options)
-            return pendingNotification
+            if (options.fixed && !options.buttons?.length) {
+                // add a close button if the notification is fixed or has no buttons
+                options.buttons = []
+                options.buttons.push({
+                    text: 'Close',
+                    click: function () {
+                        notification.close()
+                    }
+                })
+            }
+            notification = RED.notify(message, options)
+            return notification
         }
 
         function importFlow (flow, addFlow) {
