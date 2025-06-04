@@ -348,7 +348,7 @@
 
             // setup actions for function builder
             const funcBuilderTitle = 'FlowFuse Function Node Assistant'
-            RED.actions.add('ff:nr-assistant-function-builder', showFunctionBuilderPrompt, { label: funcBuilderTitle })
+            RED.actions.add('ff:assistant-explain-selected-nodes', explainSelectedNodes, { label: 'nr-assistant.actions.explain-selected-nodes' })
 
             // FUTURE: setup actions for flow builder
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
@@ -590,6 +590,87 @@
                             processAIErrorResponse(jqXHR, textStatus, errorThrown)
                         }
                     })
+                }
+            })
+        }
+
+        function explainSelectedNodes () {
+            // console.log('explainSelectedNodes called') // TODO: remove this debug log
+            if (!assistantOptions.enabled) {
+                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                return
+            }
+            const selection = RED.view.selection()
+            if (!selection || !selection.nodes || selection.nodes.length === 0) {
+                RED.notify('Please select 1 node or more nodes to explain', 'warning')
+                return
+            }
+            if (selection.nodes.length > 100) { // TODO: increase or make configurable
+                RED.notify('Please select 100 nodes or less to explain', 'warning')
+                return
+            }
+
+            const nodes = []
+            for (const node of selection.nodes) {
+                const n = { ...node }
+                delete n._
+                delete n._def
+                delete n._config
+                delete n.validationErrors
+                nodes.push(n)
+            }
+
+            /** @type {JQueryXHR} */
+            let xhr = null
+            const url = 'nr-assistant/mcp/prompts/explain_flow' // e.g. 'nr-assistant/json'
+            const transactionId = generateId(8) + '-' + Date.now() // a unique id for this transaction
+            const data = {
+                transactionId,
+                nodes: JSON.stringify(nodes),
+                flowName: '', // FUTURE: include the parent flow name in the context to aid with the explanation
+                userContext: '' // FUTURE: include user textual input context for more personalized explanations
+            }
+            const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                if (xhr) {
+                    xhr.abort('abort')
+                    xhr = null
+                }
+            })
+            xhr = $.ajax({
+                url,
+                type: 'POST',
+                data,
+                timeout: assistantOptions.requestTimeout,
+                success: (reply, textStatus, jqXHR) => {
+                    busyNotification.close()
+                    if (reply?.error) {
+                        RED.notify(reply.error, 'error')
+                        // callback(new Error(reply.error), null)
+                        return
+                    }
+
+                    try {
+                        showNotification(
+                            RED.utils.renderMarkdown(reply.data),
+                            { fixed: true, modal: true, timeout: 0, type: 'success' }
+                        )
+                    } catch (error) {
+                        console.warn('Error rendering reply', error)
+                        showNotification('Sorry, something went wrong, please try again', { type: 'error' })
+                    }
+                },
+                error: (jqXHR, textStatus, errorThrown) => {
+                    // console.log('showFunctionBuilderPrompt -> ajax -> error', jqXHR, textStatus, errorThrown)
+                    busyNotification.close()
+                    if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
+                        // user cancelled
+                        return
+                    }
+                    processAIErrorResponse(jqXHR, textStatus, errorThrown)
+                },
+                complete: function () {
+                    xhr = null
+                    busyNotification.close()
                 }
             })
         }
