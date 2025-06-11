@@ -650,9 +650,36 @@
                     }
 
                     try {
+                        const style = 'success'
+                        const text = reply.data || 'No reply from server'
+
+                        // FUTURE: Ask for a summary and details in json format and parse it
+                        // let style = 'success'
+                        // try {
+                        //     const parsedJson = JSON.parse(reply.data)
+                        //     if (!parsedJson.summary && !parsedJson.details) {
+                        //         text = 'No summary or details available!'
+                        //         style = 'warning'
+                        //     }
+                        //     const textBuilder = []
+                        //     if (parsedJson.summary) {
+                        //         textBuilder.push('### Summary')
+                        //         textBuilder.push(parsedJson.summary)
+                        //         textBuilder.push('')
+                        //     }
+                        //     if (parsedJson.details) {
+                        //         textBuilder.push('### Details')
+                        //         textBuilder.push(parsedJson.details)
+                        //         textBuilder.push('')
+                        //     }
+                        //     text = textBuilder.join('\n')
+                        // } catch (error) {
+                        //     console.warn('Error parsing reply data', error)
+                        //     text = reply.data || 'No data in response from server'
+                        // }
                         showNotification(
-                            RED.utils.renderMarkdown(reply.data),
-                            { fixed: true, modal: true, timeout: 0, type: 'success' }
+                            RED.utils.renderMarkdown(text),
+                            { fixed: true, modal: true, timeout: 0, type: style }
                         )
                     } catch (error) {
                         console.warn('Error rendering reply', error)
