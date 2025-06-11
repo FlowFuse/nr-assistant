@@ -1,8 +1,13 @@
 {
-    "nr-assistant": {
-        "actions": {
-            "function-builder": "FlowFuse Function Node Assistant",
-            "explain-selected-nodes": "Explain Selected Nodes"
+    "name": "FlowFuse Assistant",
+    "actions": {
+        "function-builder": "FlowFuse Assistant: Create a Function Node",
+        "explain-selected-nodes": "FlowFuse Assistant: Explain Selected Nodes"
+    },
+    "errors": {
+        "common": {
+            "need-1-or-more-nodes-selected": "Please select 1 node or more nodes.",
+            "need-100-or-less-nodes-selected": "Please select less than 100 nodes."
         }
     }
 }
