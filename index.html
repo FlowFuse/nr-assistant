@@ -347,8 +347,8 @@
             })
 
             // setup actions for function builder
-            RED.actions.add('ff:assistant-function-builder', showFunctionBuilderPrompt, { label: 'nr-assistant.actions.function-builder' })
-            RED.actions.add('ff:assistant-explain-selected-nodes', explainSelectedNodes, { label: 'nr-assistant.actions.explain-selected-nodes' })
+            RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.function-builder' })
+            RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
 
             // FUTURE: setup actions for flow builder
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
@@ -368,7 +368,7 @@
                 toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
             }
             toolbarMenuButtonAnchor.on('click', function (e) {
-                RED.actions.invoke('ff:assistant-function-builder')
+                RED.actions.invoke('flowfuse-nr-assistant:function-builder')
             })
             RED.popover.tooltip(toolbarMenuButtonAnchor, 'FlowFuse Assistant')
             assistantInitialised = true
@@ -602,11 +602,11 @@
             }
             const selection = RED.view.selection()
             if (!selection || !selection.nodes || selection.nodes.length === 0) {
-                RED.notify('Please select 1 node or more nodes to explain', 'warning')
+                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-1-or-more-nodes-selected'), 'warning')
                 return
             }
             if (selection.nodes.length > 100) { // TODO: increase or make configurable
-                RED.notify('Please select 100 nodes or less to explain', 'warning')
+                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-100-or-less-nodes-selected'), 'warning')
                 return
             }
 
