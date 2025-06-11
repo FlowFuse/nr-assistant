@@ -102,14 +102,12 @@ module.exports = (RED) => {
             })
 
             RED.httpAdmin.get('/nr-assistant/mcp/prompts', RED.auth.needsPermission('write'), async function (req, res) {
-                // console.log('nr-assistant/mcp/prompts') // TODO: remove this
                 if (!mcpClient) {
                     res.status(500).json({ status: 'error', message: 'MCP Client is not initialized' })
                     return
                 }
                 try {
                     const prompts = await mcpClient.getPrompts()
-                    // console.log('Retrieved MCP prompts:', prompts) // TODO: remove this
                     res.json({ status: 'ok', data: prompts })
                 } catch (error) {
                     RED.log.error('Failed to retrieve MCP prompts:', error)
@@ -118,8 +116,6 @@ module.exports = (RED) => {
             })
 
             RED.httpAdmin.post('/nr-assistant/mcp/prompts/:promptId', RED.auth.needsPermission('write'), async function (req, res) {
-                // RED.log.info('Received request for MCP prompt:', req.params.promptId) // TODO: remove this
-                // console.log('nr-assistant/mcp/prompts/:promptId', req.params.promptId, req.body) // TODO: remove this
                 if (!mcpClient) {
                     res.status(500).json({ status: 'error', message: 'MCP Client is not initialized' })
                     return
@@ -130,7 +126,6 @@ module.exports = (RED) => {
                     return
                 }
                 const input = req.body
-                // console.log('Input for MCP prompt:', input) // TODO: remove this
                 if (!input || !input.nodes || typeof input.nodes !== 'string') {
                     res.status(400).json({ status: 'error', message: 'nodes selection is required' })
                     return
@@ -166,7 +161,6 @@ module.exports = (RED) => {
                         },
                         json: body
                     })
-                    // console.log('Response from AI:', responseFromAI.body) // TODO: remove this
                     const responseBody = JSON.parse(responseFromAI.body)
                     // Assuming the response from the AI is in the expected format
                     if (!responseBody || responseFromAI.statusCode !== 200) {
