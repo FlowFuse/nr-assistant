@@ -208,7 +208,8 @@ module.exports = (RED) => {
             userContext: z.string().optional().describe('Optional user context to aid explanation')
         }, async ({ nodes, flowName, userContext }) => {
             const promptBuilder = []
-            promptBuilder.push('Generate a concise overview of what the below Node-RED flow JSON does.')
+            // promptBuilder.push('Generate a JSON response containing 2 string properties: "summary" and "details". Summary should be a brief overview of what the following Node-RED flow JSON does, Details should provide a little more detail of the flow but should be concise and to the point. Use bullet lists or number lists if it gets too wordy.') // FUTURE: ask for a summary and details in JSON format
+            promptBuilder.push('Generate a "### Summary" section, followed by a "### Details" section only. They should explain the following Node-RED flow json. "Summary" should be a brief TLDR, Details should provide a little more information but should be concise and to the point. Use bullet lists or number lists if it gets too wordy.')
             if (flowName) {
                 promptBuilder.push(`The parent flow is named "${flowName}".`)
                 promptBuilder.push('')
