@@ -32,15 +32,26 @@ module.exports = (RED) => {
                 return
             }
 
-            mcp().then(({ client, server }) => {
-                RED.log.info('FlowFuse Assistant MCP Client and Server initialized')
-                mcpClient = client
-                mcpServer = server
-            }).catch((error) => {
-                mcpClient = null
-                mcpServer = null
-                RED.log.error('Failed to initialize FlowFuse Assistant MCP Client and Server:', error)
-            })
+            if (clientSettings.enabled) {
+                mcp().then(({ client, server }) => {
+                    RED.log.info('FlowFuse Assistant MCP Client / Server initialized')
+                    mcpClient = client
+                    mcpServer = server
+                    // tell frontend that the MCP client is ready so it can add the action(s) to the Action List
+                    RED.comms.publish('nr-assistant/mcp/ready', clientSettings, true /* retain */)
+                }).catch((error) => {
+                    mcpClient = null
+                    mcpServer = null
+                    const nodeVersion = process.versions.node
+                    // ESM Support in Node 20 is much better than versions v18-, so lets include a node version
+                    // warning as a hint/prompt (Node 18 is EOL as of writing this)
+                    if (parseInt(nodeVersion.split('.')[0], 10) < 20) {
+                        RED.log.error('Failed to initialize FlowFuse Assistant MCP Client / Server. This may be due to using Node.js version < 20.', error)
+                    } else {
+                        RED.log.error('Failed to initialize FlowFuse Assistant MCP Client / Server.', error)
+                    }
+                })
+            }
 
             RED.log.info('FlowFuse Assistant Plugin loaded')
 

@@ -24,6 +24,7 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
+        let assistantMCPOneTimeFlag = false
         debug('loading...')
         RED.plugins.registerPlugin('flowfuse-nr-assistant', {
             type: 'assistant',
@@ -36,6 +37,13 @@
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         initAssistant(msg)
+                    }
+                    if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
+                        assistantMCPOneTimeFlag = true
+                        if (assistantOptions.enabled) {
+                            debug('assistant MCP initialised')
+                            RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
+                        }
                     }
                 })
             }
@@ -348,7 +356,6 @@
 
             // setup actions for function builder
             RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.function-builder' })
-            RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
 
             // FUTURE: setup actions for flow builder
             // const flowBuilderTitle = 'FlowFuse Flow Assistant'
@@ -595,7 +602,6 @@
         }
 
         function explainSelectedNodes () {
-            // console.log('explainSelectedNodes called') // TODO: remove this debug log
             if (!assistantOptions.enabled) {
                 RED.notify('The FlowFuse Assistant is not enabled', 'warning')
                 return
