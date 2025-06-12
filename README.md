@@ -59,9 +59,10 @@ The `url` and `token` are for an AI service hosted by FlowFuse; it is not public
 
 ## Limitations
 
-* Only function node generation is currently supported.
+### function node generation
 * Only a single function node can be generated at a time.
-* The codelens feature is only supported for the on-message editor.
+* The codelens feature is only supported for the on-message editor in the function node.
+
 
 ## Versioning
 
