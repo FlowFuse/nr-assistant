@@ -4,6 +4,26 @@ A Node-RED plugin to assist FlowFuse users.
 
 This plugin can only be used within FlowFuse-managed Node-RED instances.
 
+## About
+
+This plugin is designed to assist users of the FlowFuse platform by providing tools to aid development of their Node-RED instances including:
+* A function builder
+* Function node Code Lens
+* JSON generation in all typed inputs and JSON editors (like the inject node, change node, template node, etc)
+* Flows Explainer
+
+### Function Builder
+![flowfuse-assistant-function builder](https://github.com/user-attachments/assets/5efc4c24-a4e6-4d0c-b836-aebf97d3ca02)
+
+
+### JSON generator
+![flowfuse-assistant-json-generator](https://github.com/user-attachments/assets/d3271f64-a733-48dd-924b-0a946b9a6e7f)
+
+
+### Flows Explainer
+![flowfuse-assistant-flow-explainer](https://github.com/user-attachments/assets/3a8c17bb-066b-4264-9ad1-3a031bd2afee)
+
+
 ## Installation
 
 ```bash
@@ -14,11 +34,6 @@ npm install @flowfuse/nr-assistant
 
 Client-side portion of the plugin is in `index.html`. The server side code is in `index.js`
 
-## About
-
-This plugin is designed to assist users of the FlowFuse platform by providing tools to aid development of their Node-RED project.
-
-The capabilities it adds to Node-RED can be found in Node-RED editor on the main toolbar and within the function node editor.
 
 ## NOTES:
 
