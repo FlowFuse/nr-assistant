@@ -1,0 +1,5 @@
+.gitignore
+.github/
+.eslintrc
+*.tgz
+/test/
