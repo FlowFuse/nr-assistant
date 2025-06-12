@@ -2,7 +2,7 @@
 
 A Node-RED plugin to assist FlowFuse users.
 
-This plugin can only be used within FlowFuse-managed Node-RED instances.
+**This plugin can only be used within FlowFuse-managed Node-RED instances.**
 
 ## About
 
