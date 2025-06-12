@@ -2,7 +2,12 @@
 
 A Node-RED plugin to assist FlowFuse users.
 
+
 **This plugin can only be used within FlowFuse-managed Node-RED instances.**
+
+FlowFuse is the Industrial application platform for building and operating custom industrial solutions that digitalize processes and operations. It integrates seamlessly into both IT and OT environments, leveraging Node-RED to enable teams to connect, collect, transform, and visualize data from industrial systems. Companies use FlowFuse to manage, scale, and secure their Node-RED-based applications across industrial environments.
+
+Sign-up to FlowFuse Cloud now to get started: https://app.flowfuse.com
 
 ## About
 
