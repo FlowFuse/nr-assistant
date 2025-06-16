@@ -1,7 +1,19 @@
 {
     "name": "FlowFuse Assistant",
-    "actions": {
-        "function-builder": "FlowFuse Assistant: Create a Function Node"
+    "function-builder": {
+        "action": {
+            "label": "FlowFuse Assistant: Create a Function Node"
+        },
+        "menu": {
+            "label": "Function Builder",
+            "description": "Create a Function Node"
+        },
+        "dialog-input": {
+            "title": "FlowFuse Assistant: Create a Function Node",
+            "explanation": "The FlowFuse Assistant can help you create a Function Node.",
+            "description": "Enter a short description of what you want it to do.",
+            "create-button": "Ask the FlowFuse Assistant 🪄"
+        }
     },
     "explain-flows": {
         "action": {

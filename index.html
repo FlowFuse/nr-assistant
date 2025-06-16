@@ -37,11 +37,23 @@
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         initAssistant(msg)
+                        RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                     }
                     if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
                         assistantMCPOneTimeFlag = true
                         if (assistantOptions.enabled) {
                             debug('assistant MCP initialised')
+                            RED.actions.add('flowfuse-nr-assistant:explain-flows', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:explain-flows.action.label' })
+                            const menuEntry = {
+                                id: 'ff-assistant-explain-flows',
+                                icon: 'ff-assistant-menu-icon explain-flows',
+                                label: `<span>${plugin._('explain-flows.menu.label')}</span>`,
+                                sublabel: plugin._('explain-flows.menu.description'),
+                                onselect: 'flowfuse-nr-assistant:explain-flows',
+                                shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
+                                visible: true
+                            }
+                            RED.menu.addItem('red-ui-header-button-ff-ai', menuEntry)
                             RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
                         }
                     }
@@ -355,30 +367,37 @@
                 }
             })
 
-            // setup actions for function builder
-            RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.function-builder' })
-
-            // FUTURE: setup actions for flow builder
-            // const flowBuilderTitle = 'FlowFuse Flow Assistant'
-            // RED.actions.add('ff:assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
-
             const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
             const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
-            toolbarMenuButtonAnchor.css('mask-image', 'url("resources/@flowfuse/nr-assistant/assistant-button.svg")')
-            toolbarMenuButtonAnchor.css('mask-repeat', 'no-repeat')
-            toolbarMenuButtonAnchor.css('mask-position', 'center')
-            toolbarMenuButtonAnchor.css('background-color', 'currentColor')
-            toolbarMenuButtonAnchor.css('height', '28px') // for backwards compatibility with <= NR3.x inline-block toolbar styling
             const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
             if (deployButtonLi.length) {
                 deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
             } else {
                 toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
             }
-            toolbarMenuButtonAnchor.on('click', function (e) {
-                RED.actions.invoke('flowfuse-nr-assistant:function-builder')
-            })
-            RED.popover.tooltip(toolbarMenuButtonAnchor, 'FlowFuse Assistant')
+            RED.popover.tooltip(toolbarMenuButtonAnchor, plugin._('name'))
+
+            /* NOTE: For the menu entries icons' property...
+               If `.icon` is a URL (e.g. resource/xxx/icon.svg), the RED.menu API will add it as an <img> tag.
+               That makes it impossible to set the fill colour of the SVG PATH via a CSS var.
+               So, by not specifying an icon URL, an <i> tag with the class set to <icon> will be created by the API
+               This permits us to use CSS classes (defined below) that can set the icon and affect the fill colour
+            */
+            debug('Building FlowFuse Assistant menu')
+            const ffAssistantMenu = [
+                { id: 'ff-assistant-title', label: plugin._('name'), visible: true }, // header
+                null, // separator
+                {
+                    id: 'ff-assistant-function-builder',
+                    icon: 'ff-assistant-menu-icon function',
+                    label: `<span>${plugin._('function-builder.menu.label')}</span>`,
+                    sublabel: plugin._('function-builder.menu.description'),
+                    onselect: 'flowfuse-nr-assistant:function-builder',
+                    shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
+                    visible: true
+                }
+            ]
+            RED.menu.init({ id: 'red-ui-header-button-ff-ai', options: ffAssistantMenu })
             assistantInitialised = true
         }
 
@@ -410,8 +429,8 @@
             debug('doPrompt', promptOptions, uiOptions)
             getUserInput({
                 defaultInput: defaultInput || '',
-                title: uiOptions?.title || 'FlowFuse Assistant',
-                explanation: uiOptions?.explanation || 'The FlowFuse Assistant can help you write code.',
+                title: uiOptions?.title || plugin._('name'),
+                explanation: uiOptions?.explanation || plugin._('name') + ' can help you write code.',
                 description: uiOptions?.description || 'Enter a short description of what you want it to do.'
             }).then((prompt) => {
                 if (!prompt) {
@@ -430,7 +449,7 @@
                         // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
                     }
                 }
-                const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                     if (xhr) {
                         xhr.abort('abort')
                         xhr = null
@@ -472,7 +491,7 @@
         }
 
         function getUserInput ({ title, explanation, description, placeholder, defaultInput } = {
-            title: 'FlowFuse Assistant',
+            title: plugin._('name'),
             explanation: 'The FlowFuse Assistant can help you create things.',
             description: 'Enter a short description explaining what you want it to do.',
             placeholder: '',
@@ -500,6 +519,7 @@
                 const minHeight = 260 + (description ? 32 : 0) + (explanation ? 32 : 0)
                 const minWidth = 480
                 const dialogControl = dialog.dialog({
+                    title: title || plugin._('name'),
                     modal: true,
                     closeOnEscape: true,
                     height: minHeight,
@@ -547,8 +567,8 @@
             getUserInput({
                 defaultInput: previousFunctionBuilderPrompt,
                 title: title || 'FlowFuse Assistant : Create A Function Node',
-                explanation: 'The FlowFuse Assistant can help you create a Function Node.',
-                description: 'Enter a short description of what you want it to do.'
+                explanation: plugin._('function-builder.dialog-input.explanation'),
+                description: plugin._('function-builder.dialog-input.description')
             }).then((prompt) => {
                 /** @type {JQueryXHR} */
                 let xhr = null
@@ -564,7 +584,7 @@
                             modulesAllowed
                         }
                     }
-                    const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                    const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                         if (xhr) {
                             xhr.abort('abort')
                             xhr = null
@@ -746,7 +766,7 @@
                             modulesAllowed
                         }
                     }
-                    const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                    const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                         if (xhr) {
                             xhr.abort('abort')
                             xhr = null
@@ -791,7 +811,7 @@
          * @returns {{close: () => {}}} - The notification object
          */
         function showBusyNotification (message, onCancel, context, poop) {
-            message = message || 'Busy processing your request. Please wait...'
+            message = message || plugin._('notifications.busy')
             const busyMessage = $('<div>')
             $('<span>').text(message).appendTo(busyMessage)
             $('<i>').addClass('fa fa-spinner fa-spin fa-fw').appendTo(busyMessage)
@@ -942,3 +962,68 @@
         }
     }(RED, $))
 </script>
+
+<style>
+    /* 
+        The node-red styling for width of the menu UL is quite specific and includes !important, so we need to override
+        it with an even more specific selector - this is to prevent it wrapping the text elements to underneath the icon
+    */
+    #red-ui-header ul#red-ui-header-button-ff-ai-submenu.red-ui-menu-dropdown {
+        width: 300px !important; /* make the submenu wider to prevent wrapping elements */
+    }
+
+    #ff-nr-ai-dialog-message.ui-dialog-content {
+        padding: 0px 12px 0px 12px;
+    }
+
+    #red-ui-header-button-ff-ai {
+        mask-image: url("resources/@flowfuse/nr-assistant/ff-assistant.svg");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        background-color: currentColor;
+        height: 30px;
+    }
+
+    /*  
+        As menu icons are drawn by the (RED.menu.init api) as <img> tags, styling the fill of the path is impossible.
+        Instead of using a url (e.g. resource/icon.svg), we add them as a "class name" which node-red then renders as an `<i>` tag.
+        The CSS below uses the mask-image property to apply the SVG as a mask, allowing us to set the color via background-color.
+    */
+    i.ff-assistant-menu-icon {
+        display: inline-block; /* Or block, depending on layout needs */
+        width: 28px;
+        height: 28px;
+        padding: 4px;
+        margin-right: 10px;
+        background-color: var(--red-ui-header-menu-color);
+
+        /* Use mask-image to apply the SVG shape */
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain; /* alt 'cover' */
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+    }
+    a#red-ui-header-button-ff-ai.button:active, a#red-ui-header-button-ff-ai.button.active {
+        /* Override the background color when clicked to use this var - prevent it going dark */
+        background-color: var(--red-ui-header-menu-sublabel-color);
+    }
+    i.ff-assistant-menu-icon.function {
+        mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
+        -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
+    }
+    i.ff-assistant-menu-icon.explain-flows {
+        mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-explain-flows.svg');
+        -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-explain-flows.svg');
+    }
+
+    /* Header title on the dropdown menu */
+    #ff-assistant-title > span.red-ui-menu-label > span {
+        color: var(--red-ui-header-menu-color);
+        font-size: 16px;
+        display: inline-block;
+        text-indent: 0px;
+    }
+
+</style>
