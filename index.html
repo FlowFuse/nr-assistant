@@ -499,9 +499,7 @@
                 dialog.append(containerDiv)
                 const minHeight = 260 + (description ? 32 : 0) + (explanation ? 32 : 0)
                 const minWidth = 480
-                dialog.dialog({
-                    autoOpen: true,
-                    title: title || 'FlowFuse Assistant',
+                const dialogControl = dialog.dialog({
                     modal: true,
                     closeOnEscape: true,
                     height: minHeight,
@@ -510,6 +508,8 @@
                     minWidth,
                     resizable: true,
                     draggable: true,
+                    show: { effect: 'fade', duration: 300 },
+                    hide: { effect: 'fade', duration: 300 },
                     open: function (event, ui) {
                         RED.keyboard.disable()
                         input.focus()
@@ -517,6 +517,7 @@
                     },
                     close: function (event, ui) {
                         RED.keyboard.enable()
+                        dialogControl.remove()
                     },
                     buttons: [
                         {
