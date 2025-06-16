@@ -38,6 +38,7 @@
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         initAssistant(msg)
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
+                        setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
                     if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
                         assistantMCPOneTimeFlag = true
@@ -54,7 +55,7 @@
                                 visible: true
                             }
                             RED.menu.addItem('red-ui-header-button-ff-ai', menuEntry)
-                            RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
+                            setMenuShortcutKey('ff-assistant-explain-flows', 'red-ui-workspace', 'ctrl-alt-e', 'flowfuse-nr-assistant:explain-flows')
                         }
                     }
                 })
@@ -953,6 +954,46 @@
                 bytes.push(Math.round(0xff * Math.random()).toString(16).padStart(2, '0'))
             }
             return bytes.join('').substring(0, length)
+        }
+
+        /**
+         * Sets a default shortcut key for an action in the specified scope
+         * If the action already has a shortcut key set, it will not be changed.
+         * If the key is already set for another action in the same scope, it will not be set.
+         * @param {string} id - The ID of the menu item (e.g. 'ff-ai-function-builder')
+         * @param {string} scope - The scope of the action (e.g. '*' or 'red-ui-workspace')
+         * @param {string} key - The key to set as the shortcut (e.g. 'ctrl-shift-a') (also supports chords like 'ctrl-a x')
+         * @param {string} action - The action to set the shortcut for (e.g. 'flowfuse-nr-assistant:function-builder')
+         */
+        function setMenuShortcutKey (id, scope, key, action) {
+            console.warn('setMenuShortcutKey')
+            if (!scope || !key || !action) {
+                console.warn('setMenuShortcutKey called with missing parameters', { scope, key, action })
+                return
+            }
+            // first, see if there is already a key set for this action (may have been user set)
+            const hasShortcut = RED.keyboard.getShortcut(action)
+            if (hasShortcut?.key) {
+                debug('setMenuShortcutKey: action already has a shortcut key set', { scope, key, action, hasShortcut })
+                return
+            }
+            // next check if the desired key is already set by scanning the array of RED.actions.list
+            const actionList = RED.actions.list()
+            const existingAction = actionList.find(a => (a.scope === scope || a.scope === '*') && a.key?.toLowerCase() === key.toLowerCase())
+            if (existingAction) {
+                debug('setMenuShortcutKey: key is already set for another action', { scope, key, action, existingAction })
+                return
+            }
+            // set the shortcut key
+            RED.keyboard.add(scope, key, action)
+            // For a menu to show the shortcut key, it needs to have a span with class `red-ui-popover-key` inside the menu item
+            const actionItem = $('#' + id + ' > span > span.red-ui-menu-label')
+            const hasPopoverSpan = actionItem.find('span.red-ui-popover-key').length > 0
+            if (!hasPopoverSpan) {
+                console.warn('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
+                actionItem.append('<span class="red-ui-popover-key"></span>')
+            }
+            RED.menu.refreshShortcuts()
         }
         function debug () {
             if (RED.nrAssistant?.DEBUG) {
