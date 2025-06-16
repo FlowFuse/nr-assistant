@@ -1,13 +1,28 @@
 {
     "name": "FlowFuse Assistant",
     "actions": {
-        "function-builder": "FlowFuse Assistant: Create a Function Node",
-        "explain-selected-nodes": "FlowFuse Assistant: Explain Selected Nodes"
+        "function-builder": "FlowFuse Assistant: Create a Function Node"
     },
-    "errors": {
-        "common": {
-            "need-1-or-more-nodes-selected": "Please select 1 node or more nodes.",
-            "need-100-or-less-nodes-selected": "Please select less than 100 nodes."
+    "explain-flows": {
+        "action": {
+            "label": "FlowFuse Assistant: Explain Selected Nodes"
+        },
+        "menu": {
+            "label": "Explain Flows",
+            "description": "Explain the selected nodes"
+        },
+        "dialog-result": {
+            "title": "FlowFuse Assistant: Explain Flows"
+        },
+        "errors": {
+            "no-nodes-selected": "No nodes selected. Please select one or more nodes to explain.",
+            "too-many-nodes-selected": "Too many nodes selected. Please select less than 100 nodes to explain."
         }
+    },
+    "notifications": {
+        "busy": "Busy processing your request. Please wait..."
+    },
+    "errors":{
+        "assistant-not-enabled": "The FlowFuse Assistant is not enabled"
     }
 }
