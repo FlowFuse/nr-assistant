@@ -631,22 +631,28 @@
          * @param {object} [options] - Options for the dialog
          */
         function showMessage (title, content, options) {
-            const className = options?.className || 'ff-nr-ai-dialog-message'
-            const dialog = $('<div id="ff-nr-ai-dialog-message" class="hide ' + className + '"></div>')
-            const containerDiv = $('<div style="height: 100%;display: flex;flex-direction: column; height: calc(100% - 12px);">')
-            const contentDiv = $('<div id="ff-nr-ai-dialog-content" style="height:100%;width:100%; position:relative; resize: none;">' + content + '</div>')
-            containerDiv.append(contentDiv)
-            dialog.append(containerDiv)
-            const h = options?.height || 400
-            const dialogControl = dialog.dialog({
+            options = options || {}
+            const className = options.dialogClass || 'ff-nr-ai-dialog-message'
+            const dialog = $('<div></div>').css({ overflow: 'auto' }).html(content)
+            let height = options.height || 380
+            let width = options.width || $('#red-ui-notifications').width() || 500
+            // ensure the dialog is not more than 90% of the viewport height and width
+            if (height > $(window).height() * 0.9) {
+                height = $(window).height() * 0.9
+            }
+            if (width > $(window).width() * 0.9) {
+                width = $(window).width() * 0.9
+            }
+            const $dialog = dialog.dialog({
+                ...options,
                 title,
-                class: className,
-                modal: true,
-                closeOnEscape: true,
-                width: options?.width || 600,
-                height: h,
-                resizable: true,
-                draggable: true,
+                dialogClass: className,
+                height,
+                width,
+                modal: options.modal ?? true,
+                resizable: options.resizable ?? true,
+                draggable: options.draggable ?? true,
+                closeOnEscape: options.closeOnEscape ?? true,
                 show: { effect: 'fade', duration: 300 },
                 hide: { effect: 'fade', duration: 300 },
                 open: function (event, ui) {
@@ -654,9 +660,10 @@
                 },
                 close: function () {
                     RED.keyboard.enable()
-                    dialogControl.remove()
+                    $dialog.remove()
                 }
             })
+            return $dialog
         }
 
         function explainSelectedNodes () {
@@ -715,11 +722,7 @@
 
                     try {
                         const text = reply.data || 'No reply from server'
-
-                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), {
-                            width: 700,
-                            height: 550
-                        })
+                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), {})
                     } catch (error) {
                         console.warn('Error rendering reply', error)
                         showNotification('Sorry, something went wrong, please try again', { type: 'error' })
@@ -1005,28 +1008,32 @@
 </script>
 
 <style>
-    /* 
+    /*
         The node-red styling for width of the menu UL is quite specific and includes !important, so we need to override
         it with an even more specific selector - this is to prevent it wrapping the text elements to underneath the icon
     */
     #red-ui-header ul#red-ui-header-button-ff-ai-submenu.red-ui-menu-dropdown {
         width: 300px !important; /* make the submenu wider to prevent wrapping elements */
     }
-
-    #ff-nr-ai-dialog-message.ui-dialog-content {
-        padding: 0px 12px 0px 12px;
-    }
-
     #red-ui-header ul.red-ui-menu-dropdown li a {
-        padding: 6px 12px;
+        padding: 8px 16px;
     }
 
-    #red-ui-header-button-ff-ai {
-        mask-image: url("resources/@flowfuse/nr-assistant/ff-assistant.svg");
-        mask-repeat: no-repeat;
-        mask-position: center;
-        background-color: currentColor;
-        height: 30px;
+    /* prevent icon color being set to background color when clicked */
+    a#red-ui-header-button-ff-ai.button:active, a#red-ui-header-button-ff-ai.button.active {
+        background-color: var(--red-ui-header-menu-sublabel-color);
+    }
+    a#red-ui-header-button-ff-ai.button:hover {
+        /* Override the background color when clicked to use this var - prevent it going dark */
+        background-color: #8CE2E7;
+    }
+
+    #red-ui-header-button-ff-ai-submenu a {
+        display: flex;
+    }
+
+    #red-ui-header-button-ff-ai-submenu .red-ui-menu-label-container {
+        flex-grow: 1;
     }
 
     /*  
@@ -1034,8 +1041,15 @@
         Instead of using a url (e.g. resource/icon.svg), we add them as a "class name" which node-red then renders as an `<i>` tag.
         The CSS below uses the mask-image property to apply the SVG as a mask, allowing us to set the color via background-color.
     */
+    #red-ui-header-button-ff-ai {
+        mask-image: url("resources/@flowfuse/nr-assistant/ff-assistant.svg");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        background-color: currentColor;
+        height: 30px;
+    }
     i.ff-assistant-menu-icon {
-        display: inline-block; /* Or block, depending on layout needs */
+        display: inline-block;
         width: 28px;
         height: 28px;
         padding: 4px;
@@ -1050,14 +1064,6 @@
         -webkit-mask-position: center;
         -webkit-mask-size: contain;
     }
-    a#red-ui-header-button-ff-ai.button:active, a#red-ui-header-button-ff-ai.button.active {
-        /* Override the background color when clicked to use this var - prevent it going dark */
-        background-color: var(--red-ui-header-menu-sublabel-color);
-    }
-    a#red-ui-header-button-ff-ai.button:hover {
-        /* Override the background color when clicked to use this var - prevent it going dark */
-        background-color: #8CE2E7;
-    }
     i.ff-assistant-menu-icon.function {
         mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
         -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
@@ -1067,19 +1073,18 @@
         -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-explain-flows.svg');
     }
 
-    /* Header title on the dropdown menu */
+    /* Header title in the dropdown menu */
     #ff-assistant-title > span.red-ui-menu-label > span {
         color: var(--red-ui-header-menu-color);
         font-size: 16px;
         display: inline-block;
         text-indent: 0px;
+        margin-top: 10px;
+        font-weight: bold;
     }
 
-    #red-ui-header-button-ff-ai-submenu a {
-        display: flex;
+    /* styling for showMessage dialog */
+    .ff-nr-ai-dialog-message > div.ui-dialog-content {
+        padding: 0px 16px 0px 16px;
     }
-    #red-ui-header-button-ff-ai-submenu .red-ui-menu-label-container {
-        flex-grow: 1;
-    }
-
 </style>
