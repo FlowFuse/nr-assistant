@@ -26,7 +26,7 @@
         let assistantInitialised = false
         let assistantMCPOneTimeFlag = false
         debug('loading...')
-        RED.plugins.registerPlugin('flowfuse-nr-assistant', {
+        const plugin = {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
@@ -47,7 +47,8 @@
                     }
                 })
             }
-        })
+        }
+        RED.plugins.registerPlugin('flowfuse-nr-assistant', plugin)
 
         function initAssistant () {
             if (assistantInitialised) {
