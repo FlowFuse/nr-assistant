@@ -602,18 +602,53 @@
             })
         }
 
+        /**
+         * Show a dialog with the given title and content
+         * @param {string} title - The title of the dialog
+         * @param {string} content - The content of the dialog, can be HTML
+         * @param {object} [options] - Options for the dialog
+         */
+        function showMessage (title, content, options) {
+            const className = options?.className || 'ff-nr-ai-dialog-message'
+            const dialog = $('<div id="ff-nr-ai-dialog-message" class="hide ' + className + '"></div>')
+            const containerDiv = $('<div style="height: 100%;display: flex;flex-direction: column; height: calc(100% - 12px);">')
+            const contentDiv = $('<div id="ff-nr-ai-dialog-content" style="height:100%;width:100%; position:relative; resize: none;">' + content + '</div>')
+            containerDiv.append(contentDiv)
+            dialog.append(containerDiv)
+            const h = options?.height || 400
+            const dialogControl = dialog.dialog({
+                title,
+                class: className,
+                modal: true,
+                closeOnEscape: true,
+                width: options?.width || 600,
+                height: h,
+                resizable: true,
+                draggable: true,
+                show: { effect: 'fade', duration: 300 },
+                hide: { effect: 'fade', duration: 300 },
+                open: function (event, ui) {
+                    RED.keyboard.disable()
+                },
+                close: function () {
+                    RED.keyboard.enable()
+                    dialogControl.remove()
+                }
+            })
+        }
+
         function explainSelectedNodes () {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             const selection = RED.view.selection()
             if (!selection || !selection.nodes || selection.nodes.length === 0) {
-                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-1-or-more-nodes-selected'), 'warning')
+                RED.notify(plugin._('explain-flows.errors.no-nodes-selected'), 'warning')
                 return
             }
             if (selection.nodes.length > 100) { // TODO: increase or make configurable
-                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-100-or-less-nodes-selected'), 'warning')
+                RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')
                 return
             }
 
@@ -637,7 +672,7 @@
                 flowName: '', // FUTURE: include the parent flow name in the context to aid with the explanation
                 userContext: '' // FUTURE: include user textual input context for more personalized explanations
             }
-            const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+            const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                 if (xhr) {
                     xhr.abort('abort')
                     xhr = null
@@ -657,44 +692,19 @@
                     }
 
                     try {
-                        const style = 'success'
                         const text = reply.data || 'No reply from server'
 
-                        // FUTURE: Ask for a summary and details in json format and parse it
-                        // let style = 'success'
-                        // try {
-                        //     const parsedJson = JSON.parse(reply.data)
-                        //     if (!parsedJson.summary && !parsedJson.details) {
-                        //         text = 'No summary or details available!'
-                        //         style = 'warning'
-                        //     }
-                        //     const textBuilder = []
-                        //     if (parsedJson.summary) {
-                        //         textBuilder.push('### Summary')
-                        //         textBuilder.push(parsedJson.summary)
-                        //         textBuilder.push('')
-                        //     }
-                        //     if (parsedJson.details) {
-                        //         textBuilder.push('### Details')
-                        //         textBuilder.push(parsedJson.details)
-                        //         textBuilder.push('')
-                        //     }
-                        //     text = textBuilder.join('\n')
-                        // } catch (error) {
-                        //     console.warn('Error parsing reply data', error)
-                        //     text = reply.data || 'No data in response from server'
-                        // }
-                        showNotification(
-                            RED.utils.renderMarkdown(text),
-                            { fixed: true, modal: true, timeout: 0, type: style }
-                        )
+                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), {
+                            width: 700,
+                            height: 550
+                        })
                     } catch (error) {
                         console.warn('Error rendering reply', error)
                         showNotification('Sorry, something went wrong, please try again', { type: 'error' })
                     }
                 },
                 error: (jqXHR, textStatus, errorThrown) => {
-                    // console.log('showFunctionBuilderPrompt -> ajax -> error', jqXHR, textStatus, errorThrown)
+                    // console.log('explainSelectedNodes -> ajax -> error', jqXHR, textStatus, errorThrown)
                     busyNotification.close()
                     if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
                         // user cancelled
