@@ -56,7 +56,7 @@
             }
             debug('initialising...')
             if (!assistantOptions.enabled) {
-                console.warn('The FlowFuse Assistant is not enabled')
+                console.warn(plugin._('errors.assistant-not-enabled'))
                 return
             }
 
@@ -172,7 +172,7 @@
                     return
                 }
                 if (!assistantOptions.enabled) {
-                    RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                    RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                     return
                 }
                 const thisEditor = getMonacoEditorForModel(model)
@@ -301,7 +301,7 @@
                     return
                 }
                 if (!assistantOptions.enabled) {
-                    RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                    RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                     return
                 }
                 const thisEditor = getMonacoEditorForModel(model)
@@ -540,7 +540,7 @@
         let previousFunctionBuilderPrompt
         function showFunctionBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             getUserInput({
@@ -723,7 +723,7 @@
         // eslint-disable-next-line no-unused-vars
         function showFlowBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             getUserInput({
