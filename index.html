@@ -430,8 +430,8 @@
             debug('doPrompt', promptOptions, uiOptions)
             getUserInput({
                 defaultInput: defaultInput || '',
-                title: uiOptions?.title || 'FlowFuse Assistant',
-                explanation: uiOptions?.explanation || 'The FlowFuse Assistant can help you write code.',
+                title: uiOptions?.title || plugin._('name'),
+                explanation: uiOptions?.explanation || plugin._('name') + ' can help you write code.',
                 description: uiOptions?.description || 'Enter a short description of what you want it to do.'
             }).then((prompt) => {
                 if (!prompt) {
@@ -450,7 +450,7 @@
                         // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
                     }
                 }
-                const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                     if (xhr) {
                         xhr.abort('abort')
                         xhr = null
