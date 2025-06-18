@@ -625,45 +625,89 @@
         }
 
         /**
-         * Show a dialog with the given title and content
+         * Show a dialog with the given title and content.
+         * * NOTE: Only basic sanitization is performed. Call RED.utils.renderMarkdown or RED.utils.sanitize before passing it in.
          * @param {string} title - The title of the dialog
          * @param {string} content - The content of the dialog, can be HTML
-         * @param {object} [options] - Options for the dialog
+         * @param {'text'|'html'} [renderMode='text'] - Whether the content is HTML or plain text.
+         * @param {object} [options] - jQuery UI Options for the dialog
          */
-        function showMessage (title, content, options) {
-            options = options || {}
-            const className = options.dialogClass || 'ff-nr-ai-dialog-message'
-            const dialog = $('<div></div>').css({ overflow: 'auto' }).html(content)
-            let height = options.height || 380
-            let width = options.width || $('#red-ui-notifications').width() || 500
-            // ensure the dialog is not more than 90% of the viewport height and width
-            if (height > $(window).height() * 0.9) {
-                height = $(window).height() * 0.9
+        function showMessage (title, content, renderMode = 'text', options = {}) {
+            const window70vw = $(window).width() * 0.70 // 70% of viewport width
+            const window70vh = $(window).height() * 0.70 // 70% of viewport height
+
+            // super basic sanitisation for xss in content
+            if (typeof content !== 'string' || content.length === 0) {
+                console.warn('Content must be a string')
+                return
+            } else if (renderMode === 'html' && (content.includes('<script>') || content.includes('<' + '/script>'))) {
+                content = content.replace(/<script>/g, '```\n').replace(/<\/script>/g, '```') // basic sanitization
             }
-            if (width > $(window).width() * 0.9) {
-                width = $(window).width() * 0.9
+
+            // First some basic sizing calculations to ensure the dialog is not too small/large
+            let initialMaxWidth = $('#red-ui-notifications').width() || 500 // start off with 500px as the initial maxWidth
+            if (content.length > 3000) {
+                initialMaxWidth = 1000
+            } else if (content.length > 2000) {
+                initialMaxWidth = 850
+            } else if (content.length > 1500) {
+                initialMaxWidth = 700
+            } else if (content.length > 750) {
+                initialMaxWidth = 600
             }
-            const $dialog = dialog.dialog({
-                ...options,
-                title,
-                dialogClass: className,
-                height,
+
+            // Now render the content as HTML so later we can gauge its size and dynamically adjust to keep it reasonable
+            const $dialog = $('<div>')
+            $dialog.css({
+                overflow: 'auto',
+                height: 'auto',
+                width: 'auto',
+                minHeight: 200,
+                maxHeight: window70vh,
+                minWidth: window.innerWidth > 500 ? 500 : initialMaxWidth < window70vw ? initialMaxWidth : window70vw, // minimum width of 500px if possible
+                maxWidth: initialMaxWidth,
+                display: 'none' // initially hidden
+            })
+            if (renderMode === 'html') {
+                $dialog.html(content) // render as HTML
+            } else {
+                $dialog.text(content) // render as plain text
+            }
+            $dialog.appendTo('body')
+
+            const initialWidth = $dialog.width()
+            const width = initialWidth > window70vw ? window70vw : initialWidth
+            const initialHeight = $dialog.height() + 30 // +30 for padding/grace etc
+            const height = initialHeight > window70vh ? window70vh : initialHeight
+
+            // now remove the divs min/max so that it sizes to the maximum size of the jquery dialog
+            $dialog.css({ maxWidth: '', minWidth: '', maxHeight: '', minHeight: '' })
+
+            // set the default dialog options
+            const defaultOptions = {
+                title: title + ' (content length:' + content.length + ')',
+                modal: true,
+                resizable: true,
                 width,
-                modal: options.modal ?? true,
-                resizable: options.resizable ?? true,
-                draggable: options.draggable ?? true,
-                closeOnEscape: options.closeOnEscape ?? true,
+                height,
+                dialogClass: 'ff-nr-ai-dialog-message',
+                closeOnEscape: true,
+                draggable: true,
+                minHeight: 280,
+                minWidth: window.innerWidth > 500 ? 500 : window.innerWidth, // minimum width of 500px if possible
                 show: { effect: 'fade', duration: 300 },
                 hide: { effect: 'fade', duration: 300 },
-                open: function (event, ui) {
+                open: function () {
                     RED.keyboard.disable()
                 },
                 close: function () {
                     RED.keyboard.enable()
-                    $dialog.remove()
+                    $(this).dialog('destroy').remove() // clean up
                 }
-            })
-            return $dialog
+            }
+
+            // create the dialog with any additional options passed in & return it for later programmatic control
+            return $dialog.dialog($.extend({}, defaultOptions, options))
         }
 
         function explainSelectedNodes () {
@@ -722,7 +766,7 @@
 
                     try {
                         const text = reply.data || 'No reply from server'
-                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), {})
+                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), 'html', {})
                     } catch (error) {
                         console.warn('Error rendering reply', error)
                         showNotification('Sorry, something went wrong, please try again', { type: 'error' })
