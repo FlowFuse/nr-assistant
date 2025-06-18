@@ -892,7 +892,7 @@
 
             // set the default dialog options
             const defaultOptions = {
-                title: title + ' (content length:' + content.length + ')',
+                title: title || plugin._('name'),
                 modal: true,
                 resizable: true,
                 width,
