@@ -26,7 +26,7 @@
         let assistantInitialised = false
         let assistantMCPOneTimeFlag = false
         debug('loading...')
-        RED.plugins.registerPlugin('flowfuse-nr-assistant', {
+        const plugin = {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
@@ -37,17 +37,31 @@
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         initAssistant(msg)
+                        RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
+                        setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
                     if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
                         assistantMCPOneTimeFlag = true
                         if (assistantOptions.enabled) {
                             debug('assistant MCP initialised')
-                            RED.actions.add('flowfuse-nr-assistant:explain-selected-nodes', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.explain-selected-nodes' })
+                            RED.actions.add('flowfuse-nr-assistant:explain-flows', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:explain-flows.action.label' })
+                            const menuEntry = {
+                                id: 'ff-assistant-explain-flows',
+                                icon: 'ff-assistant-menu-icon explain-flows',
+                                label: `<span>${plugin._('explain-flows.menu.label')}</span>`,
+                                sublabel: plugin._('explain-flows.menu.description'),
+                                onselect: 'flowfuse-nr-assistant:explain-flows',
+                                shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
+                                visible: true
+                            }
+                            RED.menu.addItem('red-ui-header-button-ff-ai', menuEntry)
+                            setMenuShortcutKey('ff-assistant-explain-flows', 'red-ui-workspace', 'ctrl-alt-e', 'flowfuse-nr-assistant:explain-flows')
                         }
                     }
                 })
             }
-        })
+        }
+        RED.plugins.registerPlugin('flowfuse-nr-assistant', plugin)
 
         function initAssistant () {
             if (assistantInitialised) {
@@ -55,7 +69,7 @@
             }
             debug('initialising...')
             if (!assistantOptions.enabled) {
-                console.warn('The FlowFuse Assistant is not enabled')
+                console.warn(plugin._('errors.assistant-not-enabled'))
                 return
             }
 
@@ -171,7 +185,7 @@
                     return
                 }
                 if (!assistantOptions.enabled) {
-                    RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                    RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                     return
                 }
                 const thisEditor = getMonacoEditorForModel(model)
@@ -300,7 +314,7 @@
                     return
                 }
                 if (!assistantOptions.enabled) {
-                    RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                    RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                     return
                 }
                 const thisEditor = getMonacoEditorForModel(model)
@@ -354,30 +368,37 @@
                 }
             })
 
-            // setup actions for function builder
-            RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:actions.function-builder' })
-
-            // FUTURE: setup actions for flow builder
-            // const flowBuilderTitle = 'FlowFuse Flow Assistant'
-            // RED.actions.add('ff:assistant-flow-builder', showFlowBuilderPrompt, { label: flowBuilderTitle })
-
             const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
             const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
-            toolbarMenuButtonAnchor.css('mask-image', 'url("resources/@flowfuse/nr-assistant/assistant-button.svg")')
-            toolbarMenuButtonAnchor.css('mask-repeat', 'no-repeat')
-            toolbarMenuButtonAnchor.css('mask-position', 'center')
-            toolbarMenuButtonAnchor.css('background-color', 'currentColor')
-            toolbarMenuButtonAnchor.css('height', '28px') // for backwards compatibility with <= NR3.x inline-block toolbar styling
             const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
             if (deployButtonLi.length) {
                 deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
             } else {
                 toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
             }
-            toolbarMenuButtonAnchor.on('click', function (e) {
-                RED.actions.invoke('flowfuse-nr-assistant:function-builder')
-            })
-            RED.popover.tooltip(toolbarMenuButtonAnchor, 'FlowFuse Assistant')
+            RED.popover.tooltip(toolbarMenuButtonAnchor, plugin._('name'))
+
+            /* NOTE: For the menu entries icons' property...
+               If `.icon` is a URL (e.g. resource/xxx/icon.svg), the RED.menu API will add it as an <img> tag.
+               That makes it impossible to set the fill colour of the SVG PATH via a CSS var.
+               So, by not specifying an icon URL, an <i> tag with the class set to <icon> will be created by the API
+               This permits us to use CSS classes (defined below) that can set the icon and affect the fill colour
+            */
+            debug('Building FlowFuse Assistant menu')
+            const ffAssistantMenu = [
+                { id: 'ff-assistant-title', label: plugin._('name'), visible: true }, // header
+                null, // separator
+                {
+                    id: 'ff-assistant-function-builder',
+                    icon: 'ff-assistant-menu-icon function',
+                    label: `<span>${plugin._('function-builder.menu.label')}</span>`,
+                    sublabel: plugin._('function-builder.menu.description'),
+                    onselect: 'flowfuse-nr-assistant:function-builder',
+                    shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
+                    visible: true
+                }
+            ]
+            RED.menu.init({ id: 'red-ui-header-button-ff-ai', options: ffAssistantMenu })
             assistantInitialised = true
         }
 
@@ -409,8 +430,8 @@
             debug('doPrompt', promptOptions, uiOptions)
             getUserInput({
                 defaultInput: defaultInput || '',
-                title: uiOptions?.title || 'FlowFuse Assistant',
-                explanation: uiOptions?.explanation || 'The FlowFuse Assistant can help you write code.',
+                title: uiOptions?.title || plugin._('name'),
+                explanation: uiOptions?.explanation || plugin._('name') + ' can help you write code.',
                 description: uiOptions?.description || 'Enter a short description of what you want it to do.'
             }).then((prompt) => {
                 if (!prompt) {
@@ -429,7 +450,7 @@
                         // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
                     }
                 }
-                const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                     if (xhr) {
                         xhr.abort('abort')
                         xhr = null
@@ -471,7 +492,7 @@
         }
 
         function getUserInput ({ title, explanation, description, placeholder, defaultInput } = {
-            title: 'FlowFuse Assistant',
+            title: plugin._('name'),
             explanation: 'The FlowFuse Assistant can help you create things.',
             description: 'Enter a short description explaining what you want it to do.',
             placeholder: '',
@@ -498,9 +519,8 @@
                 dialog.append(containerDiv)
                 const minHeight = 260 + (description ? 32 : 0) + (explanation ? 32 : 0)
                 const minWidth = 480
-                dialog.dialog({
-                    autoOpen: true,
-                    title: title || 'FlowFuse Assistant',
+                const dialogControl = dialog.dialog({
+                    title: title || plugin._('name'),
                     modal: true,
                     closeOnEscape: true,
                     height: minHeight,
@@ -509,6 +529,8 @@
                     minWidth,
                     resizable: true,
                     draggable: true,
+                    show: { effect: 'fade', duration: 300 },
+                    hide: { effect: 'fade', duration: 300 },
                     open: function (event, ui) {
                         RED.keyboard.disable()
                         input.focus()
@@ -516,6 +538,7 @@
                     },
                     close: function (event, ui) {
                         RED.keyboard.enable()
+                        dialogControl.remove()
                     },
                     buttons: [
                         {
@@ -539,14 +562,14 @@
         let previousFunctionBuilderPrompt
         function showFunctionBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             getUserInput({
                 defaultInput: previousFunctionBuilderPrompt,
                 title: title || 'FlowFuse Assistant : Create A Function Node',
-                explanation: 'The FlowFuse Assistant can help you create a Function Node.',
-                description: 'Enter a short description of what you want it to do.'
+                explanation: plugin._('function-builder.dialog-input.explanation'),
+                description: plugin._('function-builder.dialog-input.description')
             }).then((prompt) => {
                 /** @type {JQueryXHR} */
                 let xhr = null
@@ -562,7 +585,7 @@
                             modulesAllowed
                         }
                     }
-                    const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                    const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                         if (xhr) {
                             xhr.abort('abort')
                             xhr = null
@@ -601,18 +624,104 @@
             })
         }
 
+        /**
+         * Show a dialog with the given title and content.
+         * * NOTE: Only basic sanitization is performed. Call RED.utils.renderMarkdown or RED.utils.sanitize before passing it in.
+         * @param {string} title - The title of the dialog
+         * @param {string} content - The content of the dialog, can be HTML
+         * @param {'text'|'html'} [renderMode='text'] - Whether the content is HTML or plain text.
+         * @param {object} [options] - jQuery UI Options for the dialog
+         */
+        function showMessage (title, content, renderMode = 'text', options = {}) {
+            const window70vw = $(window).width() * 0.70 // 70% of viewport width
+            const window70vh = $(window).height() * 0.70 // 70% of viewport height
+
+            // super basic sanitisation for xss in content
+            if (typeof content !== 'string' || content.length === 0) {
+                console.warn('Content must be a string')
+                return
+            } else if (renderMode === 'html' && (content.includes('<script>') || content.includes('<' + '/script>'))) {
+                content = content.replace(/<script>/g, '```\n').replace(/<\/script>/g, '```') // basic sanitization
+            }
+
+            // First some basic sizing calculations to ensure the dialog is not too small/large
+            let initialMaxWidth = $('#red-ui-notifications').width() || 500 // start off with 500px as the initial maxWidth
+            if (content.length > 3000) {
+                initialMaxWidth = 1000
+            } else if (content.length > 2000) {
+                initialMaxWidth = 850
+            } else if (content.length > 1500) {
+                initialMaxWidth = 700
+            } else if (content.length > 750) {
+                initialMaxWidth = 600
+            }
+
+            // Now render the content as HTML so later we can gauge its size and dynamically adjust to keep it reasonable
+            const $dialog = $('<div>')
+            $dialog.css({
+                overflow: 'auto',
+                height: 'auto',
+                width: 'auto',
+                minHeight: 200,
+                maxHeight: window70vh,
+                minWidth: window.innerWidth > 500 ? 500 : initialMaxWidth < window70vw ? initialMaxWidth : window70vw, // minimum width of 500px if possible
+                maxWidth: initialMaxWidth,
+                display: 'none' // initially hidden
+            })
+            if (renderMode === 'html') {
+                $dialog.html(content) // render as HTML
+            } else {
+                $dialog.text(content) // render as plain text
+            }
+            $dialog.appendTo('body')
+
+            const initialWidth = $dialog.width()
+            const width = initialWidth > window70vw ? window70vw : initialWidth
+            const initialHeight = $dialog.height() + 40 // +40 for padding/grace etc
+            const height = initialHeight > window70vh ? window70vh : initialHeight
+
+            // now remove the divs min/max so that it sizes to the maximum size of the jquery dialog
+            $dialog.css({ maxWidth: '', minWidth: '', maxHeight: '', minHeight: '' })
+
+            // set the default dialog options
+            const defaultOptions = {
+                title: title || plugin._('name'),
+                modal: true,
+                resizable: true,
+                width,
+                height,
+                dialogClass: 'ff-nr-ai-dialog-message',
+                closeOnEscape: true,
+                draggable: true,
+                minHeight: 280,
+                minWidth: window.innerWidth > 600 ? 600 : window.innerWidth, // minimum width of 500px if possible
+                show: { effect: 'fade', duration: 300 },
+                hide: { effect: 'fade', duration: 300 },
+                open: function () {
+                    RED.keyboard.disable()
+                },
+                close: function () {
+                    RED.keyboard.enable()
+                    $(this).dialog('destroy').remove() // clean up
+                }
+            }
+
+            // create the dialog with any additional options passed in & return it for later programmatic control
+            return $dialog.dialog($.extend({}, defaultOptions, options))
+        }
+
         function explainSelectedNodes () {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             const selection = RED.view.selection()
             if (!selection || !selection.nodes || selection.nodes.length === 0) {
-                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-1-or-more-nodes-selected'), 'warning')
+                RED.notify(plugin._('explain-flows.errors.no-nodes-selected'), 'warning')
                 return
             }
             if (selection.nodes.length > 100) { // TODO: increase or make configurable
-                RED.notify(RED._('@flowfuse/nr-assistant/flowfuse-nr-assistant:errors.common.need-100-or-less-nodes-selected'), 'warning')
+                RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')
                 return
             }
 
@@ -636,7 +745,7 @@
                 flowName: '', // FUTURE: include the parent flow name in the context to aid with the explanation
                 userContext: '' // FUTURE: include user textual input context for more personalized explanations
             }
-            const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+            const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                 if (xhr) {
                     xhr.abort('abort')
                     xhr = null
@@ -656,44 +765,15 @@
                     }
 
                     try {
-                        const style = 'success'
                         const text = reply.data || 'No reply from server'
-
-                        // FUTURE: Ask for a summary and details in json format and parse it
-                        // let style = 'success'
-                        // try {
-                        //     const parsedJson = JSON.parse(reply.data)
-                        //     if (!parsedJson.summary && !parsedJson.details) {
-                        //         text = 'No summary or details available!'
-                        //         style = 'warning'
-                        //     }
-                        //     const textBuilder = []
-                        //     if (parsedJson.summary) {
-                        //         textBuilder.push('### Summary')
-                        //         textBuilder.push(parsedJson.summary)
-                        //         textBuilder.push('')
-                        //     }
-                        //     if (parsedJson.details) {
-                        //         textBuilder.push('### Details')
-                        //         textBuilder.push(parsedJson.details)
-                        //         textBuilder.push('')
-                        //     }
-                        //     text = textBuilder.join('\n')
-                        // } catch (error) {
-                        //     console.warn('Error parsing reply data', error)
-                        //     text = reply.data || 'No data in response from server'
-                        // }
-                        showNotification(
-                            RED.utils.renderMarkdown(text),
-                            { fixed: true, modal: true, timeout: 0, type: style }
-                        )
+                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), 'html', {})
                     } catch (error) {
                         console.warn('Error rendering reply', error)
                         showNotification('Sorry, something went wrong, please try again', { type: 'error' })
                     }
                 },
                 error: (jqXHR, textStatus, errorThrown) => {
-                    // console.log('showFunctionBuilderPrompt -> ajax -> error', jqXHR, textStatus, errorThrown)
+                    // console.log('explainSelectedNodes -> ajax -> error', jqXHR, textStatus, errorThrown)
                     busyNotification.close()
                     if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
                         // user cancelled
@@ -712,7 +792,7 @@
         // eslint-disable-next-line no-unused-vars
         function showFlowBuilderPrompt (title) {
             if (!assistantOptions.enabled) {
-                RED.notify('The FlowFuse Assistant is not enabled', 'warning')
+                RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
                 return
             }
             getUserInput({
@@ -734,7 +814,7 @@
                             modulesAllowed
                         }
                     }
-                    const busyNotification = showBusyNotification('Busy processing your request. Please wait...', function () {
+                    const busyNotification = showBusyNotification(plugin._('notifications.busy'), function () {
                         if (xhr) {
                             xhr.abort('abort')
                             xhr = null
@@ -779,7 +859,7 @@
          * @returns {{close: () => {}}} - The notification object
          */
         function showBusyNotification (message, onCancel, context, poop) {
-            message = message || 'Busy processing your request. Please wait...'
+            message = message || plugin._('notifications.busy')
             const busyMessage = $('<div>')
             $('<span>').text(message).appendTo(busyMessage)
             $('<i>').addClass('fa fa-spinner fa-spin fa-fw').appendTo(busyMessage)
@@ -922,6 +1002,46 @@
             }
             return bytes.join('').substring(0, length)
         }
+
+        /**
+         * Sets a default shortcut key for an action in the specified scope
+         * If the action already has a shortcut key set, it will not be changed.
+         * If the key is already set for another action in the same scope, it will not be set.
+         * @param {string} id - The ID of the menu item (e.g. 'ff-ai-function-builder')
+         * @param {string} scope - The scope of the action (e.g. '*' or 'red-ui-workspace')
+         * @param {string} key - The key to set as the shortcut (e.g. 'ctrl-shift-a') (also supports chords like 'ctrl-a x')
+         * @param {string} action - The action to set the shortcut for (e.g. 'flowfuse-nr-assistant:function-builder')
+         */
+        function setMenuShortcutKey (id, scope, key, action) {
+            console.warn('setMenuShortcutKey')
+            if (!scope || !key || !action) {
+                console.warn('setMenuShortcutKey called with missing parameters', { scope, key, action })
+                return
+            }
+            // first, see if there is already a key set for this action (may have been user set)
+            const hasShortcut = RED.keyboard.getShortcut(action)
+            if (hasShortcut?.key) {
+                debug('setMenuShortcutKey: action already has a shortcut key set', { scope, key, action, hasShortcut })
+                return
+            }
+            // next check if the desired key is already set by scanning the array of RED.actions.list
+            const actionList = RED.actions.list()
+            const existingAction = actionList.find(a => (a.scope === scope || a.scope === '*') && a.key?.toLowerCase() === key.toLowerCase())
+            if (existingAction) {
+                debug('setMenuShortcutKey: key is already set for another action', { scope, key, action, existingAction })
+                return
+            }
+            // set the shortcut key
+            RED.keyboard.add(scope, key, action)
+            // For a menu to show the shortcut key, it needs to have a span with class `red-ui-popover-key` inside the menu item
+            const actionItem = $('#' + id + ' > span > span.red-ui-menu-label')
+            const hasPopoverSpan = actionItem.find('span.red-ui-popover-key').length > 0
+            if (!hasPopoverSpan) {
+                console.warn('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
+                actionItem.append('<span class="red-ui-popover-key"></span>')
+            }
+            RED.menu.refreshShortcuts()
+        }
         function debug () {
             if (RED.nrAssistant?.DEBUG) {
                 // eslint-disable-next-line no-console
@@ -930,3 +1050,94 @@
         }
     }(RED, $))
 </script>
+
+<style>
+    /*
+        The node-red styling for width of the menu UL is quite specific and includes !important, so we need to override
+        it with an even more specific selector - this is to prevent it wrapping the text elements to underneath the icon
+    */
+    #red-ui-header ul#red-ui-header-button-ff-ai-submenu.red-ui-menu-dropdown {
+        width: 300px !important; /* make the submenu wider to prevent wrapping elements */
+    }
+    #red-ui-header ul.red-ui-menu-dropdown li a {
+        padding: 8px 16px;
+    }
+
+    /* prevent icon color being set to background color when clicked */
+    a#red-ui-header-button-ff-ai.button:active, a#red-ui-header-button-ff-ai.button.active {
+        background-color: var(--red-ui-header-menu-sublabel-color);
+    }
+    a#red-ui-header-button-ff-ai.button:hover {
+        /* Override the background color when clicked to use this var - prevent it going dark */
+        background-color: #8CE2E7;
+    }
+
+    #red-ui-header-button-ff-ai-submenu a {
+        display: flex;
+    }
+
+    #red-ui-header-button-ff-ai-submenu .red-ui-menu-label-container {
+        flex-grow: 1;
+    }
+
+    /*  
+        As menu icons are drawn by the (RED.menu.init api) as <img> tags, styling the fill of the path is impossible.
+        Instead of using a url (e.g. resource/icon.svg), we add them as a "class name" which node-red then renders as an `<i>` tag.
+        The CSS below uses the mask-image property to apply the SVG as a mask, allowing us to set the color via background-color.
+    */
+    #red-ui-header-button-ff-ai {
+        mask-image: url("resources/@flowfuse/nr-assistant/ff-assistant.svg");
+        mask-repeat: no-repeat;
+        mask-position: center;
+        background-color: currentColor;
+        height: 30px;
+    }
+    i.ff-assistant-menu-icon {
+        display: inline-block;
+        width: 28px;
+        height: 28px;
+        padding: 4px;
+        margin-right: 10px;
+        background-color: var(--red-ui-header-menu-color);
+
+        /* Use mask-image to apply the SVG shape */
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-size: contain; /* alt 'cover' */
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        -webkit-mask-size: contain;
+    }
+    i.ff-assistant-menu-icon.function {
+        mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
+        -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-function.svg');
+    }
+    i.ff-assistant-menu-icon.explain-flows {
+        mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-explain-flows.svg');
+        -webkit-mask-image: url('resources/@flowfuse/nr-assistant/ff-assistant-explain-flows.svg');
+    }
+
+    /* Header title in the dropdown menu */
+    #ff-assistant-title > span.red-ui-menu-label > span {
+        color: var(--red-ui-header-menu-color);
+        font-size: 16px;
+        display: inline-block;
+        text-indent: 0px;
+        margin-top: 10px;
+        font-weight: bold;
+    }
+
+    /* styling for showMessage dialog */
+    .ff-nr-ai-dialog-message > div.ui-dialog-content {
+        padding: 16px;
+    }
+    .ff-nr-ai-dialog-message  h3 {
+        margin: 0 0 12px;
+    }
+    .ff-nr-ai-dialog-message  p, li {
+        line-height: 1.25rem;
+    }
+    .ff-nr-ai-dialog-message  li {
+        margin-bottom: 3px;
+    }
+</style>
