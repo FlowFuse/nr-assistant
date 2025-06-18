@@ -677,7 +677,7 @@
 
             const initialWidth = $dialog.width()
             const width = initialWidth > window70vw ? window70vw : initialWidth
-            const initialHeight = $dialog.height() + 30 // +30 for padding/grace etc
+            const initialHeight = $dialog.height() + 40 // +40 for padding/grace etc
             const height = initialHeight > window70vh ? window70vh : initialHeight
 
             // now remove the divs min/max so that it sizes to the maximum size of the jquery dialog
@@ -694,7 +694,7 @@
                 closeOnEscape: true,
                 draggable: true,
                 minHeight: 280,
-                minWidth: window.innerWidth > 500 ? 500 : window.innerWidth, // minimum width of 500px if possible
+                minWidth: window.innerWidth > 600 ? 600 : window.innerWidth, // minimum width of 500px if possible
                 show: { effect: 'fade', duration: 300 },
                 hide: { effect: 'fade', duration: 300 },
                 open: function () {
@@ -1129,6 +1129,15 @@
 
     /* styling for showMessage dialog */
     .ff-nr-ai-dialog-message > div.ui-dialog-content {
-        padding: 0px 16px 0px 16px;
+        padding: 16px;
+    }
+    .ff-nr-ai-dialog-message  h3 {
+        margin: 0 0 12px;
+    }
+    .ff-nr-ai-dialog-message  p, li {
+        line-height: 1.25rem;
+    }
+    .ff-nr-ai-dialog-message  li {
+        margin-bottom: 3px;
     }
 </style>
