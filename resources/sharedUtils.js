@@ -2,11 +2,11 @@
 * FFA Assistant Utils
 * Shared utility functions for the FlowFuse Assistant
 * To import this in js backend code, use:
-* const { cleanNodes } = require('flowfuse-nr-assistant/resources/sharedUtils.js')
+* const { cleanFlow } = require('flowfuse-nr-assistant/resources/sharedUtils.js')
 * To import this in frontend code, use:
 * <script src="/resources/@flowfuse/nr-assistant/sharedUtils.js"></script>
 * To use this in the browser, you can access it via:
-* FFAssistantUtils.cleanNodes(nodeArray)
+* FFAssistantUtils.cleanFlow(nodeArray)
 */
 
 'use strict';
@@ -22,28 +22,14 @@
     }
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict'
-
     /**
-     * Cleans a node by removing internal properties and circular references when it is a group containing child nodes.
-     * @param {Array} nodeArray - The array of nodes to clean
+     * Cleans a single or an array nodes by removing internal properties and circular references.
+     * @param {Array<Object> | Object} flow - The node or array of nodes to clean
      * @returns {{nodes: Array, totalNodeCount: number}} - The cleaned nodes and the total node count
      */
-    function cleanNode (node) {
-        if (!node || typeof node !== 'object' || !node.id) {
-            return null
-        }
-        const cleaned = cleanNodes([node])
-        if (!cleaned || !cleaned.nodes || cleaned.nodes.length === 0) {
-            return null
-        }
-        return cleaned.nodes[0] // return the first (and only) cleaned node
-    }
-    /**
-     * Cleans the nodes array by removing internal properties and circular references.
-     * @param {Array} nodeArray - The array of nodes to clean
-     * @returns {{nodes: Array, totalNodeCount: number}} - The cleaned nodes and the total node count
-     */
-    function cleanNodes (nodeArray) {
+    function cleanFlow (flow) {
+        if (!flow) return { flow: [], nodeCount: 0 }
+        const nodeArray = Array.isArray(flow) ? flow : [flow]
         const nodes = [...nodeArray] // make a shallow copy of the array
         let totalNodeCount = 0
         const MAX_DEPTH = 10 // maximum depth to recurse into groups
@@ -76,9 +62,9 @@
             return cleaned
         }
         return {
-            nodes: nodes.map(node => recursiveClean(node)).filter(node => node !== null), // filter out any null nodes
-            totalNodeCount
+            flow: nodes.map(node => recursiveClean(node)).filter(node => node !== null), // filter out any null nodes
+            nodeCount: totalNodeCount
         }
     }
-    return { cleanNode, cleanNodes }
+    return { cleanFlow }
 }))

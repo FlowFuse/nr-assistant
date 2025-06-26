@@ -727,7 +727,7 @@
                 return
             }
 
-            const { nodes, totalNodeCount } = FFAssistantUtils.cleanNodes(selection.nodes)
+            const { flow: nodes, nodeCount: totalNodeCount } = FFAssistantUtils.cleanFlow(selection.nodes)
 
             if (totalNodeCount > 100) { // TODO: increase or make configurable
                 RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')

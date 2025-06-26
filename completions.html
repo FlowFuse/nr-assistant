@@ -270,8 +270,9 @@
                 return [null, Promise.resolve(null)]
             }
 
-            const { nodes } = FFAssistantUtils.cleanNodes(flow)
-            const cleanedSourceNode = FFAssistantUtils.cleanNode(sourceNode) || {}
+            const { flow: nodes } = FFAssistantUtils.cleanFlow(flow)
+            const { flow: cleanedSourceFlow } = FFAssistantUtils.cleanFlow([sourceNode]) || {}
+
             /** @type {JQueryXHR} */
             let xhr = null
             const url = 'nr-assistant/mcp/tools/predict_next' // e.g. 'nr-assistant/json'
@@ -279,7 +280,7 @@
             const data = {
                 transactionId,
                 flow: nodes,
-                sourceNode: cleanedSourceNode,
+                sourceNode: cleanedSourceFlow[0],
                 sourcePort,
                 flowName: '', // FUTURE: include the parent flow name in the context to aid with the explanation
                 userContext: '' // FUTURE: include user textual input context for more personalized explanations
