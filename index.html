@@ -1013,7 +1013,7 @@
          * @param {string} action - The action to set the shortcut for (e.g. 'flowfuse-nr-assistant:function-builder')
          */
         function setMenuShortcutKey (id, scope, key, action) {
-            console.warn('setMenuShortcutKey')
+            debug('setMenuShortcutKey')
             if (!scope || !key || !action) {
                 console.warn('setMenuShortcutKey called with missing parameters', { scope, key, action })
                 return
@@ -1037,7 +1037,7 @@
             const actionItem = $('#' + id + ' > span > span.red-ui-menu-label')
             const hasPopoverSpan = actionItem.find('span.red-ui-popover-key').length > 0
             if (!hasPopoverSpan) {
-                console.warn('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
+                debug('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
                 actionItem.append('<span class="red-ui-popover-key"></span>')
             }
             RED.menu.refreshShortcuts()
