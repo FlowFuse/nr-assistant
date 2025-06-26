@@ -30,7 +30,7 @@
         "version": ">=2.2.0",
         "plugins": {
             "flowfuse-nr-assistant": "index.js",
-            "ff-assistant-completions": "completions.js"
+            "ff-assistant-completions": "completions.html"
         }
     },
     "engines": {
