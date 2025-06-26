@@ -720,19 +720,45 @@
                 RED.notify(plugin._('explain-flows.errors.no-nodes-selected'), 'warning')
                 return
             }
-            if (selection.nodes.length > 100) { // TODO: increase or make configurable
+
+            function cleanNodes (nodeArray) {
+                const nodes = [...nodeArray] // make a shallow copy of the array
+                let totalNodeCount = 0
+                const MAX_DEPTH = 10 // maximum depth to recurse into groups
+                const visited = new Set() // to avoid circular references
+                // the input is an array of node. each node is an object.
+                // if the .type is 'group' and it has a .nodes array, we need to clean those nodes as well (and any nested groups).
+                const recursiveClean = (node, depth = 0) => {
+                    totalNodeCount += 1
+                    if (visited.has(node.id) || depth > MAX_DEPTH) {
+                        return null
+                    }
+                    visited.add(node.id)
+                    const cleaned = { ...node }
+                    delete cleaned._ // remove the internal _ property
+                    delete cleaned._def // remove the definition
+                    delete cleaned._config // remove the config
+                    delete cleaned.validationErrors // remove validation errors
+                    if (node.type === 'group') {
+                        delete cleaned._childGroups // this can cause circular references
+                        delete cleaned._parentGroup // this can cause circular references
+                        cleaned.nodes = []
+                        if (Array.isArray(node.nodes) && node.nodes.length > 0) {
+                            cleaned.nodes = node.nodes.map(childNode => recursiveClean(childNode, depth + 1))
+                        }
+                    }
+                    return cleaned
+                }
+                return {
+                    nodes: nodes.map(node => recursiveClean(node)).filter(node => node !== null), // filter out any null nodes
+                    totalNodeCount
+                }
+            }
+            const { nodes, totalNodeCount } = cleanNodes(selection.nodes)
+
+            if (totalNodeCount > 100) { // TODO: increase or make configurable
                 RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')
                 return
-            }
-
-            const nodes = []
-            for (const node of selection.nodes) {
-                const n = { ...node }
-                delete n._
-                delete n._def
-                delete n._config
-                delete n.validationErrors
-                nodes.push(n)
             }
 
             /** @type {JQueryXHR} */
