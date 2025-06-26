@@ -1,4 +1,7 @@
+<script src="/resources/@flowfuse/nr-assistant/sharedUtils.js"></script>
 <script>
+    /* global FFAssistantUtils */ /* loaded from sharedUtils.js */
+    /* global RED, $ */ /* loaded from Node-RED core */
     (function (RED, n) {
         'use strict'
 
@@ -31,6 +34,9 @@
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
             onadd: async function () {
+                if (!window.FFAssistantUtils) {
+                    console.warn('FFAssistantUtils lib is not loaded. Completions might not work as expected.')
+                }
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
                     if (topic === 'nr-assistant/initialise') {
@@ -721,40 +727,7 @@
                 return
             }
 
-            function cleanNodes (nodeArray) {
-                const nodes = [...nodeArray] // make a shallow copy of the array
-                let totalNodeCount = 0
-                const MAX_DEPTH = 10 // maximum depth to recurse into groups
-                const visited = new Set() // to avoid circular references
-                // the input is an array of node. each node is an object.
-                // if the .type is 'group' and it has a .nodes array, we need to clean those nodes as well (and any nested groups).
-                const recursiveClean = (node, depth = 0) => {
-                    totalNodeCount += 1
-                    if (visited.has(node.id) || depth > MAX_DEPTH) {
-                        return null
-                    }
-                    visited.add(node.id)
-                    const cleaned = { ...node }
-                    delete cleaned._ // remove the internal _ property
-                    delete cleaned._def // remove the definition
-                    delete cleaned._config // remove the config
-                    delete cleaned.validationErrors // remove validation errors
-                    if (node.type === 'group') {
-                        delete cleaned._childGroups // this can cause circular references
-                        delete cleaned._parentGroup // this can cause circular references
-                        cleaned.nodes = []
-                        if (Array.isArray(node.nodes) && node.nodes.length > 0) {
-                            cleaned.nodes = node.nodes.map(childNode => recursiveClean(childNode, depth + 1))
-                        }
-                    }
-                    return cleaned
-                }
-                return {
-                    nodes: nodes.map(node => recursiveClean(node)).filter(node => node !== null), // filter out any null nodes
-                    totalNodeCount
-                }
-            }
-            const { nodes, totalNodeCount } = cleanNodes(selection.nodes)
+            const { nodes, totalNodeCount } = FFAssistantUtils.cleanNodes(selection.nodes)
 
             if (totalNodeCount > 100) { // TODO: increase or make configurable
                 RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')
