@@ -1,0 +1,354 @@
+<script src="/resources/@flowfuse/nr-assistant/sharedUtils.js"></script>
+<script>
+    /* global FFAssistantUtils */ /* loaded from sharedUtils.js */
+    /* global RED, $ */ /* loaded from Node-RED core */
+    (function (RED, n) {
+        'use strict'
+
+        /**
+         * @typedef {Object} SuggestionSourceContext
+         * @property {Array} flow - The current flow
+         * @property {Object} source - The source node that the suggestion is being requested for
+         * @property {number} sourcePort - The port of the source node that the suggestion is being requested for
+         * @property {number} sourcePortType - The type of the source port (0 for output port, 1 for input port)
+         * @property {string} workspace - The current workspace id
+         */
+
+        /**
+         * @typedef {Object} Suggestion
+         * @property {string} label - The label for the suggestion
+         * @property {Array<Object>} nodes - The nodes that make up the suggestion
+         */
+
+        const AI_TIMEOUT = 90000 // default request timeout in milliseconds
+        const assistantOptions = {
+            enabled: false,
+            requestTimeout: AI_TIMEOUT,
+            completionsEnabled: true
+        }
+        let completionsReady = false
+
+        debug('loading suggestion-source plugin...')
+        const plugin = {
+            type: 'node-red-flow-suggestion-source',
+            /**
+             * Get suggestions for the given context.
+             * @param {SuggestionSourceContext} context - The context to get suggestions for.
+             * @returns {Promise<Array<Suggestion>>} - A promise that resolves to an array of suggestions.
+             */
+            getSuggestions: async function (context) {
+                debug('getSuggestions', context)
+                if (!assistantOptions.enabled || !completionsReady) {
+                    return []
+                }
+                const { flow, source, sourcePort, sourcePortType, workspace } = context || {}
+                if (!context || typeof sourcePortType !== 'number' || !source || typeof sourcePort !== 'number' || !workspace) {
+                    // if the context is not valid or the source port type is an input port, we cannot provide suggestions
+                    return []
+                }
+                if (sourcePortType !== 0) {
+                    // For now, only allow predictions for output ports (sourcePortType 0 === source node output port)
+                    return []
+                }
+
+                // eslint-disable-next-line no-unused-vars
+                const [error, promise, _xhr] = await getNextPredictions(flow, source, sourcePortType, sourcePort)
+                if (error || !promise) {
+                    debug('Error getting next predictions...')
+                    debug(error)
+                    return []
+                }
+                const structuredContent = await promise
+                if (!structuredContent || !structuredContent.suggestions || structuredContent.suggestions.length === 0) {
+                    debug('No suggestions found in response for the context provided')
+                    return []
+                }
+
+                // Reformat the suggestions to match the expected format of the plugin
+                /** @type {Array<Suggestion>} */
+                const typeSearchSuggestions = structuredContent.suggestions.map(nodes => {
+                    if (Array.isArray(nodes) && nodes.length > 0) {
+                        return {
+                            label: nodes[0].type,
+                            nodes: nodes.map(node => {
+                                return { x: 0, y: 0, ...node }
+                            })
+                        }
+                    }
+                    return null
+                }).filter(s => s !== null)
+                debug('prediction', typeSearchSuggestions)
+                return typeSearchSuggestions || []
+            },
+            name: 'Node-RED Assistant Completions',
+            icon: 'font-awesome/fa-magic',
+            onadd: async function () {
+                if (!window.FFAssistantUtils) {
+                    console.warn('FFAssistantUtils lib is not loaded. Completions might not work as expected.')
+                }
+                RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
+                    debug('comms', topic, msg)
+                    if (topic === 'nr-assistant/initialise') {
+                        assistantOptions.enabled = !!msg?.enabled
+                        assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
+                        assistantOptions.completionsEnabled = msg?.completionsEnabled !== false
+                    }
+                    if (topic === 'nr-assistant/completions/ready') {
+                        completionsReady = !!msg?.enabled
+                        if (!completionsReady) {
+                            debug('Completions not enabled, cannot provide suggestions on node:add')
+                            return
+                        }
+                        debug('Completions are ready')
+                        let suggestionXhr = null
+                        const justAdded = {
+                            node: null,
+                            opts: null,
+                            sourcePort: null
+                        }
+
+                        const SKIP = 'skip'
+                        const CONTINUE = 'continue'
+                        const CONTINUE_NO_LINK_ADDED = 'continue-timeout'
+                        let linkAddedPromise = null
+                        let linkAddedResolve = null
+                        let linkAddedTimeout = null
+
+                        RED.events.on('nodes:add', async function (n, opts) {
+                            if (!completionsReady || !assistantOptions.enabled) {
+                                return
+                            }
+                            if (!opts || (opts.source !== 'palette' && opts.source !== 'typeSearch')) {
+                                return
+                            }
+                            debug('Adding node:', n, opts)
+                            // only support nodes with at least one output port
+                            if (!n.outputs || n.outputs < 1) {
+                                debug('Node does not have any outputs, skipping prediction')
+                                return
+                            }
+                            if (suggestionXhr) {
+                                debug('Aborting previous suggestionXhr')
+                                suggestionXhr.abort('abort')
+                                suggestionXhr = null
+                            }
+                            if (linkAddedResolve) {
+                                debug('Aborting previous linkAddedPromise')
+                                linkAddedResolve(SKIP)
+                                clearTimeout(linkAddedTimeout)
+                                linkAddedResolve = null
+                                linkAddedTimeout = null
+                            }
+
+                            // Store the node and options for later use
+                            justAdded.node = n
+                            justAdded.opts = opts
+                            justAdded.sourcePort = 0 // default to first output port
+
+                            // Create a promise that will be resolved by the links:add handler
+                            linkAddedPromise = new Promise((resolve) => {
+                                linkAddedResolve = resolve
+                                linkAddedTimeout = setTimeout(() => {
+                                    if (linkAddedResolve && linkAddedTimeout) {
+                                        justAdded.link = false
+                                        linkAddedResolve(CONTINUE_NO_LINK_ADDED)
+                                        linkAddedResolve = null
+                                    }
+                                }, 50)
+                            })
+                            // Wait for either the link to be added or a timeout
+                            const action = await linkAddedPromise
+                            clearTimeout(linkAddedTimeout)
+                            linkAddedPromise = null
+                            linkAddedResolve = null
+                            if (action === SKIP) {
+                                debug('linkAddedPromise skipped')
+                                return
+                            } else if (action === CONTINUE) {
+                                debug('linkAddedPromise continued')
+                            } else if (action === CONTINUE_NO_LINK_ADDED) {
+                                debug('linkAddedPromise continued after timeout')
+                            } else {
+                                console.warn('Unexpected action:', action)
+                            }
+
+                            const upstreamNodes = RED.nodes.getAllUpstreamNodes(justAdded.node)
+                            const nodes = [justAdded.node, ...upstreamNodes].reverse()
+                            if (suggestionXhr) {
+                                suggestionXhr.abort('abort')
+                                suggestionXhr = null
+                            }
+                            /** @type {[error:Error, prediction:Object, xhr:JQueryXHR]} */
+                            const predictResult = getNextPredictions(nodes, justAdded.node, justAdded.sourcePort)
+                            if (predictResult[0]) {
+                                console.warn('Error getting next predictions:', predictResult[0])
+                                return
+                            }
+                            // const predictResult = predictNext(nodes, justAdded.node, justAdded.sourcePort) // TODO: consider sourcePort!
+                            suggestionXhr = predictResult[0]
+                            const promise = predictResult[1]
+                            promise.then(result => {
+                                suggestionXhr = null // reset the xhr reference
+                                const suggestion = result.suggestions[0] // for now, we only take the first suggestion
+                                // e.g.
+                                // suggestion = { source: 'be4d6bc6b3dfc9e0', sourcePort: 0, nodes: [{ type: 'debug', id: '1234567890abcdef', x: 100, y: 200, z: 'flow-id' }] }
+                                const suggestionOptions = {
+                                    clickToApply: true,
+                                    source: justAdded.node,
+                                    sourcePort: justAdded.sourcePort || 0, // default to first output port
+                                    position: 'relative',
+                                    nodes: suggestion /* .map(normaliseNode) */ || []
+                                }
+                                debug('Prediction for next node:', suggestionOptions)
+                                RED.view.setSuggestedFlow(suggestionOptions)
+                            }).catch(error => {
+                                console.warn('Error predicting next node:', error)
+                            }).finally(() => {
+                                suggestionXhr = null // reset the xhr reference
+                                // reset the justAdded object
+                                justAdded.opts = null // reset the opts reference
+                                justAdded.node = null // reset the node reference
+                                justAdded.sourcePort = null // reset the sourcePort reference
+                                justAdded.link = null // reset the link reference
+                            })
+                        })
+                        RED.events.on('links:add', function (link) {
+                            if (!completionsReady || !assistantOptions.enabled) {
+                                return
+                            }
+                            if (!linkAddedPromise || !linkAddedResolve) {
+                                // no link added promise, so we can skip this
+                                debug('No link added promise, probably a wire up operation rather than a node:add->links:add combo. Just return!')
+                                return
+                            }
+                            if (!justAdded.opts || (justAdded.opts.source !== 'palette' && justAdded.opts.source !== 'typeSearch')) {
+                                console.warn('links:add fired but not from palette or type search. opts:', justAdded.opts)
+                                linkAddedResolve(SKIP)
+                                return
+                            }
+
+                            if (!justAdded.node) {
+                                debug('No node added, skipping prediction')
+                                linkAddedResolve(SKIP)
+                                return
+                            }
+                            if (link.source?.id !== justAdded.node.id && link.target?.id !== justAdded.node.id) {
+                                debug('Not the node we just added, skipping prediction')
+                                linkAddedResolve(SKIP)
+                                return
+                            }
+    
+                            // determine if this is a forward link (out-->in)
+                            if (link.source?.id === justAdded.node.id) {
+                                debug('This is a reverse link (in-->out), skipping prediction')
+                                linkAddedResolve(SKIP)
+                                return
+                            }
+                            // If we get here, the link is relevant, so resolve the promise
+                            if (justAdded.link === null) {
+                                justAdded.link = link // store the link for later use
+                            }
+                            linkAddedResolve(CONTINUE)
+                        })
+                    }
+                })
+            }
+        }
+        RED.plugins.registerPlugin('ff-assistant-completions', plugin)
+
+        function getNextPredictions (flow, sourceNode, sourcePortType, sourcePort = 0) {
+            if (!assistantOptions.enabled) {
+                const error = new Error(RED.notify(plugin._('errors.assistant-not-enabled')))
+                return [error, Promise.resolve(null)]
+            }
+            // only allow predictions for output ports (sourcePortType === 0 (source node output port))
+            if (!sourceNode || sourceNode.length === 0 || sourcePortType !== 0) {
+                return [null, Promise.resolve(null)]
+            }
+
+            const { nodes } = FFAssistantUtils.cleanNodes(flow)
+
+            /** @type {JQueryXHR} */
+            let xhr = null
+            const url = 'nr-assistant/mcp/tools/predict_next' // e.g. 'nr-assistant/json'
+            const transactionId = generateId(8) + '-' + Date.now() // a unique id for this transaction
+            const data = {
+                transactionId,
+                flow: nodes,
+                sourceNode: FFAssistantUtils.cleanNode(sourceNode) || {},
+                sourcePort,
+                flowName: '', // FUTURE: include the parent flow name in the context to aid with the explanation
+                userContext: '' // FUTURE: include user textual input context for more personalized explanations
+            }
+
+            const promise = new Promise((resolve, reject) => {
+                xhr = $.ajax({
+                    url,
+                    type: 'POST',
+                    data,
+                    timeout: assistantOptions.requestTimeout,
+                    success: (reply, textStatus, jqXHR) => {
+                        // busyNotification.close()
+                        if (reply?.error) {
+                            debug('predictNext -> ajax -> error', reply.error)
+                            return resolve(null)
+                        }
+
+                        try {
+                            if (typeof reply.data !== 'object' || !reply.data) {
+                                debug('Invalid reply data', reply.data)
+                                return resolve(null)
+                            }
+                            const { result, ...replyData } = reply.data
+                            if (!result || replyData.transactionId !== transactionId) {
+                                debug('Prediction transaction ID mismatch', result, transactionId)
+                                return resolve(null)
+                            }
+                            if (!result || !result.structuredContent || !result.structuredContent.suggestions || Array.isArray(result.structuredContent.suggestions) === false || result.structuredContent.suggestions.length === 0) {
+                                debug('No result text in reply', reply.data)
+                                return resolve(null)
+                            }
+                            return resolve(result.structuredContent)
+                        } catch (error) {
+                            console.warn('Error processing prediction response', error)
+                            resolve(null)
+                        }
+                    },
+                    error: (jqXHR, textStatus, errorThrown) => {
+                        // console.log('explainSelectedNodes -> ajax -> error', jqXHR, textStatus, errorThrown)
+                        // busyNotification.close()
+                        if (textStatus === 'abort' || errorThrown === 'abort' || jqXHR.statusText === 'abort') {
+                            // user cancelled
+                            return
+                        }
+                        resolve(null) // resolve with null to indicate no prediction
+                    },
+                    complete: function () {
+                        xhr = null
+                        // busyNotification.close()
+                    }
+                })
+            })
+            return [null, promise, xhr]
+        }
+
+        function generateId (length = 16) {
+            if (typeof length !== 'number' || length < 1) {
+                throw new Error('Invalid length')
+            }
+            const iterations = Math.ceil(length / 2)
+            const bytes = []
+            for (let i = 0; i < iterations; i++) {
+                bytes.push(Math.round(0xff * Math.random()).toString(16).padStart(2, '0'))
+            }
+            return bytes.join('').substring(0, length)
+        }
+
+        function debug () {
+            if (RED.nrAssistant?.DEBUG) {
+                // eslint-disable-next-line no-console
+                console.log('[nr-assistant]', ...arguments)
+            }
+        }
+    }(RED, $))
+</script>
