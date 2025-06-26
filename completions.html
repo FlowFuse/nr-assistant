@@ -44,10 +44,12 @@
                 const { flow, source, sourcePort, sourcePortType, workspace } = context || {}
                 if (!context || typeof sourcePortType !== 'number' || !source || typeof sourcePort !== 'number' || !workspace) {
                     // if the context is not valid or the source port type is an input port, we cannot provide suggestions
+                    debug('Invalid context or source port type, cannot provide suggestions')
                     return []
                 }
                 if (sourcePortType !== 0) {
                     // For now, only allow predictions for output ports (sourcePortType 0 === source node output port)
+                    debug('Source port type is not an output port, reverse suggestions are not supported')
                     return []
                 }
 
@@ -115,6 +117,7 @@
                         let linkAddedTimeout = null
 
                         RED.events.on('nodes:add', async function (n, opts) {
+                            debug('nodes:add', n, opts)
                             if (!completionsReady || !assistantOptions.enabled) {
                                 return
                             }
@@ -213,6 +216,7 @@
                             })
                         })
                         RED.events.on('links:add', function (link) {
+                            debug('nodes:add -> links:add', link)
                             if (!completionsReady || !assistantOptions.enabled) {
                                 return
                             }
