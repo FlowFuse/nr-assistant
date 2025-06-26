@@ -126,7 +126,7 @@
                             if (!completionsReady || !assistantOptions.enabled) {
                                 return
                             }
-                            if (!opts || (opts.source !== 'palette' && opts.source !== 'typeSearch')) {
+                            if (!opts || (opts.source !== 'palette' && opts.source !== 'typeSearch') || opts.splice === true) {
                                 return
                             }
                             debug('Adding node:', n, opts)
