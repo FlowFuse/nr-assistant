@@ -26,6 +26,7 @@
             requestTimeout: AI_TIMEOUT,
             completionsEnabled: true
         }
+        let mcpReady = false
         let completionsReady = false
 
         debug('loading suggestion-source plugin...')
@@ -38,7 +39,7 @@
              */
             getSuggestions: async function (context) {
                 debug('getSuggestions', context)
-                if (!assistantOptions.enabled || !completionsReady) {
+                if (!assistantOptions.enabled || !mcpReady) {
                     return []
                 }
                 const { flow, source, sourcePort, sourcePortType, workspace } = context || {}
@@ -95,8 +96,12 @@
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.completionsEnabled = msg?.completionsEnabled !== false
                     }
+                    if (topic === 'nr-assistant/mcp/ready') {
+                        mcpReady = !!msg?.enabled
+                    }
                     if (topic === 'nr-assistant/completions/ready') {
                         completionsReady = !!msg?.enabled
+                        mcpReady = mcpReady || completionsReady // if completions are ready, MCP definitely is ready
                         if (!completionsReady) {
                             debug('Completions not enabled, cannot provide suggestions on node:add')
                             return

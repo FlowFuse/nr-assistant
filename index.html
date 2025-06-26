@@ -27,7 +27,7 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
-        let assistantMCPOneTimeFlag = false
+        let mcpReady = false
         debug('loading...')
         const plugin = {
             type: 'assistant',
@@ -46,9 +46,9 @@
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
-                    if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
-                        assistantMCPOneTimeFlag = true
-                        if (assistantOptions.enabled) {
+                    if (topic === 'nr-assistant/mcp/ready') {
+                        mcpReady = !!msg?.enabled && assistantOptions.enabled
+                        if (mcpReady) {
                             debug('assistant MCP initialised')
                             RED.actions.add('flowfuse-nr-assistant:explain-flows', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:explain-flows.action.label' })
                             const menuEntry = {
