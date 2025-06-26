@@ -69,7 +69,7 @@
                 const typeSearchSuggestions = structuredContent.suggestions.map(nodes => {
                     if (Array.isArray(nodes) && nodes.length > 0) {
                         return {
-                            label: nodes[0].type,
+                            label: '', // let core handle the label
                             nodes: nodes.map(node => {
                                 return { x: 0, y: 0, ...node }
                             })
