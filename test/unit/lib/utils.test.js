@@ -3,7 +3,7 @@
 const should = require('should')
 const { tryJsonParse, hasProperty, isObject } = require('../../../lib/utils')
 
-describe('utils.js', function () {
+describe('utils', function () {
     describe('tryJsonParse', function () {
         it('should parse valid JSON string', function () {
             tryJsonParse('{"a":1}').should.deepEqual({ a: 1 })
