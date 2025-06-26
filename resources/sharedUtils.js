@@ -24,6 +24,21 @@
     'use strict'
 
     /**
+     * Cleans a node by removing internal properties and circular references when it is a group containing child nodes.
+     * @param {Array} nodeArray - The array of nodes to clean
+     * @returns {{nodes: Array, totalNodeCount: number}} - The cleaned nodes and the total node count
+     */
+    function cleanNode (node) {
+        if (!node || typeof node !== 'object' || !node.id) {
+            return null
+        }
+        const cleaned = cleanNodes([node])
+        if (!cleaned || !cleaned.nodes || cleaned.nodes.length === 0) {
+            return null
+        }
+        return cleaned.nodes[0] // return the first (and only) cleaned node
+    }
+    /**
      * Cleans the nodes array by removing internal properties and circular references.
      * @param {Array} nodeArray - The array of nodes to clean
      * @returns {{nodes: Array, totalNodeCount: number}} - The cleaned nodes and the total node count
@@ -65,5 +80,5 @@
             totalNodeCount
         }
     }
-    return { cleanNodes }
+    return { cleanNode, cleanNodes }
 }))
