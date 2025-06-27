@@ -19,15 +19,19 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 * HTML, VUE, and CSS generation in FlowFuse Dashboard ui-template nodes
 
 ### Function Builder
-![flowfuse-assistant-function builder](https://github.com/user-attachments/assets/5efc4c24-a4e6-4d0c-b836-aebf97d3ca02)
-
+![flowfuse-assistant-assistant-builder](https://github.com/user-attachments/assets/6520eeaf-83f5-466e-ad32-6b4ae1d62954)
 
 ### JSON generator
-![flowfuse-assistant-json-generator](https://github.com/user-attachments/assets/d3271f64-a733-48dd-924b-0a946b9a6e7f)
-
+![flowfuse-assistant-json-generator](https://github.com/user-attachments/assets/9d4bf3ef-7ea8-4e72-9e04-73712d5323e3)
 
 ### Flows Explainer
-![flowfuse-assistant-flow-explainer](https://github.com/user-attachments/assets/3a8c17bb-066b-4264-9ad1-3a031bd2afee)
+![flowfuse-assistant-flow-explainer](https://github.com/user-attachments/assets/20f5490f-469f-4f95-b63c-cdf216139bd0)
+
+### FlowFuse Dashboard UI Template Assistant
+![flowfuse-assistant-ui-template](https://github.com/user-attachments/assets/c6810553-40c0-429e-aa6b-039317b1dc30)
+
+### FlowFuse Dashboard UI CSS Assistant
+![flowfuse-assistant-css](https://github.com/user-attachments/assets/fea87030-294e-4bce-a9ce-146249ee0459)
 
 
 ## Installation
