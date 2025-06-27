@@ -16,6 +16,7 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 * Function node Code Lens
 * JSON generation in all typed inputs and JSON editors (like the inject node, change node, template node, etc)
 * Flows Explainer
+* HTML, VUE, and CSS generation in FlowFuse Dashboard ui-template nodes
 
 ### Function Builder
 ![flowfuse-assistant-function builder](https://github.com/user-attachments/assets/5efc4c24-a4e6-4d0c-b836-aebf97d3ca02)
