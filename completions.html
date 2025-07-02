@@ -98,10 +98,31 @@
                     }
                     if (topic === 'nr-assistant/mcp/ready') {
                         mcpReady = !!msg?.enabled
+                        // Since the frontend has now obviously loaded, lets signal the backend to load the models.
+                        // For this, we will use the newer RED.comms.send API (`comms.send` API was created before
+                        //  the `suggestions` API so, if the `send` function is not available, we can assume the
+                        // suggestions API is not available - i.e. dont bother sending the request to load completions
+                        // since the lack of `send` means the backend doesnt have the suggestions API!
+                        if (RED.comms.send) {
+                            debug('sending initialise request to backend')
+                            RED.comms.send('nr-assistant/completions/load', {
+                                enabled: assistantOptions.enabled,
+                                mcpReady
+                            })
+                        } else {
+                            console.warn('RED.comms.send is not available, cannot initialise completions')
+                        }
                     }
                     if (topic === 'nr-assistant/completions/ready') {
+                        // This event is fired only after MCP has loaded and the "nr-assistant/mcp/ready" event has
+                        // been received by the frontend. That triggers the `nr-assistant/completions/load` event
+                        // to signal to the backend to request and load completion data (model/vocab etc).
+                        // This is done to avoid loading the completions unnecessarily (i.e. if the MCP is not
+                        // enabled/ready/supported, we don't need to load the completions!) Also, for times when many
+                        // instances restart (pipeline activities), we don't want to load the completions down
+                        // to potentially 1000s of instances when most of them may never even open the frontend
+                        // where these completions are actually used!
                         completionsReady = !!msg?.enabled
-                        mcpReady = mcpReady || completionsReady // if completions are ready, MCP definitely is ready
                         if (!completionsReady) {
                             debug('Completions not enabled, cannot provide suggestions on node:add')
                             return
