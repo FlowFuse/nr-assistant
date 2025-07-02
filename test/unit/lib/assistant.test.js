@@ -3,11 +3,26 @@
 // eslint-disable-next-line no-unused-vars
 const should = require('should')
 const sinon = require('sinon')
+const EventEmitter = require('events')
 
 const RED = {
     comms: {
-        publish: sinon.stub().resolves()
+        publish: sinon.stub().callsFake((topic, msg, retain) => {
+            // Simulate the front end receiving the message
+            if (topic === 'nr-assistant/mcp/ready') {
+                // front end would normally call RED.events.emit('nr-assistant/completions/load', msg)
+                // simulate that here with a suitable FE->BE delay
+                setTimeout(() => {
+                    RED.events.emit('comms:message:nr-assistant/completions/load', {
+                        enabled: msg._fakeEnabled || false,
+                        mcpReady: !!msg?.enabled
+                    })
+                }, 20)
+            }
+            RED.events.emit(`test-echo:${topic}`, msg)
+        })
     },
+    events: new EventEmitter(),
     log: {
         debug: sinon.stub(),
         error: sinon.stub(),
@@ -110,6 +125,7 @@ describe('assistant', () => {
         RED.comms.publish.resetHistory()
         RED.log.info.resetHistory()
         RED.log.error.resetHistory()
+        RED.events.removeAllListeners() // clear any event listeners
         assistant = null
     })
 
@@ -122,7 +138,16 @@ describe('assistant', () => {
 
     it('should initialize with valid settings', async () => {
         const options = { ...RED.settings.flowforge.assistant }
+        const waitForCompletionsReady = new Promise(resolve => {
+            RED.events.on('test-echo:nr-assistant/completions/ready', (msg) => resolve())
+        })
+
         await assistant.init(RED, options)
+
+        // simulate the frontend calling RED.comms.send('nr-assistant/completions/load', {})
+        RED.events.emit('comms:message:nr-assistant/completions/load', {})
+        await waitForCompletionsReady
+
         assistant.isInitialized.should.be.true()
         assistant.isLoading.should.be.false()
 
@@ -271,17 +296,18 @@ describe('assistant', () => {
             // make got get throw a got ECONNREFUSED error
             get: sinon.stub().rejects(new Error('ECONNREFUSED'))
         }
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
         // unstub _loadTensorFlowVocabulary and let it attempt to load the vocabulary (got.get will throw)
         assistant._loadTensorFlowVocabulary.restore()
         await assistant.init(RED, options)
+        // simulate the frontend calling RED.comms.send('nr-assistant/completions/load', {})
+        RED.events.emit('comms:message:nr-assistant/completions/load', {})
+        // wait long enough for loadCompletions to fail due to the above mocked ECONNREFUSED error
+        await sleep(100)
+        RED.log.warn.calledWith('FlowFuse Assistant Advanced Completions could not be loaded.').should.be.true()
 
         assistant.loadCompletions.calledOnce.should.be.true()
         should.not.exist(assistant._completionsVocabulary)
-
-        // Check the messages
-        RED.log.info.calledWith('FlowFuse Assistant Model Context Protocol (MCP) loaded').should.be.true()
-        RED.log.warn.calledWith('FlowFuse Assistant Completions could not be loaded and will not be available').should.be.true()
-        RED.log.info.calledWith('FlowFuse Assistant Plugin loaded (reduced functionality)').should.be.true()
 
         // the RED.comms.publish('nr-assistant/completions/ready') should not be called
         RED.comms.publish.calledTwice.should.be.true()
