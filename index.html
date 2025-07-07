@@ -997,7 +997,7 @@
                                                 showNotification('Copied to clipboard', { type: 'success' })
                                             }).catch((err) => {
                                                 console.warn('Failed to copy to clipboard', err)
-                                                showNotification('Failed to copy to clipboard', { type: 'error' })
+                                                showNotification(plugin._('errors.copy-failed'), { type: 'error' })
                                             })
                                         }
                                     }
@@ -1013,7 +1013,7 @@
                                         click: function () {
                                             const commentNode = {
                                                 type: 'comment',
-                                                name: 'FlowFuse Assistant Explanation',
+                                                name: plugin._('explain-flows.dialog-result.comment-node-name'),
                                                 info: text
                                             }
                                             importFlow(commentNode, false, 'Drop the generated comment node onto the workspace')
@@ -1030,7 +1030,7 @@
                         dlg = showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), 'html', options)
                     } catch (error) {
                         console.warn('Error rendering reply', error)
-                        showNotification('Sorry, something went wrong, please try again', { type: 'error' })
+                        showNotification(plugin._('errors.something-went-wrong'), { type: 'error' })
                     }
                 },
                 error: (jqXHR, textStatus, errorThrown) => {
