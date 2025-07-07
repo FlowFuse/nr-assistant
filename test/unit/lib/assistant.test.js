@@ -37,8 +37,8 @@ const RED = {
                 token: 'test-token',
                 completions: {
                     enabled: true,
-                    modelUrl: 'http://localhost:8080/tfjs_export_api_converted_from_memory/model.json',
-                    vocabularyUrl: 'http://localhost:8080/vocabulary.json'
+                    modelUrl: 'http://localhost:8081/v1/api/assets/completions/model.onnx',
+                    vocabularyUrl: 'http://localhost:8081/v1/api/assets/completions/vocabulary.json'
                 }
             }
         }
@@ -83,6 +83,8 @@ const RED = {
 describe('assistant', () => {
     /** @type {import('../../../lib/assistant.js')} */
     let assistant
+    /** @type {import('got').Got} */
+    let fakeGot
 
     beforeEach(() => {
         // first, delete the cached assistant module
@@ -91,31 +93,55 @@ describe('assistant', () => {
         assistant = require('../../../lib/assistant.js')
 
         // mock things that are not needed for these tests
-        sinon.stub(assistant, '_loadTensorFlow').callsFake(() => {
-            assistant._tf = {
-                loadLayersModel: sinon.stub().resolves({
-                    predict: sinon.stub().returns({
-                        dataSync: () => [0.1, 0.9, 0.8]
+        sinon.stub(assistant, '_loadMlRuntime').callsFake(() => {
+            assistant._ort = {
+                InferenceSession: {
+                    create: sinon.stub().resolves({
+                        run: sinon.stub().resolves({
+                            probabilities: {
+                                cpuData: () => new Float32Array([0.1, 0.9, 0.8]) // mock probabilities
+                            }
+                        })
                     })
-                }),
-                tensor: sinon.stub().returns({
-                    dataSync: () => []
+                },
+                Tensor: sinon.stub().callsFake((type, data, shape) => {
+                    return {
+                        type,
+                        data,
+                        shape,
+                        cpuData: () => data // simulate cpuData returning the original data
+                    }
                 })
             }
-            return Promise.resolve(assistant._tf)
-        })
-        sinon.stub(assistant, '_loadTensorFlowVocabulary').callsFake(() => {
-            assistant._completionsVocabulary = {
-                labelToId: { inject: 'id1', function: 'id2', debug: 'id3' },
-                idToLabel: { id1: 'inject', id2: 'function', id3: 'debug' }
-            }
-            return Promise.resolve(assistant._completionsVocabulary)
+            return Promise.resolve(assistant._ort)
         })
 
-        // spys
-        sinon.spy(assistant, '_loadTensorFlowModel')
+        fakeGot = sinon.stub().callsFake((url, options) => {
+            let value = null
+            if (url.endsWith('vocabulary.json')) {
+                value = {
+                    input_features: ['A', 'B', 'C'],
+                    classifications: ['X', 'Y', 'Z'],
+                    core_nodes: ['A', 'B', 'C']
+                }
+                if (options.responseType === 'buffer') {
+                    value = Buffer.from(JSON.stringify(value)) // simulate a valid vocabulary file
+                }
+            } else if (url.endsWith('model.onnx')) {
+                value = Buffer.from('fake model data') // simulate a valid model file
+            } else {
+                throw new Error(`Unexpected URL: ${url}`)
+            }
+            return {
+                body: value
+            }
+        })
+        fakeGot.get = fakeGot // simulate the got module's get method
+
+        // spies
         sinon.spy(assistant, 'loadMCP')
         sinon.spy(assistant, 'loadCompletions')
+        sinon.spy(assistant, '_loadCompletionsLabels')
     })
 
     afterEach(() => {
@@ -138,6 +164,7 @@ describe('assistant', () => {
 
     it('should initialize with valid settings', async () => {
         const options = { ...RED.settings.flowforge.assistant }
+        options.got = fakeGot // use the mocked got function
         const waitForCompletionsReady = new Promise(resolve => {
             RED.events.on('test-echo:nr-assistant/completions/ready', (msg) => resolve())
         })
@@ -151,17 +178,16 @@ describe('assistant', () => {
         assistant.isInitialized.should.be.true()
         assistant.isLoading.should.be.false()
 
-        assistant._loadTensorFlow.calledOnce.should.be.true()
-        assistant._tf.loadLayersModel.calledOnce.should.be.true()
-        assistant._tf.should.be.an.Object()
-        assistant._completionsModel.should.be.an.Object()
+        assistant._loadMlRuntime.calledOnce.should.be.true()
+        assistant._ort.InferenceSession.create.calledOnce.should.be.true()
+        assistant._completionsSession.should.be.an.Object()
+        assistant._completionsSession.run.should.be.a.Function()
 
-        assistant._loadTensorFlowVocabulary.calledOnce.should.be.true()
-        assistant._completionsVocabulary.should.be.an.Object()
-        assistant._completionsVocabulary.labelToId.should.be.an.Object()
-        assistant._completionsVocabulary.idToLabel.should.be.an.Object()
-        assistant._completionsVocabulary.labelToId.should.have.keys('inject', 'function', 'debug')
-        assistant._completionsVocabulary.idToLabel.should.have.keys('id1', 'id2', 'id3')
+        assistant._loadCompletionsLabels.calledOnce.should.be.true()
+        assistant.labeller.should.be.an.Object()
+        assistant.labeller.inputFeatureLabels.should.be.an.Array()
+        assistant.labeller.classifierLabels.should.be.an.Array()
+        assistant.labeller.nodeLabels.should.be.an.Array()
 
         RED.comms.publish.calledThrice.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
@@ -292,13 +318,11 @@ describe('assistant', () => {
 
     it('should continue to finish loading but with degraded functionality if the model is unavailable', async () => {
         const options = { ...RED.settings.flowforge.assistant, enabled: true }
-        options.got = {
-            // make got get throw a got ECONNREFUSED error
-            get: sinon.stub().rejects(new Error('ECONNREFUSED'))
-        }
+        options.got = sinon.stub().rejects(new Error('ECONNREFUSED'))
+        options.got.get = options.got // simulate the got module's get method
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
-        // unstub _loadTensorFlowVocabulary and let it attempt to load the vocabulary (got.get will throw)
-        assistant._loadTensorFlowVocabulary.restore()
+
+        assistant._loadCompletionsLabels.resetHistory()
         await assistant.init(RED, options)
         // simulate the frontend calling RED.comms.send('nr-assistant/completions/load', {})
         RED.events.emit('comms:message:nr-assistant/completions/load', {})
@@ -307,7 +331,7 @@ describe('assistant', () => {
         RED.log.warn.calledWith('FlowFuse Assistant Advanced Completions could not be loaded.').should.be.true()
 
         assistant.loadCompletions.calledOnce.should.be.true()
-        should.not.exist(assistant._completionsVocabulary)
+        should.not.exist(assistant.labeller)
 
         // the RED.comms.publish('nr-assistant/completions/ready') should not be called
         RED.comms.publish.calledTwice.should.be.true()
