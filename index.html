@@ -972,11 +972,65 @@
                     }
 
                     try {
-                        const text = reply.data || 'No reply from server'
-                        showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), 'html', {})
+                        const text = reply.data
+                        let dlg = null
+                        const options = {
+                            buttons: [{
+                                text: plugin._('explain-flows.dialog-result.close-button'),
+                                icon: 'ui-icon-close',
+                                class: 'primary',
+                                click: function () {
+                                    $(dlg).dialog('close')
+                                }
+                            }]
+                        }
+                        if (text && text.length > 0) {
+                            // if copy to clipboard is supported, add a button to copy the text
+                            const isHttpsOrLocalhost = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+                            if (isHttpsOrLocalhost && navigator.clipboard && navigator.clipboard.writeText) {
+                                options.buttons.unshift(
+                                    {
+                                        text: plugin._('explain-flows.dialog-result.copy-button'),
+                                        icon: 'ui-icon-copy',
+                                        click: function () {
+                                            navigator.clipboard.writeText(text).then(() => {
+                                                showNotification('Copied to clipboard', { type: 'success' })
+                                            }).catch((err) => {
+                                                console.warn('Failed to copy to clipboard', err)
+                                                showNotification(plugin._('errors.copy-failed'), { type: 'error' })
+                                            })
+                                        }
+                                    }
+                                )
+                            }
+                            const isLocked = typeof RED.workspaces.isLocked === 'function' && RED.workspaces.isLocked()
+                            if (!isLocked) {
+                                options.buttons.unshift(
+                                    {
+                                        text: plugin._('explain-flows.dialog-result.comment-node-button'),
+                                        icon: 'ui-icon-comment',
+                                        // class: 'primary',
+                                        click: function () {
+                                            const commentNode = {
+                                                type: 'comment',
+                                                name: plugin._('explain-flows.dialog-result.comment-node-name'),
+                                                info: text
+                                            }
+                                            importFlow(commentNode, false, 'Drop the generated comment node onto the workspace')
+                                            $(dlg).dialog('close')
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        if (!text || text.length === 0) {
+                            showNotification('Sorry, no explanation could be generated.', { type: 'warning' })
+                            return
+                        }
+                        dlg = showMessage(plugin._('explain-flows.dialog-result.title'), RED.utils.renderMarkdown(text), 'html', options)
                     } catch (error) {
                         console.warn('Error rendering reply', error)
-                        showNotification('Sorry, something went wrong, please try again', { type: 'error' })
+                        showNotification(plugin._('errors.something-went-wrong'), { type: 'error' })
                     }
                 },
                 error: (jqXHR, textStatus, errorThrown) => {
@@ -1122,7 +1176,7 @@
             return notification
         }
 
-        function importFlow (flow, addFlow) {
+        function importFlow (flow, addFlow, notificationMessage = 'Drop the generated node onto the workspace') {
             if (RED.workspaces.isLocked && RED.workspaces.isLocked()) {
                 addFlow = true // force import to create a new tab
             }
@@ -1142,7 +1196,9 @@
                     }
                 }
                 const importOptions = { generateIds: true, addFlow }
-                RED.notify('Place your generated flow onto the workspace', 'compact')
+                if (notificationMessage) {
+                    RED.notify(notificationMessage, 'compact')
+                }
                 RED.view.importNodes(newNodes, importOptions)
             } catch (error) {
                 // console.log(error)

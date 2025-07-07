@@ -25,7 +25,7 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 ![flowfuse-assistant-json-generator](https://github.com/user-attachments/assets/9d4bf3ef-7ea8-4e72-9e04-73712d5323e3)
 
 ### Flows Explainer
-![flowfuse-assistant-flow-explainer](https://github.com/user-attachments/assets/20f5490f-469f-4f95-b63c-cdf216139bd0)
+![flowfuse-assistant-flow-explainer](https://github.com/user-attachments/assets/6b631048-392b-4028-be8c-bc50f1398a17)
 
 ### FlowFuse Dashboard UI Template Assistant
 ![flowfuse-assistant-ui-template](https://github.com/user-attachments/assets/c6810553-40c0-429e-aa6b-039317b1dc30)

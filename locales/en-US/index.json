@@ -24,7 +24,11 @@
             "description": "Explain the selected nodes"
         },
         "dialog-result": {
-            "title": "FlowFuse Assistant: Explain Flows"
+            "title": "FlowFuse Assistant: Explain Flows",
+            "copy-button": "Copy",
+            "close-button": "Close",
+            "comment-node-button": "Comment Node",
+            "comment-node-name": "FlowFuse Assistant Explanation"
         },
         "errors": {
             "no-nodes-selected": "No nodes selected. Please select one or more nodes to explain.",
@@ -35,6 +39,8 @@
         "busy": "Busy processing your request. Please wait..."
     },
     "errors":{
-        "assistant-not-enabled": "The FlowFuse Assistant is not enabled"
+        "assistant-not-enabled": "The FlowFuse Assistant is not enabled",
+        "copy-failed": "Failed to copy to clipboard",
+        "something-went-wrong": "Something went wrong. Please try again later."
     }
 }
