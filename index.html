@@ -1,4 +1,7 @@
+<script src="/resources/@flowfuse/nr-assistant/sharedUtils.js"></script>
 <script>
+    /* global FFAssistantUtils */ /* loaded from sharedUtils.js */
+    /* global RED, $ */ /* loaded from Node-RED core */
     (function (RED, n) {
         'use strict'
 
@@ -24,13 +27,16 @@
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
-        let assistantMCPOneTimeFlag = false
+        let mcpReady = false
         debug('loading...')
         const plugin = {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
             onadd: async function () {
+                if (!window.FFAssistantUtils) {
+                    console.warn('FFAssistantUtils lib is not loaded. Completions might not work as expected.')
+                }
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
                     if (topic === 'nr-assistant/initialise') {
@@ -40,9 +46,9 @@
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
-                    if (topic === 'nr-assistant/mcp/ready' && !assistantMCPOneTimeFlag) {
-                        assistantMCPOneTimeFlag = true
-                        if (assistantOptions.enabled) {
+                    if (topic === 'nr-assistant/mcp/ready') {
+                        mcpReady = !!msg?.enabled && assistantOptions.enabled
+                        if (mcpReady) {
                             debug('assistant MCP initialised')
                             RED.actions.add('flowfuse-nr-assistant:explain-flows', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:explain-flows.action.label' })
                             const menuEntry = {
@@ -927,19 +933,12 @@
                 RED.notify(plugin._('explain-flows.errors.no-nodes-selected'), 'warning')
                 return
             }
-            if (selection.nodes.length > 100) { // TODO: increase or make configurable
+
+            const { flow: nodes, nodeCount: totalNodeCount } = FFAssistantUtils.cleanFlow(selection.nodes)
+
+            if (totalNodeCount > 100) { // TODO: increase or make configurable
                 RED.notify(plugin._('explain-flows.errors.too-many-nodes-selected'), 'warning')
                 return
-            }
-
-            const nodes = []
-            for (const node of selection.nodes) {
-                const n = { ...node }
-                delete n._
-                delete n._def
-                delete n._config
-                delete n.validationErrors
-                nodes.push(n)
             }
 
             /** @type {JQueryXHR} */
@@ -1276,7 +1275,7 @@
          * @param {string} action - The action to set the shortcut for (e.g. 'flowfuse-nr-assistant:function-builder')
          */
         function setMenuShortcutKey (id, scope, key, action) {
-            console.warn('setMenuShortcutKey')
+            debug('setMenuShortcutKey')
             if (!scope || !key || !action) {
                 console.warn('setMenuShortcutKey called with missing parameters', { scope, key, action })
                 return
@@ -1300,7 +1299,7 @@
             const actionItem = $('#' + id + ' > span > span.red-ui-menu-label')
             const hasPopoverSpan = actionItem.find('span.red-ui-popover-key').length > 0
             if (!hasPopoverSpan) {
-                console.warn('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
+                debug('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
                 actionItem.append('<span class="red-ui-popover-key"></span>')
             }
             RED.menu.refreshShortcuts()
