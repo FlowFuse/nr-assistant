@@ -35,6 +35,9 @@ const RED = {
                 enabled: true,
                 url: 'http://localhost:8080/assistant',
                 token: 'test-token',
+                mcp: {
+                    enabled: true
+                },
                 completions: {
                     enabled: true,
                     modelUrl: 'http://localhost:8081/v1/api/assets/completions/model.onnx',
@@ -162,8 +165,10 @@ describe('assistant', () => {
         assistant.isLoading.should.be.false()
     })
 
-    it('should initialize with valid settings', async () => {
+    it('should initialize with valid default settings', async () => {
         const options = { ...RED.settings.flowforge.assistant }
+        delete options.mcp // simulate MCP settings not being present - to test defaulting to enabled
+        delete options.completions // simulate completions settings not being present - to test defaulting to enabled
         options.got = fakeGot // use the mocked got function
         const waitForCompletionsReady = new Promise(resolve => {
             RED.events.on('test-echo:nr-assistant/completions/ready', (msg) => resolve())
