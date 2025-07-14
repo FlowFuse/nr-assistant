@@ -247,7 +247,7 @@
                             })
                         })
                         RED.events.on('links:add', function (link) {
-                            debug('nodes:add -> links:add', link)
+                            debug('links:add', link)
                             if (!completionsReady || !assistantOptions.enabled) {
                                 return
                             }
@@ -256,8 +256,8 @@
                                 debug('No link added promise, probably a wire up operation rather than a node:add->links:add combo. Just return!')
                                 return
                             }
-                            if (!justAdded.opts || (justAdded.opts.source !== 'palette' && justAdded.opts.source !== 'typeSearch')) {
-                                console.warn('links:add fired but not from palette or type search. opts:', justAdded.opts)
+                            if (!justAdded.opts || (justAdded.opts.source !== 'palette' && justAdded.opts.source !== 'typeSearch' && justAdded.opts.source !== 'suggestion')) {
+                                debug('links:add fired but not from palette or type search. opts:', justAdded.opts)
                                 linkAddedResolve(SKIP)
                                 return
                             }
@@ -291,6 +291,14 @@
         }
         RED.plugins.registerPlugin('ff-assistant-completions', plugin)
 
+        /**
+         * Get the next predictions for the given flow and source node.
+         * @param {Array} flow - The current flow
+         * @param {Object} sourceNode - The source node that the prediction is being requested for
+         * @param {number} sourcePortType - The type of the source port (0 for output port, 1 for input port)
+         * @param {number} [sourcePort=0] - The port of the source node that the prediction is being requested for
+         * @return {[Error|null, Promise<Object|null>, JQueryXHR|null]} - An array containing an error (if any), a promise that resolves with the prediction result, and the XHR object for the request that permits aborting the request if needed
+         */
         function getNextPredictions (flow, sourceNode, sourcePortType, sourcePort = 0) {
             if (!assistantOptions.enabled) {
                 const error = new Error(RED.notify(plugin._('errors.assistant-not-enabled')))
