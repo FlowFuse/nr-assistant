@@ -147,15 +147,6 @@
                             if (!completionsReady || !assistantOptions.enabled) {
                                 return
                             }
-                            if (!opts || (opts.source !== 'palette' && opts.source !== 'typeSearch') || opts.splice === true) {
-                                return
-                            }
-                            debug('Adding node:', n, opts)
-                            // only support nodes with at least one output port
-                            if (!n.outputs || n.outputs < 1) {
-                                debug('Node does not have any outputs, skipping prediction')
-                                return
-                            }
                             if (suggestionXhr) {
                                 debug('Aborting previous suggestionXhr')
                                 suggestionXhr.abort('abort')
@@ -167,6 +158,16 @@
                                 clearTimeout(linkAddedTimeout)
                                 linkAddedResolve = null
                                 linkAddedTimeout = null
+                            }
+                            // only support nodes with at least one output port
+                            if (!n.outputs || n.outputs < 1) {
+                                debug('Node does not have any outputs, skipping prediction')
+                                return
+                            }
+                            // if the opts are not provided or the source is not palette, typeSearch, or suggestion skip the prediction
+                            if (!opts || (opts.source !== 'palette' && opts.source !== 'typeSearch' && opts.source !== 'suggestion') || opts.splice === true) {
+                                debug('opts not valid for prediction, skipping')
+                                return
                             }
 
                             // Store the node and options for later use
