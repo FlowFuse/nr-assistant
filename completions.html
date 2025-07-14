@@ -215,8 +215,8 @@
                                 return
                             }
                             // const predictResult = predictNext(nodes, justAdded.node, justAdded.sourcePort) // TODO: consider sourcePort!
-                            suggestionXhr = predictResult[0]
-                            const promise = predictResult[1]
+                            const promise = predictResult[1] // the promise that resolves with the prediction result
+                            suggestionXhr = predictResult[2] // the xhr reference is used to abort the request if needed
                             promise.then(result => {
                                 suggestionXhr = null // reset the xhr reference
                                 const suggestion = result.suggestions[0] // for now, we only take the first suggestion
