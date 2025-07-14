@@ -1,10 +1,6 @@
 const should = require('should')
 const { cleanFlow } = require('../../../resources/sharedUtils.js')
 
-// filepath: c:\Users\sdmcl\repos\github\flowfuse\dev-env\packages\nr-assistant\test\unit\resources\sharedUtils.test.js
-
-// ...existing code...
-
 describe('sharedUtils', () => {
     describe('cleanFlows', function () {
         describe('single node', function () {
