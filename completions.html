@@ -231,7 +231,7 @@
                                     source: justAdded.node,
                                     sourcePort: justAdded.sourcePort || 0, // default to first output port
                                     position: 'relative',
-                                    nodes: suggestion /* .map(normaliseNode) */ || []
+                                    nodes: suggestions.slice(0, 5) // limit to 5 inline suggestions
                                 }
                                 debug('Prediction for next node:', suggestionOptions)
                                 RED.view.setSuggestedFlow(suggestionOptions)
