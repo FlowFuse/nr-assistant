@@ -67,6 +67,8 @@
                     return []
                 }
 
+                const MAX_SUGGESTIONS = 3 // limit the number of suggestions to top 3 - this keeps the entries in the type search priority list visible
+
                 // Reformat the suggestions to match the expected format of the plugin
                 /** @type {Array<Suggestion>} */
                 const typeSearchSuggestions = structuredContent.suggestions.map(nodes => {
@@ -79,7 +81,7 @@
                         }
                     }
                     return null
-                }).filter(s => s !== null)
+                }).filter(s => s !== null).slice(0, MAX_SUGGESTIONS)
                 debug('prediction', typeSearchSuggestions)
                 return typeSearchSuggestions || []
             },
