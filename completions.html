@@ -68,11 +68,17 @@
                 }
 
                 const MAX_SUGGESTIONS = 3 // limit the number of suggestions to top 3 - this keeps the entries in the type search priority list visible
+                const excludeTypes = ['debug', 'function', 'change', 'switch', 'junction'] // exclude node types that are always offered first in the priority list
 
                 // Reformat the suggestions to match the expected format of the plugin
                 /** @type {Array<Suggestion>} */
                 const typeSearchSuggestions = structuredContent.suggestions.map(nodes => {
                     if (Array.isArray(nodes) && nodes.length > 0) {
+                        // if a single node suggestion is provided, and that node is already in the priority
+                        // list of the type search, skip it
+                        if (nodes.length === 1 && nodes[0].type && excludeTypes.includes(nodes[0].type)) {
+                            return null
+                        }
                         return {
                             label: '', // let core handle the label
                             nodes: nodes.map(node => {
