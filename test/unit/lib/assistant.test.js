@@ -31,6 +31,9 @@ const RED = {
     },
     settings: {
         flowforge: {
+            tables: {
+                token: 'test-token'
+            },
             assistant: {
                 enabled: true,
                 url: 'http://localhost:8080/assistant',
@@ -198,12 +201,14 @@ describe('assistant', () => {
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
         RED.comms.publish.firstCall.args[1].should.eql({
             enabled: true,
+            tablesEnabled: false,
             requestTimeout: 60000
         })
 
         RED.comms.publish.secondCall.args[0].should.equal('nr-assistant/mcp/ready')
         RED.comms.publish.secondCall.args[1].should.eql({
             enabled: true,
+            tablesEnabled: false,
             requestTimeout: 60000
         })
 
