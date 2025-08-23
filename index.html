@@ -90,6 +90,7 @@
             const jsonCommandId = 'nr-assistant-json-inline'
             const cssCommandId = 'nr-assistant-css-inline'
             const db2uiTemplateCommandId = 'nr-assistant-html-dashboard2-template-inline'
+            const ffTablesNodeCommandId = 'nr-assistant-ff-tables-node-inline'
 
             debug('registering code lens providers...')
 
@@ -260,6 +261,48 @@
                         id: codeLens.id,
                         title: 'Ask the FlowFuse Assistant 🪄',
                         tooltip: 'Click to ask FlowFuse Assistant for help with VUE or HTML',
+                        arguments: [model, codeLens, token]
+                    }
+                    return codeLens
+                }
+            })
+
+            assistantOptions.tablesEnabled && monaco.languages.registerCodeLensProvider('sql', {
+                provideCodeLenses: function (model, token) {
+                    debug('SQL CodeLens provider called', model, token)
+                    const thisEditor = getMonacoEditorForModel(model)
+                    if (!thisEditor) {
+                        return
+                    }
+                    const node = RED.view.selection()?.nodes?.[0]
+                    // only support tables query nodes for now
+                    if (!node || node.type !== 'tables-query' || node._def?.set?.id !== '@flowfuse/nr-tables-nodes/tables-query') {
+                        return
+                    }
+                    return {
+                        lenses: [
+                            {
+                                range: {
+                                    startLineNumber: 1,
+                                    startColumn: 1,
+                                    endLineNumber: 2,
+                                    endColumn: 1
+                                },
+                                id: ffTablesNodeCommandId
+                            }
+                        ],
+                        dispose: () => { }
+                    }
+                },
+                resolveCodeLens: function (model, codeLens, token) {
+                    debug('SQL CodeLens resolve called', model, codeLens, token)
+                    if (codeLens.id !== ffTablesNodeCommandId) {
+                        return codeLens
+                    }
+                    codeLens.command = {
+                        id: codeLens.id,
+                        title: 'Ask the FlowFuse Assistant 🪄',
+                        tooltip: 'Click to ask FlowFuse Assistant for help with PostgreSQL',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -574,6 +617,69 @@
                                 {
                                     range: new monaco.Range(currentSelection.startLineNumber, currentSelection.startColumn, currentSelection.endLineNumber, currentSelection.endColumn),
                                     text: responseData.html
+                                }
+                            ])
+                        }
+                    })
+                } else {
+                    console.warn('Could not find editor for model', model.uri.toString())
+                }
+            })
+
+            assistantOptions.tablesEnabled && monaco.editor.registerCommand(ffTablesNodeCommandId, function (accessor, model, codeLens, token) {
+                debug('running command', ffTablesNodeCommandId)
+                const node = RED.view.selection()?.nodes?.[0]
+                if (!node) {
+                    console.warn('No node selected') // should not happen
+                    return
+                }
+                if (!assistantOptions.enabled) {
+                    RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
+                    return
+                }
+                const thisEditor = getMonacoEditorForModel(model)
+                if (thisEditor) {
+                    if (!document.body.contains(thisEditor.getDomNode())) {
+                        console.warn('Editor is no longer in the DOM, cannot proceed.')
+                        return
+                    }
+
+                    // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
+                    // const userSelection = triggeredEditor.getSelection()
+                    // const selectedText = model.getValueInRange(userSelection)
+                    /** @type {PromptOptions} */
+                    const promptOptions = {
+                        method: 'flowfuse-tables-query',
+                        lang: 'sql',
+                        dialect: 'g',
+                        type: node.type
+                        // selectedText: model.getValueInRange(userSelection)
+                    }
+                    /** @type {PromptUIOptions} */
+                    const uiOptions = {
+                        title: 'FlowFuse Assistant : FlowFuse Query',
+                        explanation: 'The FlowFuse Assistant can help you write SQL queries.',
+                        description: 'Enter a short description of what you want it to do.'
+                    }
+                    doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
+                        if (error) {
+                            console.warn('Error processing request', error)
+                            return
+                        }
+                        debug('sql response', response)
+                        const responseData = response?.data
+                        if (responseData && responseData.sql) {
+                            // ensure the editor is still present in the DOM
+                            if (!document.body.contains(thisEditor.getDomNode())) {
+                                console.warn('Editor is no longer in the DOM')
+                                return
+                            }
+                            thisEditor.focus()
+                            const currentSelection = thisEditor.getSelection()
+                            thisEditor.executeEdits('', [
+                                {
+                                    range: new monaco.Range(currentSelection.startLineNumber, currentSelection.startColumn, currentSelection.endLineNumber, currentSelection.endColumn),
+                                    text: responseData.sql
                                 }
                             ])
                         }
