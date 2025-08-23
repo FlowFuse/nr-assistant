@@ -24,6 +24,7 @@
         const modulesAllowed = RED.settings.functionExternalModules !== false
         const assistantOptions = {
             enabled: false,
+            tablesEnabled: false,
             requestTimeout: AI_TIMEOUT
         }
         let assistantInitialised = false
@@ -42,6 +43,7 @@
                     if (topic === 'nr-assistant/initialise') {
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
+                        assistantOptions.tablesEnabled = msg?.tablesEnabled === true
                         initAssistant(msg)
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
@@ -69,7 +71,7 @@
         }
         RED.plugins.registerPlugin('flowfuse-nr-assistant', plugin)
 
-        function initAssistant () {
+        function initAssistant (options) {
             if (assistantInitialised) {
                 return
             }
