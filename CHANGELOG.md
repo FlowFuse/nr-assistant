@@ -1,3 +1,8 @@
+### 0.5.0
+ - Bump actions/checkout from 4.2.2 to 5.0.0 (#69)
+ - Bump flowfuse/github-actions-workflows from 0.40.0 to 0.42.0 (#68)
+ - Add tables codelens feature (#72) @Steve-Mcl
+
 ### 0.4.0
  - update package for 0.4.0 release
  - Bump flowfuse/github-actions-workflows from 0.39.0 to 0.40.0 (#60)
