@@ -45,6 +45,8 @@
             tablesEnabled: false,
             requestTimeout: AI_TIMEOUT
         }
+        let initialisedInterlock = false
+        let mcpReadyInterlock = false
         let assistantInitialised = false
         let mcpReady = false
         debug('Loading Node-RED Assistant Plugin...')
@@ -58,7 +60,8 @@
                 }
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
-                    if (topic === 'nr-assistant/initialise') {
+                    if (topic === 'nr-assistant/initialise' && !initialisedInterlock) {
+                        initialisedInterlock = true
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.tablesEnabled = msg?.tablesEnabled === true
@@ -66,7 +69,8 @@
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
-                    if (topic === 'nr-assistant/mcp/ready') {
+                    if (topic === 'nr-assistant/mcp/ready' && !mcpReadyInterlock) {
+                        mcpReadyInterlock = true
                         mcpReady = !!msg?.enabled && assistantOptions.enabled
                         if (mcpReady) {
                             debug('assistant MCP initialised')
