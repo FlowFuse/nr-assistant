@@ -353,40 +353,14 @@
                         return
                     }
 
-                    // walk up the tree to find the parent div with an id and include that in context
-                    let subType = 'on message'
-                    let parent = thisEditor.getDomNode().parentNode
-                    while (parent?.tagName !== 'FORM') {
-                        if (parent.id) {
-                            break
-                        }
-                        parent = parent.parentNode
-                    }
-                    switch (parent?.id) {
-                    case 'func-tab-init':
-                    case 'node-input-init-editor':
-                        subType = 'on start'
-                        break
-                    case 'func-tab-body':
-                    case 'node-input-func-editor':
-                        subType = 'on message'
-                        break
-                    case 'func-tab-finalize':
-                    case 'node-input-finalize-editor':
-                        subType = 'on message'
-                        break
-                    }
-
-                    // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
-                    // const userSelection = triggeredEditor.getSelection()
-                    // const selectedText = model.getValueInRange(userSelection)
+                    const subType = getFunctionNodeEditorCodeSection(thisEditor)
                     /** @type {PromptOptions} */
                     const promptOptions = {
                         method: 'function',
                         lang: 'javascript',
                         type: 'function',
-                        subType
-                        // selectedText: model.getValueInRange(userSelection)
+                        subType,
+                        codeSection: subType
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
@@ -1366,6 +1340,35 @@
             const editors = monaco.editor.getEditors()
             return editors.find(editor => editor && document.body.contains(editor.getDomNode()) && editor.getModel()?.uri?.toString() === modelUri)
         }
+        function getFunctionNodeEditorCodeSection(editor) {
+            if (!editor || typeof editor.getDomNode !== 'function') {
+                return 'unknown'
+            }
+            let subType = 'on message'
+            let parent = editor.getDomNode().parentNode
+            while (parent?.tagName !== 'FORM') {
+                if (parent.id) {
+                    break
+                }
+                parent = parent.parentNode
+            }
+            switch (parent?.id) {
+                case 'func-tab-init':
+                case 'node-input-init-editor':
+                    subType = 'on start'
+                    break
+                case 'func-tab-body':
+                case 'node-input-func-editor':
+                    subType = 'on message'
+                    break
+                case 'func-tab-finalize':
+                case 'node-input-finalize-editor':
+                    subType = 'on stop'
+                    break
+            }
+            return subType
+        }
+
         /**
          * Gets the list of modules added to the setup tab.
          * NOTE: This function expects the nodes edit panel to be open.
