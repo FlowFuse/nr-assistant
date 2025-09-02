@@ -720,7 +720,7 @@
                         languageId: model.getLanguageIdAtPosition(position.lineNumber, position.column),
                         nodeName: node.name || node.type,
                         nodeType: node.type,
-                        nodeModule: node._def?.set?.module || 'node-red',
+                        nodeModule: node._def?.set?.module || 'node-red'
                     }
     
                     context.outputs = +(node.outputs || 1)
@@ -869,9 +869,6 @@
                             context: getContext(node, editor, position)
                         }
 
-                        const urlParts = ['nr-assistant/fim/']
-                        const urlSafeParam = (part) => encodeURIComponent(part.replace(/\//g, '-'))
-                        urlParts.push(encodeURIComponent(options.nodeModule + '/' + options.nodeType))
                         state.inflightRequest = $.ajax({
                             url: `nr-assistant/fim/${encodeURIComponent(options.nodeModule)}/${encodeURIComponent(options.nodeType)}`,
                             type: 'POST',
@@ -920,11 +917,10 @@
                                 resolve({ items: [suggestion] })
                             })
                             .fail((err) => {
-                                // completions can fail for many reasons but it is not necessary to log it
-                                // to the console just carry on regardless. However, for debugging purposes
-                                // you can set flag RED.nrAssistant = { DEBUG: true } in the console
+                            // completions can fail for many reasons but it is not necessary to log it
+                            // to the console just carry on regardless. However, for debugging purposes
+                            // you can set flag RED.nrAssistant = { DEBUG: true } in the console
                                 debug('FIM AI request failed', err)
-                                return
                             })
                             .always(() => {
                                 state.inflightRequest = null
@@ -950,8 +946,8 @@
                                     return
                                 }
                                 if (isInsideComment(model, position)) {
-                                    debug("Skipping AI completion: cursor is inside a comment");
-                                    return resolve({ items: [] });
+                                    debug('Skipping AI completion: cursor is inside a comment')
+                                    return resolve({ items: [] })
                                 }
 
                                 const state = getState(languageId)
@@ -1692,7 +1688,7 @@
             return editors.find(editor => editor && document.body.contains(editor.getDomNode()) && editor.getModel()?.uri?.toString() === modelUri)
         }
 
-        function getEditorAndNode(model, { noLogs = false, alertIfNotEnabled = true } = {}) {
+        function getEditorAndNode (model, { noLogs = false, alertIfNotEnabled = true } = {}) {
             const node = RED.view.selection()?.nodes?.[0]
             if (!node) {
                 !noLogs && console.warn('No node selected')
@@ -1715,53 +1711,53 @@
             return { node, editor, editorElement }
         }
 
-        function isInsideComment(model, position) {
-            const lineNumber = position.lineNumber;
-            const column = position.column;
-            const offset = column - 1;
+        function isInsideComment (model, position) {
+            const lineNumber = position.lineNumber
+            const column = position.column
+            const offset = column - 1
             // Prefer the language at the exact position if API exists
-            const languageId = (typeof model.getLanguageIdAtPosition === "function")
+            const languageId = (typeof model.getLanguageIdAtPosition === 'function')
                 ? model.getLanguageIdAtPosition(lineNumber, column)
-                : model.getLanguageId?.() || "javascript";
-            const line = model.getLineContent(lineNumber);
+                : model.getLanguageId?.() || 'javascript'
+            const line = model.getLineContent(lineNumber)
 
-            const supportedLanguages = ["javascript", "css", "sql", "html"];
+            const supportedLanguages = ['javascript', 'css', 'sql', 'html']
             if (!supportedLanguages.includes(languageId)) {
-                return null; // Not supported
+                return null // Not supported
             }
 
-            const lineBeforeCursor = line.substring(0, offset);
+            const lineBeforeCursor = line.substring(0, offset)
             const textBeforeCursor = model.getValueInRange({
                 startLineNumber: 1,
                 startColumn: 1,
                 endLineNumber: lineNumber,
-                endColumn: column,
-            });
+                endColumn: column
+            })
 
-            const isWithinBlockComment = (startMarker = "/*", endMarker = "*/") => textBeforeCursor.lastIndexOf(startMarker) > textBeforeCursor.lastIndexOf(endMarker);
+            const isWithinBlockComment = (startMarker = '/*', endMarker = '*/') => textBeforeCursor.lastIndexOf(startMarker) > textBeforeCursor.lastIndexOf(endMarker)
 
-            if (languageId === "javascript" || languageId === "typescript") {
+            if (languageId === 'javascript' || languageId === 'typescript') {
                 // `//` single-line comment
-                if (lineBeforeCursor.lastIndexOf("//") !== -1) return true;
+                if (lineBeforeCursor.lastIndexOf('//') !== -1) return true
                 // `/* */` block comment
-                if (isWithinBlockComment()) return true;
-            } else if (languageId === "css") {
-                if (isWithinBlockComment()) return true;
-            } else if (languageId === "sql") {
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'css') {
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'sql') {
                 // SQL single-line comment `--`
-                if (lineBeforeCursor.lastIndexOf("--") !== -1) return true;
+                if (lineBeforeCursor.lastIndexOf('--') !== -1) return true
                 // SQL block comment `/* */`
-                if (isWithinBlockComment()) return true;
-            } else if (languageId === "html") {
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'html') {
                 // HTML comment markers: <!-- -->
-                if (isWithinBlockComment("<!--", "-->")) return true;
+                if (isWithinBlockComment('<!--', '-->')) return true
             }
 
             // Not detected as comment
-            return false;
+            return false
         }
 
-        function getFunctionNodeEditorCodeSection(editor) {
+        function getFunctionNodeEditorCodeSection (editor) {
             if (!editor || typeof editor.getDomNode !== 'function') {
                 return 'unknown'
             }
@@ -1774,18 +1770,18 @@
                 parent = parent.parentNode
             }
             switch (parent?.id) {
-                case 'func-tab-init':
-                case 'node-input-init-editor':
-                    subType = 'on start'
-                    break
-                case 'func-tab-body':
-                case 'node-input-func-editor':
-                    subType = 'on message'
-                    break
-                case 'func-tab-finalize':
-                case 'node-input-finalize-editor':
-                    subType = 'on stop'
-                    break
+            case 'func-tab-init':
+            case 'node-input-init-editor':
+                subType = 'on start'
+                break
+            case 'func-tab-body':
+            case 'node-input-func-editor':
+                subType = 'on message'
+                break
+            case 'func-tab-finalize':
+            case 'node-input-finalize-editor':
+                subType = 'on stop'
+                break
             }
             return subType
         }
@@ -1795,7 +1791,7 @@
          * NOTE: This function expects the nodes edit panel to be open.
          * @returns {Array} - The list of modules used by the function node.
          */
-        function getFunctionNodeModules() {
+        function getFunctionNodeModules () {
             const _libs = []
             const libs = $('#node-input-libs-container').editableList('items')
             libs.each(function (i) {
@@ -1868,8 +1864,8 @@
             }
             RED.menu.refreshShortcuts()
         }
-        function debug(...args) {
-            if (RED.nrAssistant?.DEBUG || true) {
+        function debug (...args) {
+            if (RED.nrAssistant?.DEBUG) {
                 const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
                 const stackLine = new Error().stack.split('\n')[2].trim()
                 const match = stackLine.match(/\(?([^\s)]+):(\d+):(\d+)\)?$/) || stackLine.match(/@?([^@]+):(\d+):(\d+)$/)
@@ -1890,7 +1886,7 @@
             }
         }
     }(RED, $))
-    //# sourceURL=assistant-index.html.js
+    // # sourceURL=assistant-index.html.js
 </script>
 
 <style>
