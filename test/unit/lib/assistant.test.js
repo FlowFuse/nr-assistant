@@ -208,13 +208,15 @@ describe('assistant', () => {
         RED.comms.publish.firstCall.args[1].should.eql({
             enabled: true,
             tablesEnabled: false,
-            requestTimeout: 60000
+            requestTimeout: 60000,
+            inlineCompletionsEnabled: false
         })
 
         RED.comms.publish.secondCall.args[0].should.equal('nr-assistant/mcp/ready')
         RED.comms.publish.secondCall.args[1].should.eql({
             enabled: true,
             tablesEnabled: false,
+            inlineCompletionsEnabled: false,
             requestTimeout: 60000
         })
 
