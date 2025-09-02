@@ -14,6 +14,24 @@
          */
 
         /**
+         * @typedef {Object} MethodBodyData
+         * @property {string} prompt - The prompt to be sent to the API.
+         * @property {string} transactionId - The transaction ID for the request.
+         * @property {MethodBodyDataContext} [context] - Context data to accompany the request.
+         */
+        /**
+         * @typedef {Object} MethodBodyDataContext
+         * @property {string} [nodeName] - The nodes label
+         * @property {string} [type] - The type of the context (e.g. 'function', 'template').
+         * @property {string} [subType] - The sub-type of the context (e.g. 'on-start', 'on-message').
+         * @property {string} [codeSection] - The code section of the context (alias for sub-type)
+         * @property {string} [scope] - The scope of the context (e.g. 'fim' (Fill-in-the-middle), 'inline' (inline codelens), 'node' (generate a node), 'flow' (generate a flow)).
+         * @property {Array<string>} [outputs] - The count of outputs the node has (typically only for function nodes)
+         * @property {Boolean} [modulesAllowed] - Whether external modules are allowed in the function node
+         * @property {Array<{module:string, var:string}>} [modules] - The list of modules setup/available (typically only for function nodes)
+         */
+
+        /**
          * @typedef {Object} PromptUIOptions
          * @property {string} title - The title of the FlowFuse Assistant.
          * @property {string} explanation - The explanation of what the FlowFuse Assistant can help with.
