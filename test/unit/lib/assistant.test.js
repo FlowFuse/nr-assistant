@@ -50,7 +50,10 @@ const RED = {
         }
     },
     httpAdmin: {
+        _getEndpoints: {},
+        _postEndpoints: {},
         get: function (path, permissions, handler) {
+            this._getEndpoints[path] = { permissions, handler }
             return (req, res) => {
                 if (req.url === path) {
                     handler(req, res)
@@ -60,6 +63,7 @@ const RED = {
             }
         },
         post: function (path, permissions, handler) {
+            this._postEndpoints[path] = { permissions, handler }
             return (req, res) => {
                 if (req.url === path) {
                     handler(req, res)
@@ -158,6 +162,8 @@ describe('assistant', () => {
         RED.log.info.resetHistory()
         RED.log.error.resetHistory()
         RED.events.removeAllListeners() // clear any event listeners
+        RED.httpAdmin._getEndpoints = {}
+        RED.httpAdmin._postEndpoints = {}
         assistant = null
     })
 
@@ -225,6 +231,26 @@ describe('assistant', () => {
         RED.log.info.calledWith('FlowFuse Assistant Plugin loaded').should.be.true()
 
         RED.log.error.called.should.be.false()
+
+    it('should initialize with inlineCompletionsEnabled', async () => {
+        const options = { ...RED.settings.flowforge.assistant }
+        // mock /settings to return { inlineCompletionsEnabled: true }
+        const resp = { body: { inlineCompletions: true } }
+        options.got = sinon.stub().returns(Promise.resolve(resp))
+        options.got.get = options.got // simulate the got module's get method
+        await assistant.init(RED, options)
+        RED.comms.publish.called.should.be.true()
+        RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
+        RED.comms.publish.firstCall.args[1].should.eql({
+            enabled: true,
+            tablesEnabled: false,
+            inlineCompletionsEnabled: true,
+            requestTimeout: 60000
+        })
+        // ensure the admin endpoint was created
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/fim/:nodeModule/:nodeType')
+        RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].permissions.should.be.a.Function()
+        RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].handler.should.be.a.Function()
     })
 
     it('should not re-initialize if already initialized', async () => {
