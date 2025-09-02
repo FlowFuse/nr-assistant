@@ -1868,13 +1868,29 @@
             }
             RED.menu.refreshShortcuts()
         }
-        function debug () {
-            if (RED.nrAssistant?.DEBUG) {
+        function debug(...args) {
+            if (RED.nrAssistant?.DEBUG || true) {
+                const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
+                const stackLine = new Error().stack.split('\n')[2].trim()
+                const match = stackLine.match(/\(?([^\s)]+):(\d+):(\d+)\)?$/) || stackLine.match(/@?([^@]+):(\d+):(\d+)$/)
+                const file = match?.[1] || 'anonymous'
+                const line = match?.[2] || '1'
+                const col = match?.[3] || '1'
+                let link = `${window.location.origin}/${scriptName}:${line}:${col}`
+                if (/^VM\d+$/.test(file)) {
+                    link = `debugger:///${file}:${line}:${col}`
+                } else if (file !== 'anonymous' && file !== '<anonymous>' && file !== scriptName) {
+                    link = `${file}:${line}:${col}`
+                    if (!link.startsWith('http') && !link.includes('/')) {
+                        link = `${window.location.origin}/${link}`
+                    }
+                }
                 // eslint-disable-next-line no-console
-                console.log('[nr-assistant]', ...arguments)
+                console.log('[nr-assistant]', ...args, `\n   at ${link}`)
             }
         }
     }(RED, $))
+    //# sourceURL=assistant-index.html.js
 </script>
 
 <style>
