@@ -43,6 +43,7 @@
         const assistantOptions = {
             enabled: false,
             tablesEnabled: false,
+            inlineCompletionsEnabled: false,
             requestTimeout: AI_TIMEOUT
         }
         let initialisedInterlock = false
@@ -65,6 +66,7 @@
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.tablesEnabled = msg?.tablesEnabled === true
+                        assistantOptions.inlineCompletionsEnabled = msg?.inlineCompletionsEnabled === true
                         initAssistant(msg)
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
