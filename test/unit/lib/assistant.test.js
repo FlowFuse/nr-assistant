@@ -43,6 +43,7 @@ const RED = {
                 },
                 completions: {
                     enabled: true,
+                    inlineEnabled: false,
                     modelUrl: 'http://localhost:8081/v1/api/assets/completions/model.onnx',
                     vocabularyUrl: 'http://localhost:8081/v1/api/assets/completions/vocabulary.json'
                 }
@@ -245,9 +246,7 @@ describe('assistant', () => {
 
     it('should initialize with inlineCompletionsEnabled', async () => {
         const options = { ...RED.settings.flowforge.assistant }
-        // mock /settings to return { inlineCompletionsEnabled: true }
-        options.got = sinon.stub().returns(Promise.resolve({ body: { inlineCompletions: true } }))
-        options.got.get = options.got // simulate the got module's get method
+        options.completions.inlineEnabled = true
         await assistant.init(RED, options)
         RED.comms.publish.called.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
