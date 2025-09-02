@@ -139,6 +139,8 @@ describe('assistant', () => {
                 }
             } else if (url.endsWith('model.onnx')) {
                 value = Buffer.from('fake model data') // simulate a valid model file
+            } else if (url.endsWith('/settings')) {
+                value = { inlineCompletions: false }
             } else {
                 throw new Error(`Unexpected URL: ${url}`)
             }
@@ -244,8 +246,7 @@ describe('assistant', () => {
     it('should initialize with inlineCompletionsEnabled', async () => {
         const options = { ...RED.settings.flowforge.assistant }
         // mock /settings to return { inlineCompletionsEnabled: true }
-        const resp = { body: { inlineCompletions: true } }
-        options.got = sinon.stub().returns(Promise.resolve(resp))
+        options.got = sinon.stub().returns(Promise.resolve({ body: { inlineCompletions: true } }))
         options.got.get = options.got // simulate the got module's get method
         await assistant.init(RED, options)
         RED.comms.publish.called.should.be.true()
@@ -263,7 +264,7 @@ describe('assistant', () => {
     })
 
     it('should not re-initialize if already initialized', async () => {
-        const options = { ...RED.settings.flowforge.assistant }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
         const pending = assistant.init(RED, options) // call without to simulate "busy loading"
         assistant.isLoading.should.be.true()
         // 2nd call should log to debug log "Assistant is already loading"
@@ -280,7 +281,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if disabled in settings', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: false }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: false }
         await assistant.init(RED, options)
 
         RED.log.info.calledWith('FlowFuse Assistant Plugin is not enabled').should.be.true()
@@ -294,7 +295,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if required url option is missing', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.url // simulate missing URL
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
         RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
@@ -309,7 +310,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if required token option is missing', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.token // simulate missing token
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
         RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
@@ -324,7 +325,7 @@ describe('assistant', () => {
     })
 
     it('should skip loading completions for node-red < 4.1', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         const fakeRED = {
             ...RED,
             version: () => '4.0.0' // simulate an older Node-RED version
@@ -344,7 +345,7 @@ describe('assistant', () => {
     })
 
     it('should continue to finish loading but with degraded functionality if MCP fails to load', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         // stub the loadMCP method to simulate a failure
         assistant.loadMCP.restore() // restore the original method
         sinon.stub(assistant, 'loadMCP').rejects(new Error('MCP Load Failed'))
