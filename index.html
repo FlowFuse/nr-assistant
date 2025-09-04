@@ -14,6 +14,24 @@
          */
 
         /**
+         * @typedef {Object} MethodBodyData
+         * @property {string} prompt - The prompt to be sent to the API.
+         * @property {string} transactionId - The transaction ID for the request.
+         * @property {MethodBodyDataContext} [context] - Context data to accompany the request.
+         */
+        /**
+         * @typedef {Object} MethodBodyDataContext
+         * @property {string} [nodeName] - The nodes label
+         * @property {string} [type] - The type of the context (e.g. 'function', 'template').
+         * @property {string} [subType] - The sub-type of the context (e.g. 'on-start', 'on-message').
+         * @property {string} [codeSection] - The code section of the context (alias for sub-type)
+         * @property {string} [scope] - The scope of the context (e.g. 'fim' (Fill-in-the-middle), 'inline' (inline codelens), 'node' (generate a node), 'flow' (generate a flow)).
+         * @property {Array<string>} [outputs] - The count of outputs the node has (typically only for function nodes)
+         * @property {Boolean} [modulesAllowed] - Whether external modules are allowed in the function node
+         * @property {Array<{module:string, var:string}>} [modules] - The list of modules setup/available (typically only for function nodes)
+         */
+
+        /**
          * @typedef {Object} PromptUIOptions
          * @property {string} title - The title of the FlowFuse Assistant.
          * @property {string} explanation - The explanation of what the FlowFuse Assistant can help with.
@@ -21,15 +39,19 @@
          */
 
         const AI_TIMEOUT = 90000 // default request timeout in milliseconds
+        const FIM_TIMEOUT = 5000 // A default, hard upper bound timeout for FIM inline completions
         const modulesAllowed = RED.settings.functionExternalModules !== false
         const assistantOptions = {
             enabled: false,
             tablesEnabled: false,
+            inlineCompletionsEnabled: false,
             requestTimeout: AI_TIMEOUT
         }
+        let initialisedInterlock = false
+        let mcpReadyInterlock = false
         let assistantInitialised = false
         let mcpReady = false
-        debug('loading...')
+        debug('Loading Node-RED Assistant Plugin...')
         const plugin = {
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
@@ -40,15 +62,18 @@
                 }
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
-                    if (topic === 'nr-assistant/initialise') {
+                    if (topic === 'nr-assistant/initialise' && !initialisedInterlock) {
+                        initialisedInterlock = true
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.tablesEnabled = msg?.tablesEnabled === true
+                        assistantOptions.inlineCompletionsEnabled = msg?.inlineCompletionsEnabled === true
                         initAssistant(msg)
                         RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                         setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
-                    if (topic === 'nr-assistant/mcp/ready') {
+                    if (topic === 'nr-assistant/mcp/ready' && !mcpReadyInterlock) {
+                        mcpReadyInterlock = true
                         mcpReady = !!msg?.enabled && assistantOptions.enabled
                         if (mcpReady) {
                             debug('assistant MCP initialised')
@@ -329,40 +354,14 @@
                         return
                     }
 
-                    // walk up the tree to find the parent div with an id and include that in context
-                    let subType = 'on message'
-                    let parent = thisEditor.getDomNode().parentNode
-                    while (parent?.tagName !== 'FORM') {
-                        if (parent.id) {
-                            break
-                        }
-                        parent = parent.parentNode
-                    }
-                    switch (parent?.id) {
-                    case 'func-tab-init':
-                    case 'node-input-init-editor':
-                        subType = 'on start'
-                        break
-                    case 'func-tab-body':
-                    case 'node-input-func-editor':
-                        subType = 'on message'
-                        break
-                    case 'func-tab-finalize':
-                    case 'node-input-finalize-editor':
-                        subType = 'on message'
-                        break
-                    }
-
-                    // FUTURE: for including selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
-                    // const userSelection = triggeredEditor.getSelection()
-                    // const selectedText = model.getValueInRange(userSelection)
+                    const subType = getFunctionNodeEditorCodeSection(thisEditor)
                     /** @type {PromptOptions} */
                     const promptOptions = {
                         method: 'function',
                         lang: 'javascript',
                         type: 'function',
-                        subType
-                        // selectedText: model.getValueInRange(userSelection)
+                        subType,
+                        codeSection: subType
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
@@ -406,27 +405,9 @@
                             // if the lib is not already in the list, add it
                             if (modulesAllowed) {
                                 if (Array.isArray(responseData?.node_modules) && responseData.node_modules.length > 0) {
-                                    const _libs = []
-                                    const libs = $('#node-input-libs-container').editableList('items')
-                                    libs.each(function (i) {
-                                        const item = $(this)
-                                        const v = item.find('.node-input-libs-var').val()
-                                        let n = item.find('.node-input-libs-val').typedInput('type')
-                                        if (n === '_custom_') {
-                                            n = item.find('.node-input-libs-val').val()
-                                        }
-                                        if ((!v || (v === '')) ||
-                                            (!n || (n === ''))) {
-                                            return
-                                        }
-                                        _libs.push({
-                                            var: v,
-                                            module: n
-                                        })
-                                    })
-
+                                    const currentModulesInSetup = getFunctionNodeModules()
                                     responseData.node_modules.forEach((lib) => {
-                                        const existing = _libs.find(l => l.module === lib.module)
+                                        const existing = currentModulesInSetup.find(l => l.module === lib.module)
                                         if (!existing) {
                                             $('#node-input-libs-container').editableList('addItem', { var: lib.var, module: lib.module })
                                         }
@@ -651,7 +632,7 @@
                     const promptOptions = {
                         method: 'flowfuse-tables-query',
                         lang: 'sql',
-                        dialect: 'g',
+                        dialect: 'postgres',
                         type: node.type
                         // selectedText: model.getValueInRange(userSelection)
                     }
@@ -688,6 +669,362 @@
                     console.warn('Could not find editor for model', model.uri.toString())
                 }
             })
+
+            debug('registering inline completions')
+
+            if (assistantOptions.inlineCompletionsEnabled) {
+                const stateByLanguage = {}
+                const supportedInlineCompletions = [
+                    {
+                        languageId: 'javascript',
+                        nodeType: 'function',
+                        nodeModule: 'node-red'
+                    },
+                    {
+                        languageId: 'css',
+                        nodeType: 'ui-template',
+                        nodeModule: '@flowfuse/node-red-dashboard'
+                    },
+                    {
+                        languageId: 'html',
+                        nodeType: 'ui-template',
+                        nodeModule: '@flowfuse/node-red-dashboard'
+                    },
+                    {
+                        languageId: 'sql',
+                        nodeType: 'tables-query',
+                        nodeModule: '@flowfuse/nr-tables-nodes'
+                    }
+                ]
+                const getState = (languageId) => {
+                    if (!stateByLanguage[languageId]) {
+                        stateByLanguage[languageId] = {
+                            MAX_FIFO_SIZE: 1, // MVP - only 1 suggestion is supported
+                            suggestions: [],
+                            lastSuggestion: null,
+                            inflightRequest: null
+                        }
+                    }
+                    return stateByLanguage[languageId]
+                }
+
+                const getContext = (node, editor, position) => {
+                    const model = editor.getModel()
+                    /** @type {MethodBodyDataContext} */
+                    const context = {
+                        scope: 'fim',
+                        languageId: model.getLanguageIdAtPosition(position.lineNumber, position.column),
+                        nodeName: node.name || node.type,
+                        nodeType: node.type,
+                        nodeModule: node._def?.set?.module || 'node-red'
+                    }
+    
+                    context.outputs = +(node.outputs || 1)
+                    if (isNaN(context.outputs) || context.outputs < 1) {
+                        context.outputs = 1
+                    }
+                    if (node.type === 'function') {
+                        context.subType = getFunctionNodeEditorCodeSection(editor)
+                        context.codeSection = context.subType
+                        context.modulesAllowed = modulesAllowed
+                        context.modules = modulesAllowed ? getFunctionNodeModules() : []
+                    }
+                    if (node.type === 'tables-query') {
+                        context.dialect = 'postgres'
+                    }
+                    return context
+                }
+
+                // ---------------- Language Strategies ----------------
+                const languageStrategies = {
+                    javascript: {
+                        adjustIndentation (model, position, suggestionText) {
+                            const currentIndent = model.getLineContent(position.lineNumber).match(/^\s*/)?.[0] ?? ''
+                            return suggestionText.split('\n').map((line, idx) =>
+                                idx === 0 ? line : currentIndent + line.trimEnd()
+                            ).join('\n')
+                        }
+                    },
+                    css: {
+                        adjustIndentation (model, position, suggestionText) {
+                            const currentIndent = model.getLineContent(position.lineNumber).match(/^\s*/)?.[0] ?? ''
+                            return suggestionText.split('\n').map((line, idx) =>
+                                idx === 0 ? line : currentIndent + line.trimEnd()
+                            ).join('\n')
+                        }
+                    },
+                    html: {
+                        adjustIndentation (model, position, suggestionText) {
+                            const lineContent = model.getLineContent(position.lineNumber).trim()
+                            const currentIndent = model.getLineContent(position.lineNumber).match(/^\s*/)?.[0] ?? ''
+                            const extraIndent =
+                                lineContent.endsWith('>') && !lineContent.endsWith('/>')
+                                    ? '  '
+                                    : ''
+                            return suggestionText.split('\n').map((line, idx) =>
+                                idx === 0 ? line : currentIndent + extraIndent + line.trimEnd()
+                            ).join('\n')
+                        }
+                    },
+                    sql: {
+                        adjustIndentation (_model, _position, suggestionText) {
+                            // SQL: flat, no indent
+                            return suggestionText.split('\n').map((l) => l.trim()).join('\n')
+                        }
+                    }
+                }
+
+                // #region "Inline Completion Helper Functions"
+                const computeInlineCompletionRange = (model, position, suggestionText) => {
+                    const lineContent = model.getLineContent(position.lineNumber)
+
+                    // Text before and after the cursor
+                    const beforeCursor = lineContent.substring(0, position.column - 1)
+                    const afterCursor = lineContent.substring(position.column - 1)
+
+                    // 1. Backward overlap (user already typed some of the suggestion)
+                    let backOverlap = 0
+                    for (let i = 0; i < suggestionText.length; i++) {
+                        if (beforeCursor.endsWith(suggestionText.substring(0, i + 1))) {
+                            backOverlap = i + 1
+                        }
+                    }
+
+                    // 2. Forward overlap (document already contains trailing part of suggestion)
+                    let forwardOverlap = 0
+                    const firstNewline = suggestionText.indexOf('\n')
+                    const suggestionEnd = firstNewline === -1 ? suggestionText : suggestionText.substring(0, firstNewline)
+
+                    for (let i = 0; i < suggestionEnd.length; i++) {
+                        if (afterCursor.startsWith(suggestionEnd.substring(suggestionEnd.length - (i + 1)))) {
+                            forwardOverlap = i + 1
+                        }
+                    }
+
+                    return new monaco.Range(
+                        position.lineNumber,
+                        position.column - backOverlap,
+                        position.lineNumber,
+                        position.column + forwardOverlap
+                    )
+                }
+
+                const trimDuplicates = (model, position, suggestionText) => {
+                    // Grab a small lookahead (e.g. next 3 lines of code after cursor)
+                    const lookaheadLines = Math.min(position.lineNumber + 3, model.getLineCount())
+                    const lookahead = model.getValueInRange({
+                        startLineNumber: position.lineNumber,
+                        startColumn: 1,
+                        endLineNumber: lookaheadLines,
+                        endColumn: model.getLineMaxColumn(lookaheadLines)
+                    })
+                    const lookaheadNormalized = lookahead.trimStart()
+                    let trimmed = suggestionText.trimEnd()
+
+                    // Simple heuristic: if suggestion ends with same text as lookahead, drop it
+                    if (lookaheadNormalized.startsWith(trimmed.split('\n').slice(-1)[0])) {
+                        debug('Trimming duplicate text from suggestion (end matches lookahead)', { lookaheadNormalized, suggestionText })
+                        const lines = trimmed.split('\n')
+                        lines.pop() // remove the duplicate trailing line
+                        trimmed = lines.join('\n')
+                    }
+
+                    return trimmed
+                }
+                // #endregion "Inline Completion Helper Functions"
+
+                // --------------- Fetch Wrapper ----------------
+                const fetchAICompletion = (options, node, editor, model, position, resolve) => {
+                    const state = getState(options.languageId)
+
+                    // inhibit new request if one is already running
+                    if (state.inflightRequest) {
+                        debug('Skipping FIM request, one already in-flight')
+                        return
+                    }
+
+                    const fullRange = model.getFullModelRange()
+
+                    const fimPrefix = model.getValueInRange({
+                        startLineNumber: 1,
+                        startColumn: 1,
+                        endLineNumber: position.lineNumber,
+                        endColumn: position.column
+                    })
+                    const fimSuffix = model.getValueInRange({
+                        startLineNumber: position.lineNumber,
+                        startColumn: position.column,
+                        endLineNumber: fullRange.endLineNumber,
+                        endColumn: fullRange.endColumn
+                    })
+
+                    /** @type {MethodBodyData} */
+                    const data = {
+                        prompt: `${fimPrefix}<|fim_completion|>${fimSuffix}`,
+                        transactionId: generateId(8) + '-' + Date.now(),
+                        context: getContext(node, editor, position)
+                    }
+
+                    const req = $.ajax({
+                        url: `nr-assistant/fim/${encodeURIComponent(options.nodeModule)}/${encodeURIComponent(options.nodeType)}`,
+                        type: 'POST',
+                        data: JSON.stringify(data),
+                        contentType: 'application/json',
+                        timeout: FIM_TIMEOUT
+                    })
+
+                    state.inflightRequest = req
+
+                    req.then((res) => {
+                        const responseData = res?.data?.data
+                        if (!responseData?.fim_completion) return
+
+                        // before accessing the model or doing any further processing, lets check that the
+                        // editor/model are still in dom/un-disposed. This can happen when the user closes
+                        // the node edit panel while a request is in flight
+                        if (!model || model.isDisposed()) {
+                            debug('Skipping FIM response processing: Model has been disposed')
+                            return
+                        }
+                        const { editor: checkEditor } = getEditorAndNode(model)
+                        if (!checkEditor) {
+                            debug('Skipping FIM response processing: Editor has been disposed')
+                            return
+                        }
+
+                        const strategy = languageStrategies[options.languageId] || languageStrategies.javascript
+                        let aiText = strategy.adjustIndentation(model, position, responseData.fim_completion)
+                        aiText = trimDuplicates(model, position, aiText)
+
+                        const completionRange = computeInlineCompletionRange(model, position, aiText)
+                        const suggestion = {
+                            insertText: aiText,
+                            range: completionRange,
+                            meta: { fimPrefix, fimSuffix }
+                        }
+
+                        const currentPrefix = model.getValueInRange({
+                            startLineNumber: 1,
+                            startColumn: 1,
+                            endLineNumber: position.lineNumber,
+                            endColumn: position.column
+                        })
+
+                        const typedSinceRequest = currentPrefix.slice(fimPrefix.length)
+                        if (aiText.startsWith(typedSinceRequest)) {
+                            state.suggestions.unshift(suggestion)
+                            if (state.suggestions.length > state.MAX_FIFO_SIZE) {
+                                state.suggestions.pop()
+                            }
+
+                            state.lastSuggestion = {
+                                fullText: aiText,
+                                typedSoFar: typedSinceRequest,
+                                startLine: position.lineNumber,
+                                startColumn: position.column
+                            }
+
+                            resolve({ items: [suggestion] })
+                        }
+                    })
+                        .fail((_xhr, textStatus, errorThrown) => {
+                            // completions can fail for many reasons but it is not necessary to log it
+                            // to the console just carry on regardless. However, for debugging purposes
+                            // you can set flag RED.nrAssistant = { DEBUG: true } in the console
+                            debug('FIM AI request failed: ' + textStatus, errorThrown)
+                        })
+                        .always(() => {
+                            state.inflightRequest = null
+                        })
+                }
+
+                // ---------------- Provider Factory ----------------
+                const registerAIInlineCompletions = (options) => {
+                    const { languageId, nodeType, nodeModule } = options
+                    debug('Registering inline completions for', { languageId, nodeType, nodeModule })
+                    monaco.languages.registerInlineCompletionsProvider(languageId, {
+                        provideInlineCompletions: (model, position, context, token) =>
+                            new Promise((resolve) => {
+                                debug('provideInlineCompletions: handling inline completion for languageId ' + languageId, position, context, token)
+
+                                // prep - get the editor and node, exit if not found or not supported
+                                const { editor, node } = getEditorAndNode(model)
+                                if (!editor || !node) { return }
+                                if (node.type !== nodeType) { return }
+                                if (!node || node.type !== nodeType || node._def?.set?.module !== nodeModule) {
+                                    debug('Node type does not support inline completions. Type:', node?.type, 'def:', node?._def?.set?.id, 'expected def:', `${nodeModule}/${nodeType}`)
+                                    return
+                                }
+                                if (isInsideComment(model, position)) {
+                                    debug('Skipping AI completion: cursor is inside a comment')
+                                    return resolve({ items: [] })
+                                }
+
+                                const state = getState(languageId)
+
+                                if (
+                                    context.triggerKind === monaco.languages.InlineCompletionTriggerKind.Automatic &&
+                                    context.selectedSuggestionInfo
+                                ) {
+                                    debug('User just accepted a suggestion, skipping this event')
+                                    return
+                                }
+
+                                if (context.triggerKind === monaco.languages.InlineCompletionTriggerKind.Automatic) {
+                                    // see if the full code now matches the prefix+suggestion+suffix, if yes, then it has just been accepted.
+                                    const suggestion = state.suggestions[0]
+                                    if (suggestion && (suggestion.meta.fimPrefix + suggestion.insertText + suggestion.meta.fimSuffix) === model.getValue()) {
+                                        debug('Alt User just accepted a suggestion, skipping this event')
+                                        resolve({ items: [] })
+                                        return
+                                    }
+                                }
+
+                                // reuse last suggestion if possible
+                                if (state.lastSuggestion?.fullText) {
+                                    const prefix = model.getValueInRange({
+                                        startLineNumber: state.lastSuggestion.startLine,
+                                        startColumn: state.lastSuggestion.startColumn,
+                                        endLineNumber: position.lineNumber,
+                                        endColumn: position.column
+                                    })
+
+                                    if (state.lastSuggestion.fullText.startsWith(prefix)) {
+                                        state.lastSuggestion.typedSoFar = prefix
+                                        const remaining = state.lastSuggestion.fullText.slice(prefix.length)
+                                        if (remaining) {
+                                            resolve({
+                                                items: [{
+                                                    range: new monaco.Range(
+                                                        position.lineNumber,
+                                                        position.column,
+                                                        position.lineNumber,
+                                                        position.column
+                                                    ),
+                                                    insertText: remaining
+                                                }]
+                                            })
+                                            return
+                                        }
+                                    }
+                                }
+
+                                fetchAICompletion(
+                                    options,
+                                    node,
+                                    editor,
+                                    model,
+                                    position,
+                                    resolve
+                                )
+                            }),
+                        freeInlineCompletions (completions) {
+                            getState(languageId).lastSuggestion = null
+                        }
+                    })
+                }
+                supportedInlineCompletions.forEach(options => registerAIInlineCompletions(options))
+            }
 
             const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
             const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
@@ -765,7 +1102,7 @@
                     context: {
                         type: promptOptions.type,
                         subType: promptOptions.subType,
-                        scope: 'inline', // inline denotes that the prompt is for a inline code (i.e. the monaco editor)
+                        scope: 'inline', // inline denotes that the prompt is for a inline codelens action (i.e. the monaco editor)
                         modulesAllowed,
                         codeSection: promptOptions.subType
                         // selection: selectedText // FUTURE: include the selected text in the context for features like "fix my code", "refactor this", "what is this?" etc
@@ -1361,6 +1698,131 @@
             return editors.find(editor => editor && document.body.contains(editor.getDomNode()) && editor.getModel()?.uri?.toString() === modelUri)
         }
 
+        function getEditorAndNode (model, { noLogs = false, alertIfNotEnabled = true } = {}) {
+            const node = RED.view.selection()?.nodes?.[0]
+            if (!node) {
+                !noLogs && console.warn('No node selected')
+                return null
+            }
+            if (!assistantOptions.enabled) {
+                node.warnIfNotEnabled && RED.notify(plugin._('errors.assistant-not-enabled'), 'warning')
+                return null
+            }
+            const editor = getMonacoEditorForModel(model)
+            if (!editor) {
+                !noLogs && console.warn('Could not find editor for model', model.uri.toString())
+                return null
+            }
+            const editorElement = editor.getDomNode()
+            if (!document.body.contains(editorElement)) {
+                !noLogs && console.warn('Editor is no longer in the DOM, cannot proceed.')
+                return null
+            }
+            return { node, editor, editorElement }
+        }
+
+        function isInsideComment (model, position) {
+            const lineNumber = position.lineNumber
+            const column = position.column
+            const offset = column - 1
+            // Prefer the language at the exact position if API exists
+            const languageId = (typeof model.getLanguageIdAtPosition === 'function')
+                ? model.getLanguageIdAtPosition(lineNumber, column)
+                : model.getLanguageId?.() || 'javascript'
+            const line = model.getLineContent(lineNumber)
+
+            const supportedLanguages = ['javascript', 'css', 'sql', 'html']
+            if (!supportedLanguages.includes(languageId)) {
+                return null // Not supported
+            }
+
+            const lineBeforeCursor = line.substring(0, offset)
+            const textBeforeCursor = model.getValueInRange({
+                startLineNumber: 1,
+                startColumn: 1,
+                endLineNumber: lineNumber,
+                endColumn: column
+            })
+
+            const isWithinBlockComment = (startMarker = '/*', endMarker = '*/') => textBeforeCursor.lastIndexOf(startMarker) > textBeforeCursor.lastIndexOf(endMarker)
+
+            if (languageId === 'javascript' || languageId === 'typescript') {
+                // `//` single-line comment
+                if (lineBeforeCursor.lastIndexOf('//') !== -1) return true
+                // `/* */` block comment
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'css') {
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'sql') {
+                // SQL single-line comment `--`
+                if (lineBeforeCursor.lastIndexOf('--') !== -1) return true
+                // SQL block comment `/* */`
+                if (isWithinBlockComment()) return true
+            } else if (languageId === 'html') {
+                // HTML comment markers: <!-- -->
+                if (isWithinBlockComment('<!--', '-->')) return true
+            }
+
+            // Not detected as comment
+            return false
+        }
+
+        function getFunctionNodeEditorCodeSection (editor) {
+            if (!editor || typeof editor.getDomNode !== 'function') {
+                return 'unknown'
+            }
+            let subType = 'on message'
+            let parent = editor.getDomNode().parentNode
+            while (parent?.tagName !== 'FORM') {
+                if (parent.id) {
+                    break
+                }
+                parent = parent.parentNode
+            }
+            switch (parent?.id) {
+            case 'func-tab-init':
+            case 'node-input-init-editor':
+                subType = 'on start'
+                break
+            case 'func-tab-body':
+            case 'node-input-func-editor':
+                subType = 'on message'
+                break
+            case 'func-tab-finalize':
+            case 'node-input-finalize-editor':
+                subType = 'on stop'
+                break
+            }
+            return subType
+        }
+
+        /**
+         * Gets the list of modules added to the setup tab.
+         * NOTE: This function expects the nodes edit panel to be open.
+         * @returns {Array} - The list of modules used by the function node.
+         */
+        function getFunctionNodeModules () {
+            const _libs = []
+            const libs = $('#node-input-libs-container').editableList('items')
+            libs.each(function (i) {
+                const item = $(this)
+                const v = item.find('.node-input-libs-var').val()
+                let n = item.find('.node-input-libs-val').typedInput('type')
+                if (n === '_custom_') {
+                    n = item.find('.node-input-libs-val').val()
+                }
+                if ((!v || (v === '')) ||
+                    (!n || (n === ''))) {
+                    return
+                }
+                _libs.push({
+                    var: v,
+                    module: n
+                })
+            })
+            return _libs
+        }
+
         function generateId (length = 16) {
             if (typeof length !== 'number' || length < 1) {
                 throw new Error('Invalid length')
@@ -1412,13 +1874,29 @@
             }
             RED.menu.refreshShortcuts()
         }
-        function debug () {
+        function debug (...args) {
             if (RED.nrAssistant?.DEBUG) {
+                const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
+                const stackLine = new Error().stack.split('\n')[2].trim()
+                const match = stackLine.match(/\(?([^\s)]+):(\d+):(\d+)\)?$/) || stackLine.match(/@?([^@]+):(\d+):(\d+)$/)
+                const file = match?.[1] || 'anonymous'
+                const line = match?.[2] || '1'
+                const col = match?.[3] || '1'
+                let link = `${window.location.origin}/${scriptName}:${line}:${col}`
+                if (/^VM\d+$/.test(file)) {
+                    link = `debugger:///${file}:${line}:${col}`
+                } else if (file !== 'anonymous' && file !== '<anonymous>' && file !== scriptName) {
+                    link = `${file}:${line}:${col}`
+                    if (!link.startsWith('http') && !link.includes('/')) {
+                        link = `${window.location.origin}/${link}`
+                    }
+                }
                 // eslint-disable-next-line no-console
-                console.log('[nr-assistant]', ...arguments)
+                console.log('[nr-assistant]', ...args, `\n   at ${link}`)
             }
         }
     }(RED, $))
+    // # sourceURL=assistant-index.html.js
 </script>
 
 <style>

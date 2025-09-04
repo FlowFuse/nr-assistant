@@ -43,6 +43,7 @@ const RED = {
                 },
                 completions: {
                     enabled: true,
+                    inlineEnabled: false,
                     modelUrl: 'http://localhost:8081/v1/api/assets/completions/model.onnx',
                     vocabularyUrl: 'http://localhost:8081/v1/api/assets/completions/vocabulary.json'
                 }
@@ -50,7 +51,10 @@ const RED = {
         }
     },
     httpAdmin: {
+        _getEndpoints: {},
+        _postEndpoints: {},
         get: function (path, permissions, handler) {
+            this._getEndpoints[path] = { permissions, handler }
             return (req, res) => {
                 if (req.url === path) {
                     handler(req, res)
@@ -60,6 +64,7 @@ const RED = {
             }
         },
         post: function (path, permissions, handler) {
+            this._postEndpoints[path] = { permissions, handler }
             return (req, res) => {
                 if (req.url === path) {
                     handler(req, res)
@@ -135,6 +140,8 @@ describe('assistant', () => {
                 }
             } else if (url.endsWith('model.onnx')) {
                 value = Buffer.from('fake model data') // simulate a valid model file
+            } else if (url.endsWith('/settings')) {
+                value = { inlineCompletions: false }
             } else {
                 throw new Error(`Unexpected URL: ${url}`)
             }
@@ -158,6 +165,8 @@ describe('assistant', () => {
         RED.log.info.resetHistory()
         RED.log.error.resetHistory()
         RED.events.removeAllListeners() // clear any event listeners
+        RED.httpAdmin._getEndpoints = {}
+        RED.httpAdmin._postEndpoints = {}
         assistant = null
     })
 
@@ -202,13 +211,15 @@ describe('assistant', () => {
         RED.comms.publish.firstCall.args[1].should.eql({
             enabled: true,
             tablesEnabled: false,
-            requestTimeout: 60000
+            requestTimeout: 60000,
+            inlineCompletionsEnabled: false
         })
 
         RED.comms.publish.secondCall.args[0].should.equal('nr-assistant/mcp/ready')
         RED.comms.publish.secondCall.args[1].should.eql({
             enabled: true,
             tablesEnabled: false,
+            inlineCompletionsEnabled: false,
             requestTimeout: 60000
         })
 
@@ -225,10 +236,34 @@ describe('assistant', () => {
         RED.log.info.calledWith('FlowFuse Assistant Plugin loaded').should.be.true()
 
         RED.log.error.called.should.be.false()
+
+        // ensure the admin endpoints were created
+        RED.httpAdmin._postEndpoints.should.not.have.property('/nr-assistant/fim/:nodeModule/:nodeType') // not enabled by default (tier based feature)
+        RED.httpAdmin._getEndpoints.should.have.property('/nr-assistant/mcp/prompts')
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/mcp/prompts/:promptId')
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/:method')
+    })
+
+    it('should initialize with inlineCompletionsEnabled', async () => {
+        const options = { ...RED.settings.flowforge.assistant }
+        options.completions.inlineEnabled = true
+        await assistant.init(RED, options)
+        RED.comms.publish.called.should.be.true()
+        RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
+        RED.comms.publish.firstCall.args[1].should.eql({
+            enabled: true,
+            tablesEnabled: false,
+            inlineCompletionsEnabled: true,
+            requestTimeout: 60000
+        })
+        // ensure the admin endpoint was created
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/fim/:nodeModule/:nodeType')
+        RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].permissions.should.be.a.Function()
+        RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].handler.should.be.a.Function()
     })
 
     it('should not re-initialize if already initialized', async () => {
-        const options = { ...RED.settings.flowforge.assistant }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
         const pending = assistant.init(RED, options) // call without to simulate "busy loading"
         assistant.isLoading.should.be.true()
         // 2nd call should log to debug log "Assistant is already loading"
@@ -245,7 +280,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if disabled in settings', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: false }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: false }
         await assistant.init(RED, options)
 
         RED.log.info.calledWith('FlowFuse Assistant Plugin is not enabled').should.be.true()
@@ -259,7 +294,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if required url option is missing', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.url // simulate missing URL
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
         RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
@@ -274,7 +309,7 @@ describe('assistant', () => {
     })
 
     it('should not be enabled if required token option is missing', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.token // simulate missing token
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
         RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
@@ -289,7 +324,7 @@ describe('assistant', () => {
     })
 
     it('should skip loading completions for node-red < 4.1', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         const fakeRED = {
             ...RED,
             version: () => '4.0.0' // simulate an older Node-RED version
@@ -309,7 +344,7 @@ describe('assistant', () => {
     })
 
     it('should continue to finish loading but with degraded functionality if MCP fails to load', async () => {
-        const options = { ...RED.settings.flowforge.assistant, enabled: true }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         // stub the loadMCP method to simulate a failure
         assistant.loadMCP.restore() // restore the original method
         sinon.stub(assistant, 'loadMCP').rejects(new Error('MCP Load Failed'))

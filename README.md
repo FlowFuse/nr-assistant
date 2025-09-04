@@ -17,6 +17,7 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 * JSON generation in all typed inputs and JSON editors (like the inject node, change node, template node, etc)
 * Flows Explainer
 * HTML, VUE, and CSS generation in FlowFuse Dashboard ui-template nodes
+* Context-aware inline and multi-line code completions for functions, templates, and tables
 
 ### Function Builder
 ![flowfuse-assistant-assistant-builder](https://github.com/user-attachments/assets/6520eeaf-83f5-466e-ad32-6b4ae1d62954)
@@ -33,6 +34,18 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 ### FlowFuse Dashboard UI CSS Assistant
 ![flowfuse-assistant-css](https://github.com/user-attachments/assets/fea87030-294e-4bce-a9ce-146249ee0459)
 
+
+### Inline Code Completions
+NOTE: This feature will be limited to pro and enterprise tiers.
+
+#### functions
+![flowfuse-assistant-inline-function-completions](https://github.com/user-attachments/assets/487b07be-861b-48d1-88c7-22c9cebffefa)
+
+#### templates
+![flowfuse-assistant-inline-template-completions](https://github.com/user-attachments/assets/a6a53c1d-b067-411f-b155-0dcbf67f7e88)
+
+#### tables
+![flowfuse-assistant-inline-table-completions](https://github.com/user-attachments/assets/d9b18f96-9889-401e-a530-c89623f72610)
 
 ## Installation
 
