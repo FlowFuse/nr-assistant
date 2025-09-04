@@ -39,6 +39,7 @@
          */
 
         const AI_TIMEOUT = 90000 // default request timeout in milliseconds
+        const FIM_TIMEOUT = 5000 // A default, hard upper bound timeout for FIM inline completions
         const modulesAllowed = RED.settings.functionExternalModules !== false
         const assistantOptions = {
             enabled: false,
@@ -672,7 +673,6 @@
             debug('registering inline completions')
 
             if (assistantOptions.inlineCompletionsEnabled) {
-                const INLINE_COMPLETION_DELAY = 400
                 const stateByLanguage = {}
                 const supportedInlineCompletions = [
                     {
@@ -702,11 +702,7 @@
                             MAX_FIFO_SIZE: 1, // MVP - only 1 suggestion is supported
                             suggestions: [],
                             lastSuggestion: null,
-                            inflightRequest: null,
-                            lastRequestId: 0,
-                            debounceTimer: null,
-                            justAccepted: false,
-                            fetching: false
+                            inflightRequest: null
                         }
                     }
                     return stateByLanguage[languageId]
@@ -838,94 +834,108 @@
                 // #endregion "Inline Completion Helper Functions"
 
                 // --------------- Fetch Wrapper ----------------
-                const fetchAICompletionDebounced = (options, node, editor, model, position, resolve) => {
+                const fetchAICompletion = (options, node, editor, model, position, resolve) => {
                     const state = getState(options.languageId)
-                    clearTimeout(state.debounceTimer)
 
-                    state.debounceTimer = setTimeout(() => {
-                        if (state.inflightRequest) {
-                            state.inflightRequest.abort()
-                            state.inflightRequest = null
+                    // inhibit new request if one is already running
+                    if (state.inflightRequest) {
+                        debug('Skipping FIM request, one already in-flight')
+                        return
+                    }
+
+                    const fullRange = model.getFullModelRange()
+
+                    const fimPrefix = model.getValueInRange({
+                        startLineNumber: 1,
+                        startColumn: 1,
+                        endLineNumber: position.lineNumber,
+                        endColumn: position.column
+                    })
+                    const fimSuffix = model.getValueInRange({
+                        startLineNumber: position.lineNumber,
+                        startColumn: position.column,
+                        endLineNumber: fullRange.endLineNumber,
+                        endColumn: fullRange.endColumn
+                    })
+
+                    /** @type {MethodBodyData} */
+                    const data = {
+                        prompt: `${fimPrefix}<|fim_completion|>${fimSuffix}`,
+                        transactionId: generateId(8) + '-' + Date.now(),
+                        context: getContext(node, editor, position)
+                    }
+
+                    const req = $.ajax({
+                        url: `nr-assistant/fim/${encodeURIComponent(options.nodeModule)}/${encodeURIComponent(options.nodeType)}`,
+                        type: 'POST',
+                        data: JSON.stringify(data),
+                        contentType: 'application/json',
+                        timeout: FIM_TIMEOUT
+                    })
+
+                    state.inflightRequest = req
+
+                    req.then((res) => {
+                        const responseData = res?.data?.data
+                        if (!responseData?.fim_completion) return
+
+                        // before accessing the model or doing any further processing, lets check that the
+                        // editor/model are still in dom/un-disposed. This can happen when the user closes
+                        // the node edit panel while a request is in flight
+                        if (!model || model.isDisposed()) {
+                            debug('Skipping FIM response processing: Model has been disposed')
+                            return
+                        }
+                        const { editor: checkEditor } = getEditorAndNode(model)
+                        if (!checkEditor) {
+                            debug('Skipping FIM response processing: Editor has been disposed')
+                            return
                         }
 
-                        const requestId = ++state.lastRequestId
-                        const fullRange = model.getFullModelRange()
-                        const fimPrefix = model.getValueInRange({
+                        const strategy = languageStrategies[options.languageId] || languageStrategies.javascript
+                        let aiText = strategy.adjustIndentation(model, position, responseData.fim_completion)
+                        aiText = trimDuplicates(model, position, aiText)
+
+                        const completionRange = computeInlineCompletionRange(model, position, aiText)
+                        const suggestion = {
+                            insertText: aiText,
+                            range: completionRange,
+                            meta: { fimPrefix, fimSuffix }
+                        }
+
+                        const currentPrefix = model.getValueInRange({
                             startLineNumber: 1,
                             startColumn: 1,
                             endLineNumber: position.lineNumber,
                             endColumn: position.column
                         })
-                        const fimSuffix = model.getValueInRange({
-                            startLineNumber: position.lineNumber,
-                            startColumn: position.column,
-                            endLineNumber: fullRange.endLineNumber,
-                            endColumn: fullRange.endColumn
-                        })
-                        /** @type {MethodBodyData} */
-                        const data = {
-                            prompt: `${fimPrefix}<|fim_completion|>${fimSuffix}`,
-                            transactionId: generateId(8) + '-' + Date.now(),
-                            context: getContext(node, editor, position)
+
+                        const typedSinceRequest = currentPrefix.slice(fimPrefix.length)
+                        if (aiText.startsWith(typedSinceRequest)) {
+                            state.suggestions.unshift(suggestion)
+                            if (state.suggestions.length > state.MAX_FIFO_SIZE) {
+                                state.suggestions.pop()
+                            }
+
+                            state.lastSuggestion = {
+                                fullText: aiText,
+                                typedSoFar: typedSinceRequest,
+                                startLine: position.lineNumber,
+                                startColumn: position.column
+                            }
+
+                            resolve({ items: [suggestion] })
                         }
-
-                        state.inflightRequest = $.ajax({
-                            url: `nr-assistant/fim/${encodeURIComponent(options.nodeModule)}/${encodeURIComponent(options.nodeType)}`,
-                            type: 'POST',
-                            data: JSON.stringify(data),
-                            contentType: 'application/json'
-                        })
-
-                        state.inflightRequest
-                            .then((res) => {
-                                // stale guard
-                                if (requestId !== state.lastRequestId) {
-                                    debug('Stale/abandoned response, ignoring', requestId, state.lastRequestId)
-                                    return
-                                }
-
-                                const responseData = res?.data?.data
-                                if (!responseData?.fim_completion) {
-                                    debug('No fim_completion in response', res)
-                                    return
-                                }
-
-                                const strategy = languageStrategies[options.languageId] || languageStrategies.javascript
-
-                                let aiText = strategy.adjustIndentation(model, position, responseData.fim_completion)
-                                aiText = trimDuplicates(model, position, aiText)
-                                const completionRange = computeInlineCompletionRange(model, position, aiText)
-
-                                const suggestion = {
-                                    insertText: aiText,
-                                    range: completionRange,
-                                    meta: { fimPrefix, fimSuffix }
-                                }
-
-                                state.suggestions.unshift(suggestion)
-                                if (state.suggestions.length > state.MAX_FIFO_SIZE) {
-                                    state.suggestions.pop()
-                                }
-
-                                state.lastSuggestion = {
-                                    fullText: aiText,
-                                    typedSoFar: '',
-                                    startLine: position.lineNumber,
-                                    startColumn: position.column
-                                }
-
-                                resolve({ items: [suggestion] })
-                            })
-                            .fail((err) => {
+                    })
+                        .fail((_xhr, textStatus, errorThrown) => {
                             // completions can fail for many reasons but it is not necessary to log it
                             // to the console just carry on regardless. However, for debugging purposes
                             // you can set flag RED.nrAssistant = { DEBUG: true } in the console
-                                debug('FIM AI request failed', err)
-                            })
-                            .always(() => {
-                                state.inflightRequest = null
-                            })
-                    }, INLINE_COMPLETION_DELAY)
+                            debug('FIM AI request failed: ' + textStatus, errorThrown)
+                        })
+                        .always(() => {
+                            state.inflightRequest = null
+                        })
                 }
 
                 // ---------------- Provider Factory ----------------
@@ -999,7 +1009,7 @@
                                     }
                                 }
 
-                                fetchAICompletionDebounced(
+                                fetchAICompletion(
                                     options,
                                     node,
                                     editor,
