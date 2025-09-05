@@ -1,3 +1,7 @@
+### 0.6.0
+ - Fix relative script source path (#77) @Steve-Mcl
+ - Add inline completions feature (#75) @Steve-Mcl
+
 ### 0.5.0
  - Bump actions/checkout from 4.2.2 to 5.0.0 (#69)
  - Bump flowfuse/github-actions-workflows from 0.40.0 to 0.42.0 (#68)
