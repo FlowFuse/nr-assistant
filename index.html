@@ -50,7 +50,6 @@
         let initialisedInterlock = false
         let mcpReadyInterlock = false
         let assistantInitialised = false
-        let mcpReady = false
         debug('Loading Node-RED Assistant Plugin...')
         const plugin = {
             type: 'assistant',
@@ -62,20 +61,18 @@
                 }
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
-                    if (topic === 'nr-assistant/initialise' && !initialisedInterlock) {
-                        initialisedInterlock = true
+                    if (topic === 'nr-assistant/initialise') {
+                        assistantOptions.standalone = !!msg?.standalone
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.tablesEnabled = msg?.tablesEnabled === true
                         assistantOptions.inlineCompletionsEnabled = msg?.inlineCompletionsEnabled === true
                         initAssistant(msg)
-                        RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
-                        setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
                     }
-                    if (topic === 'nr-assistant/mcp/ready' && !mcpReadyInterlock) {
-                        mcpReadyInterlock = true
-                        mcpReady = !!msg?.enabled && assistantOptions.enabled
-                        if (mcpReady) {
+                    if (topic === 'nr-assistant/mcp/ready') {
+                        if (!mcpReadyInterlock && !!msg?.enabled) {
+                            mcpReadyInterlock = true
+                            // Complete first time setup
                             debug('assistant MCP initialised')
                             RED.actions.add('flowfuse-nr-assistant:explain-flows', explainSelectedNodes, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:explain-flows.action.label' })
                             const menuEntry = {
@@ -89,6 +86,12 @@
                             }
                             RED.menu.addItem('red-ui-header-button-ff-ai', menuEntry)
                             setMenuShortcutKey('ff-assistant-explain-flows', 'red-ui-workspace', 'ctrl-alt-e', 'flowfuse-nr-assistant:explain-flows')
+                        } else if (mcpReadyInterlock) {
+                            if (msg?.enabled) {
+                                RED.menu.setVisible('ff-assistant-explain-flows', true)
+                            } else {
+                                RED.menu.setVisible('ff-assistant-explain-flows', false)
+                            }
                         }
                     }
                 })
@@ -96,21 +99,117 @@
         }
         RED.plugins.registerPlugin('flowfuse-nr-assistant', plugin)
 
-        function initAssistant (options) {
-            if (assistantInitialised) {
-                return
+        function createAssistantMenu () {
+            const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
+            const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
+            const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
+            if (deployButtonLi.length) {
+                deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
+            } else {
+                toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
             }
-            debug('initialising...')
-            if (!assistantOptions.enabled) {
-                console.warn(plugin._('errors.assistant-not-enabled'))
-                return
+            RED.popover.tooltip(toolbarMenuButtonAnchor, plugin._('name'))
+
+            /* NOTE: For the menu entries icons' property...
+               If `.icon` is a URL (e.g. resource/xxx/icon.svg), the RED.menu API will add it as an <img> tag.
+               That makes it impossible to set the fill colour of the SVG PATH via a CSS var.
+               So, by not specifying an icon URL, an <i> tag with the class set to <icon> will be created by the API
+               This permits us to use CSS classes (defined below) that can set the icon and affect the fill colour
+            */
+            debug('Building FlowFuse Assistant menu')
+
+            const ffAssistantMenu = [
+                { id: 'ff-assistant-title', label: plugin._('name'), visible: true }, // header
+                null // separator
+            ]
+            RED.menu.init({ id: 'red-ui-header-button-ff-ai', options: ffAssistantMenu })
+        }
+        function showLoginPrompt () {
+            $.ajax({
+                contentType: 'application/json',
+                url: 'nr-assistant/auth/start',
+                method: 'POST',
+                data: JSON.stringify({
+                    editorURL: window.location.origin + window.location.pathname
+                })
+            }).then(data => {
+                if (data && data.path && data.state) {
+                    const handleAuthCallback = function (evt) {
+                        debug('handleAuthCallback', evt)
+                        try {
+                            const message = JSON.parse(evt.data)
+                            if (message.code === 'flowfuse-auth-complete') {
+                                showNotification('Connected to FlowFuse', { type: 'success' })
+                                if (message.state === data.state) {
+                                    RED.menu.setVisible('ff-assistant-login', false)
+                                    RED.menu.setVisible('ff-assistant-function-builder', true)
+                                }
+                            } else if (message.code === 'flowfuse-auth-error') {
+                                showNotification('Failed to connect to FlowFuse', { type: 'error' })
+                                console.warn('Failed to connect to FlowFuse:', message.error)
+                            }
+                        } catch (err) {}
+                        window.removeEventListener('message', handleAuthCallback, false)
+                    }
+                    window.open(document.location.toString().replace(/[?#].*$/, '') + data.path, 'FlowFuseNodeREDPluginAuthWindow', 'menubar=no,location=no,toolbar=no,chrome,height=650,width=500')
+                    window.addEventListener('message', handleAuthCallback, false)
+                } else if (data && data.error) {
+                    RED.notify(`Failed to connect to server: ${data.error}`, { type: 'error' })
+                }
+            })
+        }
+        function initAssistant (options) {
+            debug('initialising...', assistantOptions)
+            if (!initialisedInterlock) {
+                // Initialiise common UI elements
+                initialisedInterlock = true
+                createAssistantMenu()
+                if (assistantOptions.standalone) {
+                    RED.menu.addItem('red-ui-header-button-ff-ai', {
+                        id: 'ff-assistant-login',
+                        label: `<span>${plugin._('login.menu.label')}</span>`,
+                        onselect: showLoginPrompt,
+                        visible: !assistantOptions.enabled
+                    })
+                }
+                RED.menu.addItem('red-ui-header-button-ff-ai', {
+                    id: 'ff-assistant-function-builder',
+                    icon: 'ff-assistant-menu-icon function',
+                    label: `<span>${plugin._('function-builder.menu.label')}</span>`,
+                    sublabel: plugin._('function-builder.menu.description'),
+                    onselect: 'flowfuse-nr-assistant:function-builder',
+                    shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
+                    visible: assistantOptions.enabled
+                })
             }
 
+            if (!assistantOptions.enabled) {
+                if (assistantOptions.standalone) {
+                    RED.menu.setVisible('ff-assistant-login', true)
+                }
+                RED.menu.setVisible('ff-assistant-function-builder', false)
+                console.warn(plugin._('errors.assistant-not-enabled'))
+                return
+            } else {
+                if (assistantOptions.standalone) {
+                    RED.menu.setVisible('ff-assistant-login', false)
+                }
+                RED.menu.setVisible('ff-assistant-function-builder', true)
+            }
+
+            if (!assistantInitialised) {
+                registerMonacoExtensions()
+                RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
+                setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
+                assistantInitialised = true
+            }
+        }
+
+        function registerMonacoExtensions () {
             if (!window.monaco) {
                 console.warn('Monaco editor not found. Unable to register code lens provider. Consider using the Monaco editor for a better experience.')
                 return
             }
-
             const funcCommandId = 'nr-assistant-fn-inline'
             const jsonCommandId = 'nr-assistant-json-inline'
             const cssCommandId = 'nr-assistant-css-inline'
@@ -121,6 +220,9 @@
 
             monaco.languages.registerCodeLensProvider('javascript', {
                 provideCodeLenses: function (model, token) {
+                    if (!assistantOptions.enabled) {
+                        return
+                    }
                     const thisEditor = getMonacoEditorForModel(model)
                     if (!thisEditor) {
                         return
@@ -178,6 +280,9 @@
 
             monaco.languages.registerCodeLensProvider('json', {
                 provideCodeLenses: function (model, token) {
+                    if (!assistantOptions.enabled) {
+                        return
+                    }
                     const thisEditor = getMonacoEditorForModel(model)
                     if (!thisEditor) {
                         return
@@ -213,6 +318,9 @@
 
             monaco.languages.registerCodeLensProvider('css', {
                 provideCodeLenses: function (model, token) {
+                    if (!assistantOptions.enabled) {
+                        return
+                    }
                     debug('CSS CodeLens provider called', model, token)
                     const thisEditor = getMonacoEditorForModel(model)
                     const node = RED.view.selection()?.nodes?.[0]
@@ -252,6 +360,9 @@
 
             monaco.languages.registerCodeLensProvider('html', {
                 provideCodeLenses: function (model, token) {
+                    if (!assistantOptions.enabled) {
+                        return
+                    }
                     debug('HTML CodeLens provider called', model, token)
                     const thisEditor = getMonacoEditorForModel(model)
                     if (!thisEditor) {
@@ -294,6 +405,9 @@
 
             assistantOptions.tablesEnabled && monaco.languages.registerCodeLensProvider('sql', {
                 provideCodeLenses: function (model, token) {
+                    if (!assistantOptions.enabled) {
+                        return
+                    }
                     debug('SQL CodeLens provider called', model, token)
                     const thisEditor = getMonacoEditorForModel(model)
                     if (!thisEditor) {
@@ -946,7 +1060,9 @@
                         provideInlineCompletions: (model, position, context, token) =>
                             new Promise((resolve) => {
                                 debug('provideInlineCompletions: handling inline completion for languageId ' + languageId, position, context, token)
-
+                                if (!assistantOptions.enabled) {
+                                    return
+                                }
                                 // prep - get the editor and node, exit if not found or not supported
                                 const { editor, node } = getEditorAndNode(model)
                                 if (!editor || !node) { return }
@@ -1025,41 +1141,7 @@
                 }
                 supportedInlineCompletions.forEach(options => registerAIInlineCompletions(options))
             }
-
-            const toolbarMenuButton = $('<li><a id="red-ui-header-button-ff-ai" class="button" href="#"></a></li>')
-            const toolbarMenuButtonAnchor = toolbarMenuButton.find('a')
-            const deployButtonLi = $('#red-ui-header-button-deploy').closest('li')
-            if (deployButtonLi.length) {
-                deployButtonLi.before(toolbarMenuButton) // add the button before the deploy button
-            } else {
-                toolbarMenuButton.prependTo('.red-ui-header-toolbar') // add the button leftmost of the toolbar
-            }
-            RED.popover.tooltip(toolbarMenuButtonAnchor, plugin._('name'))
-
-            /* NOTE: For the menu entries icons' property...
-               If `.icon` is a URL (e.g. resource/xxx/icon.svg), the RED.menu API will add it as an <img> tag.
-               That makes it impossible to set the fill colour of the SVG PATH via a CSS var.
-               So, by not specifying an icon URL, an <i> tag with the class set to <icon> will be created by the API
-               This permits us to use CSS classes (defined below) that can set the icon and affect the fill colour
-            */
-            debug('Building FlowFuse Assistant menu')
-            const ffAssistantMenu = [
-                { id: 'ff-assistant-title', label: plugin._('name'), visible: true }, // header
-                null, // separator
-                {
-                    id: 'ff-assistant-function-builder',
-                    icon: 'ff-assistant-menu-icon function',
-                    label: `<span>${plugin._('function-builder.menu.label')}</span>`,
-                    sublabel: plugin._('function-builder.menu.description'),
-                    onselect: 'flowfuse-nr-assistant:function-builder',
-                    shortcutSpan: $('<span class="red-ui-popover-key"></span>'),
-                    visible: true
-                }
-            ]
-            RED.menu.init({ id: 'red-ui-header-button-ff-ai', options: ffAssistantMenu })
-            assistantInitialised = true
         }
-
         const previousPrompts = {}
 
         /**
@@ -1421,7 +1503,7 @@
                         const options = {
                             buttons: [{
                                 text: plugin._('explain-flows.dialog-result.close-button'),
-                                icon: 'ui-icon-close',
+                                // icon: 'ui-icon-close',
                                 class: 'primary',
                                 click: function () {
                                     $(dlg).dialog('close')
@@ -1435,7 +1517,7 @@
                                 options.buttons.unshift(
                                     {
                                         text: plugin._('explain-flows.dialog-result.copy-button'),
-                                        icon: 'ui-icon-copy',
+                                        // icon: 'ui-icon-copy',
                                         click: function () {
                                             navigator.clipboard.writeText(text).then(() => {
                                                 showNotification('Copied to clipboard', { type: 'success' })
@@ -1452,7 +1534,7 @@
                                 options.buttons.unshift(
                                     {
                                         text: plugin._('explain-flows.dialog-result.comment-node-button'),
-                                        icon: 'ui-icon-comment',
+                                        // icon: 'ui-icon-comment',
                                         // class: 'primary',
                                         click: function () {
                                             const commentNode = {
@@ -1589,7 +1671,7 @@
         }
 
         /**
-         * Shows a busy notification with a cancel button
+         * Shows a notification
          * @param {string} message - The message to display in the notification
          * @param {object} [options] - The options to pass to the notification
          * @param {'error'|'warning'|'success'|'compact'} [options.type] - The type of notification to display
@@ -1907,7 +1989,7 @@
     #red-ui-header ul#red-ui-header-button-ff-ai-submenu.red-ui-menu-dropdown {
         width: 300px !important; /* make the submenu wider to prevent wrapping elements */
     }
-    #red-ui-header ul.red-ui-menu-dropdown li a {
+    #red-ui-header #red-ui-header-button-ff-ai+ul.red-ui-menu-dropdown li a {
         padding: 8px 16px;
     }
 

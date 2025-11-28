@@ -38,6 +38,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.17.0",
+        "base64url": "^3.0.1",
         "got": "^11.8.6",
         "onnxruntime-web": "^1.22.0",
         "semver": "^7.7.2",
