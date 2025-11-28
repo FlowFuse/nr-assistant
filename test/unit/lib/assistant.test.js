@@ -238,7 +238,7 @@ describe('assistant', () => {
         RED.log.error.called.should.be.false()
 
         // ensure the admin endpoints were created
-        RED.httpAdmin._postEndpoints.should.not.have.property('/nr-assistant/fim/:nodeModule/:nodeType') // not enabled by default (tier based feature)
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/fim/:nodeModule/:nodeType')
         RED.httpAdmin._getEndpoints.should.have.property('/nr-assistant/mcp/prompts')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/mcp/prompts/:promptId')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/:method')
