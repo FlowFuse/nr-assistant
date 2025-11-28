@@ -38,6 +38,11 @@
     "notifications": {
         "busy": "Busy processing your request. Please wait..."
     },
+    "login": {
+        "menu": {
+            "label": "Log in to your FlowFuse account"
+        }
+    },
     "errors":{
         "assistant-not-enabled": "The FlowFuse Assistant is not enabled",
         "copy-failed": "Failed to copy to clipboard",

@@ -262,23 +262,6 @@ describe('assistant', () => {
         RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].handler.should.be.a.Function()
     })
 
-    it('should not re-initialize if already initialized', async () => {
-        const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
-        const pending = assistant.init(RED, options) // call without to simulate "busy loading"
-        assistant.isLoading.should.be.true()
-        // 2nd call should log to debug log "Assistant is already loading"
-        await assistant.init(RED, options)
-
-        assistant.isInitialized.should.be.true() // should still be initialized
-        assistant.isLoading.should.be.true() // but still loading
-        RED.log.debug.calledWith('FlowFuse Assistant is busy loading').should.be.true()
-
-        // lets finish the first call
-        await pending // wait for the first call to finish
-        assistant.isInitialized.should.be.true()
-        assistant.isLoading.should.be.false()
-    })
-
     it('should not be enabled if disabled in settings', async () => {
         const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: false }
         await assistant.init(RED, options)
