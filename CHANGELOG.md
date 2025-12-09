@@ -1,3 +1,22 @@
+
+### 0.7.0
+
+ - Allow the assistant to be installed in standalone Node-RED instances (#89) @knolleary
+
+ - Bump actions/checkout from 6.0.0 to 6.0.1 (#93)
+ - Bump actions/setup-node from 6.0.0 to 6.1.0 (#92)
+ - Bump actions/checkout from 5.0.0 to 6.0.0 (#87)
+ - Bump flowfuse/github-actions-workflows from 0.42.0 to 0.43.0 (#84)
+ - Bump actions/setup-node from 5.0.0 to 6.0.0 (#83)
+ - Bump JS-DevTools/npm-publish from 4.0.1 to 4.1.1 (#82)
+ - Bump JS-DevTools/npm-publish from 4.0.0 to 4.0.1 (#81)
+ - Bump JS-DevTools/npm-publish from 3.1.1 to 4.0.0 (#80)
+ - Bump actions/setup-node from 4.4.0 to 5.0.0 (#79)
+ - Bump @modelcontextprotocol/sdk from 1.17.0 to 1.24.0 (#91) @app/dependabot
+ - Bump express from 5.1.0 to 5.2.1 (#90) @app/dependabot
+ - Bump body-parser from 2.2.0 to 2.2.1 (#88) @app/dependabot
+ - Bump js-yaml from 4.1.0 to 4.1.1 (#86) @app/dependabot
+
 ### 0.6.0
  - Fix relative script source path (#77) @Steve-Mcl
  - Add inline completions feature (#75) @Steve-Mcl

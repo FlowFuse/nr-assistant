@@ -1,6 +1,6 @@
 {
     "name": "@flowfuse/nr-assistant",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "FlowFuse Node-RED Expert plugin",
     "main": "index.js",
     "scripts": {
