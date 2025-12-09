@@ -116,7 +116,7 @@
                So, by not specifying an icon URL, an <i> tag with the class set to <icon> will be created by the API
                This permits us to use CSS classes (defined below) that can set the icon and affect the fill colour
             */
-            debug('Building FlowFuse Assistant menu')
+            debug('Building FlowFuse Expert menu')
 
             const ffAssistantMenu = [
                 { id: 'ff-assistant-title', label: plugin._('name'), visible: true }, // header
@@ -270,8 +270,8 @@
                     }
                     codeLens.command = {
                         id: codeLens.id,
-                        title: 'Ask the FlowFuse Assistant 🪄',
-                        tooltip: 'Click to ask FlowFuse Assistant for help writing code',
+                        title: 'Ask the FlowFuse Expert 🪄',
+                        tooltip: 'Click to ask FlowFuse Expert for help writing code',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -308,8 +308,8 @@
                     }
                     codeLens.command = {
                         id: codeLens.id,
-                        title: 'Ask the FlowFuse Assistant 🪄',
-                        tooltip: 'Click to ask FlowFuse Assistant for help with JSON',
+                        title: 'Ask the FlowFuse Expert 🪄',
+                        tooltip: 'Click to ask FlowFuse Expert for help with JSON',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -350,8 +350,8 @@
                     }
                     codeLens.command = {
                         id: codeLens.id,
-                        title: 'Ask the FlowFuse Assistant 🪄',
-                        tooltip: 'Click to ask FlowFuse Assistant for help with CSS',
+                        title: 'Ask the FlowFuse Expert 🪄',
+                        tooltip: 'Click to ask FlowFuse Expert for help with CSS',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -395,8 +395,8 @@
                     }
                     codeLens.command = {
                         id: codeLens.id,
-                        title: 'Ask the FlowFuse Assistant 🪄',
-                        tooltip: 'Click to ask FlowFuse Assistant for help with VUE or HTML',
+                        title: 'Ask the FlowFuse Expert 🪄',
+                        tooltip: 'Click to ask FlowFuse Expert for help with VUE or HTML',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -440,8 +440,8 @@
                     }
                     codeLens.command = {
                         id: codeLens.id,
-                        title: 'Ask the FlowFuse Assistant 🪄',
-                        tooltip: 'Click to ask FlowFuse Assistant for help with PostgreSQL',
+                        title: 'Ask the FlowFuse Expert 🪄',
+                        tooltip: 'Click to ask FlowFuse Expert for help with PostgreSQL',
                         arguments: [model, codeLens, token]
                     }
                     return codeLens
@@ -479,8 +479,8 @@
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
-                        title: 'FlowFuse Assistant : Function Code',
-                        explanation: 'The FlowFuse Assistant can help you write JavaScript code.',
+                        title: 'FlowFuse Expert : Function Code',
+                        explanation: 'The FlowFuse Expert can help you write JavaScript code.',
                         description: 'Enter a short description of what you want it to do.'
                     }
                     doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
@@ -565,8 +565,8 @@
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
-                        title: 'FlowFuse Assistant : JSON',
-                        explanation: 'The FlowFuse Assistant can help you write JSON.',
+                        title: 'FlowFuse Expert : JSON',
+                        explanation: 'The FlowFuse Expert can help you write JSON.',
                         description: 'Enter a short description of what you want it to do.'
                     }
                     doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
@@ -627,8 +627,8 @@
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
-                        title: 'FlowFuse Assistant : CSS',
-                        explanation: 'The FlowFuse Assistant can help you write CSS.',
+                        title: 'FlowFuse Expert : CSS',
+                        explanation: 'The FlowFuse Expert can help you write CSS.',
                         description: 'Enter a short description of what you want it to do.'
                     }
                     doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
@@ -689,8 +689,8 @@
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
-                        title: 'FlowFuse Assistant : Dashboard 2 UI Template',
-                        explanation: 'The FlowFuse Assistant can help you write HTML, VUE and JavaScript.',
+                        title: 'FlowFuse Expert : Dashboard 2 UI Template',
+                        explanation: 'The FlowFuse Expert can help you write HTML, VUE and JavaScript.',
                         description: 'Enter a short description of what you want it to do.'
                     }
                     doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
@@ -752,8 +752,8 @@
                     }
                     /** @type {PromptUIOptions} */
                     const uiOptions = {
-                        title: 'FlowFuse Assistant : FlowFuse Query',
-                        explanation: 'The FlowFuse Assistant can help you write SQL queries.',
+                        title: 'FlowFuse Expert : FlowFuse Query',
+                        explanation: 'The FlowFuse Expert can help you write SQL queries.',
                         description: 'Enter a short description of what you want it to do.'
                     }
                     doPrompt(node, thisEditor, promptOptions, uiOptions, (error, response) => {
@@ -1233,7 +1233,7 @@
 
         function getUserInput ({ title, explanation, description, placeholder, defaultInput } = {
             title: plugin._('name'),
-            explanation: 'The FlowFuse Assistant can help you create things.',
+            explanation: 'The FlowFuse Expert can help you create things.',
             description: 'Enter a short description explaining what you want it to do.',
             placeholder: '',
             defaultInput: ''
@@ -1282,7 +1282,7 @@
                     },
                     buttons: [
                         {
-                            text: 'Ask the FlowFuse Assistant 🪄',
+                            text: 'Ask the FlowFuse Expert 🪄',
                             // class: 'primary',
                             click: function () {
                                 const prompt = dialog.find('#ff-nr-ai-dialog-input-editor').val()
@@ -1307,7 +1307,7 @@
             }
             getUserInput({
                 defaultInput: previousFunctionBuilderPrompt,
-                title: title || 'FlowFuse Assistant : Create A Function Node',
+                title: title || 'FlowFuse Expert : Create A Function Node',
                 explanation: plugin._('function-builder.dialog-input.explanation'),
                 description: plugin._('function-builder.dialog-input.description')
             }).then((prompt) => {
@@ -1584,8 +1584,8 @@
             }
             getUserInput({
                 defaultInput: previousFlowBuilderPrompt,
-                title: title || 'FlowFuse Assistant : Flow Builder',
-                explanation: 'The FlowFuse Assistant can help you create a new flow.',
+                title: title || 'FlowFuse Expert : Flow Builder',
+                explanation: 'The FlowFuse Expert can help you create a new flow.',
                 description: 'Enter a short description of what you want the flow to do.'
             }).then((prompt) => {
                 /** @type {JQueryXHR} */
@@ -1745,25 +1745,25 @@
                     const minutes = Math.floor(seconds / 60)
                     const remainingSeconds = seconds % 60
                     if (minutes > 0) {
-                        RED.notify(`Sorry, the FlowFuse Assistant is busy. Please try again in ${minutes} minute${minutes > 1 ? 's' : ''}.`, 'warning')
+                        RED.notify(`Sorry, the FlowFuse Expert is busy. Please try again in ${minutes} minute${minutes > 1 ? 's' : ''}.`, 'warning')
                     } else {
-                        RED.notify(`Sorry, the FlowFuse Assistant is busy. Please try again in ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}.`, 'warning')
+                        RED.notify(`Sorry, the FlowFuse Expert is busy. Please try again in ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}.`, 'warning')
                     }
                     return
                 }
-                RED.notify('Sorry, the FlowFuse Assistant is busy. Please try again later.', 'warning')
+                RED.notify('Sorry, the FlowFuse Expert is busy. Please try again later.', 'warning')
                 return
             }
             if (jqXHR.status === 404) {
-                RED.notify('Sorry, the FlowFuse Assistant is not available at the moment', 'warning')
+                RED.notify('Sorry, the FlowFuse Expert is not available at the moment', 'warning')
                 return
             }
             if (jqXHR.status === 401) {
-                RED.notify('Sorry, you are not authorised to use the FlowFuse Assistant', 'warning')
+                RED.notify('Sorry, you are not authorised to use the FlowFuse Expert', 'warning')
                 return
             }
             if (jqXHR.status >= 400 && jqXHR.status < 500) {
-                let message = 'Sorry, the FlowFuse Assistant cannot help with this request'
+                let message = 'Sorry, the FlowFuse Expert cannot help with this request'
                 if (jqXHR.responseJSON?.body?.code === 'assistant_service_denied' && jqXHR.responseJSON?.body?.error) {
                     message = jqXHR.responseJSON.body.error
                 }
