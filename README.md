@@ -1,9 +1,10 @@
-# FlowFuse Node-RED Assistant
+# FlowFuse Node-RED Expert Plugin
 
-A Node-RED plugin to assist FlowFuse users.
+A plugin to bring AI assistance to your Node-RED flow building.
 
+This plugin is preinstalled in Node-RED instances hosted and managed by the FlowFuse platform.
 
-**This plugin can only be used within FlowFuse-managed Node-RED instances.**
+It can also be installed locally for use outside of FlowFuse - but does require a FlowFuse Cloud user account.
 
 FlowFuse is the Industrial application platform for building and operating custom industrial solutions that digitalize processes and operations. It integrates seamlessly into both IT and OT environments, leveraging Node-RED to enable teams to connect, collect, transform, and visualize data from industrial systems. Companies use FlowFuse to manage, scale, and secure their Node-RED-based applications across industrial environments.
 
@@ -36,7 +37,6 @@ This plugin is designed to assist users of the FlowFuse platform by providing to
 
 
 ### Inline Code Completions
-NOTE: This feature will be limited to pro and enterprise tiers.
 
 #### functions
 ![flowfuse-assistant-inline-function-completions](https://github.com/user-attachments/assets/487b07be-861b-48d1-88c7-22c9cebffefa)
@@ -56,29 +56,6 @@ npm install @flowfuse/nr-assistant
 ## Development
 
 Client-side portion of the plugin is in `index.html`. The server side code is in `index.js`
-
-
-## NOTES:
-
-* Requires the settings.js file to contain the following:
-
-```json
-{
-    "flowforge": {
-        "assistant": {
-            "enabled": true,
-            "url": "https://", // URL of the AI service
-            "token": "", // API token for the AI service
-            "requestTimeout": 60000 // Timeout value for the AI service request
-        }
-    }
-}
-```
-
-These values are automatically set when running within the FlowFuse platform via the `nr-launcher` component.
-
-The `url` and `token` are for an AI service hosted by FlowFuse; it is not publicly available for use outside of the FlowFuse platform.
-
 
 ## Limitations
 

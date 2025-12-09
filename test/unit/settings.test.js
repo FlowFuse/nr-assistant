@@ -12,15 +12,15 @@ describe('settings', function () {
     })
 
     describe('getSettings', function () {
-        it('should be disabled if assistant is not enabled', function () {
+        it('should be disabled if assistant is not enabled', async function () {
             RED.settings.flowforge.assistant = { enabled: false }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.enabled.should.be.false()
         })
 
-        it('should be enabled with defaults', function () {
+        it('should be enabled with defaults', async function () {
             RED.settings.flowforge.assistant = { enabled: true }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.enabled.should.be.true()
             result.completions.should.be.an.Object()
             result.completions.enabled.should.be.true()
@@ -28,7 +28,7 @@ describe('settings', function () {
             should(result.completions.vocabularyUrl).be.null()
         })
 
-        it('should preserve completions if provided and enabled', function () {
+        it('should preserve completions if provided and enabled', async function () {
             RED.settings.flowforge.assistant = {
                 enabled: true,
                 completions: {
@@ -37,29 +37,29 @@ describe('settings', function () {
                     vocabularyUrl: 'http://vocab'
                 }
             }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.completions.enabled.should.be.false()
             result.completions.modelUrl.should.equal('http://model')
             result.completions.vocabularyUrl.should.equal('http://vocab')
         })
 
-        it('should set tables.enabled true if tables token exists', function () {
+        it('should set tables.enabled true if tables token exists', async function () {
             RED.settings.flowforge.tables = { token: 'abc' }
             RED.settings.flowforge.assistant = { enabled: true }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.tables.enabled.should.be.true()
         })
 
-        it('should set mcp.enabled true by default', function () {
+        it('should set mcp.enabled true by default', async function () {
             RED.settings.flowforge.assistant = { enabled: true }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.mcp.should.be.an.Object()
             result.mcp.enabled.should.be.true()
         })
 
-        it('should not throw if flowforge or assistant is missing', function () {
+        it('should not throw if flowforge or assistant is missing', async function () {
             RED = { settings: {} }
-            const result = settings.getSettings(RED)
+            const result = await settings.getSettings(RED)
             result.enabled.should.be.false()
         })
     })

@@ -1,7 +1,7 @@
 {
     "name": "@flowfuse/nr-assistant",
     "version": "0.6.0",
-    "description": "FlowFuse Node-RED assistant plugin",
+    "description": "FlowFuse Node-RED Expert plugin",
     "main": "index.js",
     "scripts": {
         "test": "mocha --exit \"test/**/*.test.js\"",
@@ -38,6 +38,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.24.2",
+        "base64url": "^3.0.1",
         "got": "^11.8.6",
         "onnxruntime-web": "^1.22.0",
         "semver": "^7.7.2",

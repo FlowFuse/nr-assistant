@@ -1,34 +1,34 @@
 {
-    "name": "FlowFuse Assistant",
+    "name": "FlowFuse Expert",
     "function-builder": {
         "action": {
-            "label": "FlowFuse Assistant: Create a Function Node"
+            "label": "FlowFuse Expert: Create a Function Node"
         },
         "menu": {
             "label": "Function Builder",
             "description": "Create a Function Node"
         },
         "dialog-input": {
-            "title": "FlowFuse Assistant: Create a Function Node",
-            "explanation": "The FlowFuse Assistant can help you create a Function Node.",
+            "title": "FlowFuse Expert: Create a Function Node",
+            "explanation": "The FlowFuse Expert can help you create a Function Node.",
             "description": "Enter a short description of what you want it to do.",
-            "create-button": "Ask the FlowFuse Assistant 🪄"
+            "create-button": "Ask the FlowFuse Expert 🪄"
         }
     },
     "explain-flows": {
         "action": {
-            "label": "FlowFuse Assistant: Explain Selected Nodes"
+            "label": "FlowFuse Expert: Explain Selected Nodes"
         },
         "menu": {
             "label": "Explain Flows",
             "description": "Explain the selected nodes"
         },
         "dialog-result": {
-            "title": "FlowFuse Assistant: Explain Flows",
+            "title": "FlowFuse Expert: Explain Flows",
             "copy-button": "Copy",
             "close-button": "Close",
             "comment-node-button": "Comment Node",
-            "comment-node-name": "FlowFuse Assistant Explanation"
+            "comment-node-name": "FlowFuse Expert Explanation"
         },
         "errors": {
             "no-nodes-selected": "No nodes selected. Please select one or more nodes to explain.",
@@ -38,8 +38,13 @@
     "notifications": {
         "busy": "Busy processing your request. Please wait..."
     },
+    "login": {
+        "menu": {
+            "label": "Log in to your FlowFuse account"
+        }
+    },
     "errors":{
-        "assistant-not-enabled": "The FlowFuse Assistant is not enabled",
+        "assistant-not-enabled": "The FlowFuse Expert is not enabled",
         "copy-failed": "Failed to copy to clipboard",
         "something-went-wrong": "Something went wrong. Please try again later."
     }

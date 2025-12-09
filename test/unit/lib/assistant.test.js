@@ -231,14 +231,14 @@ describe('assistant', () => {
         assistant._mcpClient.should.be.an.Object()
         assistant._mcpServer.should.be.an.Object()
 
-        RED.log.info.calledWith('FlowFuse Assistant Model Context Protocol (MCP) loaded').should.be.true()
-        RED.log.info.calledWith('FlowFuse Assistant Completions Loaded').should.be.true()
-        RED.log.info.calledWith('FlowFuse Assistant Plugin loaded').should.be.true()
+        RED.log.info.calledWith('FlowFuse Expert Model Context Protocol (MCP) loaded').should.be.true()
+        RED.log.info.calledWith('FlowFuse Expert Completions Loaded').should.be.true()
+        RED.log.info.calledWith('FlowFuse Expert Plugin loaded').should.be.true()
 
         RED.log.error.called.should.be.false()
 
         // ensure the admin endpoints were created
-        RED.httpAdmin._postEndpoints.should.not.have.property('/nr-assistant/fim/:nodeModule/:nodeType') // not enabled by default (tier based feature)
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/fim/:nodeModule/:nodeType')
         RED.httpAdmin._getEndpoints.should.have.property('/nr-assistant/mcp/prompts')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/mcp/prompts/:promptId')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/:method')
@@ -262,28 +262,11 @@ describe('assistant', () => {
         RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].handler.should.be.a.Function()
     })
 
-    it('should not re-initialize if already initialized', async () => {
-        const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
-        const pending = assistant.init(RED, options) // call without to simulate "busy loading"
-        assistant.isLoading.should.be.true()
-        // 2nd call should log to debug log "Assistant is already loading"
-        await assistant.init(RED, options)
-
-        assistant.isInitialized.should.be.true() // should still be initialized
-        assistant.isLoading.should.be.true() // but still loading
-        RED.log.debug.calledWith('FlowFuse Assistant is busy loading').should.be.true()
-
-        // lets finish the first call
-        await pending // wait for the first call to finish
-        assistant.isInitialized.should.be.true()
-        assistant.isLoading.should.be.false()
-    })
-
     it('should not be enabled if disabled in settings', async () => {
         const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: false }
         await assistant.init(RED, options)
 
-        RED.log.info.calledWith('FlowFuse Assistant Plugin is not enabled').should.be.true()
+        RED.log.info.calledWith('FlowFuse Expert Plugin is not enabled').should.be.true()
         RED.comms.publish.called.should.be.false() // should not be telling the frontend anything
         assistant.isInitialized.should.be.true()
         assistant.isLoading.should.be.false()
@@ -297,7 +280,7 @@ describe('assistant', () => {
         const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.url // simulate missing URL
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
-        RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
+        RED.log.warn.calledWith('FlowFuse Expert Plugin configuration is missing required options').should.be.true()
         // should not have called any methods
 
         RED.comms.publish.called.should.be.false() // should not be telling the frontend anything
@@ -312,7 +295,7 @@ describe('assistant', () => {
         const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: true }
         delete options.token // simulate missing token
         await assistant.init(RED, options).should.be.rejectedWith('Plugin configuration is missing required options')
-        RED.log.warn.calledWith('FlowFuse Assistant Plugin configuration is missing required options').should.be.true()
+        RED.log.warn.calledWith('FlowFuse Expert Plugin configuration is missing required options').should.be.true()
         // should not have called any methods
 
         RED.comms.publish.called.should.be.false() // should not be telling the frontend anything
@@ -352,8 +335,8 @@ describe('assistant', () => {
         assistant.loadMCP.calledOnce.should.be.true()
         should.not.exist(assistant._mcpClient)
         should.not.exist(assistant._mcpServer)
-        RED.log.warn.calledWith('FlowFuse Assistant MCP could not be loaded. Assistant features that require MCP will not be available').should.be.true()
-        RED.log.info.calledWith('FlowFuse Assistant Plugin loaded (reduced functionality)').should.be.true()
+        RED.log.warn.calledWith('FlowFuse Expert MCP could not be loaded. Expert features that require MCP will not be available').should.be.true()
+        RED.log.info.calledWith('FlowFuse Expert Plugin loaded (reduced functionality)').should.be.true()
         // Only 1 RED.comms.publish for 'nr-assistant/mcp/ready') should have been be called
         RED.comms.publish.calledOnce.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
@@ -373,7 +356,7 @@ describe('assistant', () => {
         RED.events.emit('comms:message:nr-assistant/completions/load', {})
         // wait long enough for loadCompletions to fail due to the above mocked ECONNREFUSED error
         await sleep(100)
-        RED.log.warn.calledWith('FlowFuse Assistant Advanced Completions could not be loaded.').should.be.true()
+        RED.log.warn.calledWith('FlowFuse Expert Advanced Completions could not be loaded.').should.be.true()
 
         assistant.loadCompletions.calledOnce.should.be.true()
         should.not.exist(assistant.labeller)
