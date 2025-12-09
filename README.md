@@ -1,4 +1,4 @@
-# FlowFuse Node-RED Assistant
+# FlowFuse Node-RED Expert Plugin
 
 A plugin to bring AI assistance to your Node-RED flow building.
 
@@ -56,29 +56,6 @@ npm install @flowfuse/nr-assistant
 ## Development
 
 Client-side portion of the plugin is in `index.html`. The server side code is in `index.js`
-
-
-## NOTES:
-
-* Requires the settings.js file to contain the following:
-
-```json
-{
-    "flowforge": {
-        "assistant": {
-            "enabled": true,
-            "url": "https://", // URL of the AI service
-            "token": "", // API token for the AI service
-            "requestTimeout": 60000 // Timeout value for the AI service request
-        }
-    }
-}
-```
-
-These values are automatically set when running within the FlowFuse platform via the `nr-launcher` component.
-
-The `url` and `token` are for an AI service hosted by FlowFuse; it is not publicly available for use outside of the FlowFuse platform.
-
 
 ## Limitations
 

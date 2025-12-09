@@ -1,7 +1,7 @@
 {
     "name": "@flowfuse/nr-assistant",
     "version": "0.6.0",
-    "description": "FlowFuse Node-RED assistant plugin",
+    "description": "FlowFuse Node-RED Expert plugin",
     "main": "index.js",
     "scripts": {
         "test": "mocha --exit \"test/**/*.test.js\"",
