@@ -232,45 +232,46 @@
                             }
                         }
                         // handle version request
-                        if (type === 'nr-assistant:assistant-version-request') {
+                        if (type === 'nr-assistant:get-assistant-version') {
                             // Reply with the current version
-                            postReply({ type: 'nr-assistant:version-response', version: assistantOptions.assistantVersion }, event.origin)
+                            postReply({ type, version: assistantOptions.assistantVersion, success: true }, event.origin)
                             return
                         }
                         // handle supported actions request
-                        if (type === 'nr-assistant:supported-actions-request') {
+                        if (type === 'nr-assistant:get-supported-actions') {
                             // Reply with the supported actions and their schemas
-                            postReply({ type: 'nr-assistant:supported-actions-response', supportedActions }, event.origin)
+                            postReply({ type, supportedActions, success: true }, event.origin)
                             return
                         }
                         
-                        // handle action invocation request
+                        // handle action invocation requests
                         if (type === 'nr-assistant:invoke-action' && typeof action === 'string') {
-                            
                             if (!supportedActions[action]) {
                                 console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
+                                postReply({ type, action, error: 'unknown-action' })
                                 return
                             }
                             // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
                             const actionSchema = supportedActions[action].params
                             if (actionSchema) {
-                                if(validateSchema(params, actionSchema) === false) {
-                                    console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema)
-                                    postReply({ type: 'nr-assistant:invoke-action-error', action, error: 'invalid-parameters' })
+                                const validation = validateSchema(params, actionSchema)
+                                if(!validation || !validation.valid) {
+                                    console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
+                                    postReply({ type, action, error: validation.error || 'invalid-parameters' })
                                     return
                                 }
                             }
 
                             try {
                                 RED.actions.invoke(action, params)
-                                postReply({ type: 'nr-assistant:invoke-action-success', action })
+                                postReply({ type: 'nr-assistant:invoke-action-success', action, success: true })
                             } catch (err) {
                                 postReply({ type: 'nr-assistant:invoke-action-error', action, error: err?.message })
                             }
                             return
                         }
                         // unknown message type
-                        postReply({ type: 'nr-assistant:error', error: 'unknown-message-type', data: event.data })
+                        postReply({ type: 'nr-assistant:error', error: 'unknown-type', data: event.data })
                     }, false)
                 }
 
