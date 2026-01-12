@@ -45,7 +45,8 @@
             enabled: false,
             tablesEnabled: false,
             inlineCompletionsEnabled: false,
-            requestTimeout: AI_TIMEOUT
+            requestTimeout: AI_TIMEOUT,
+            assistantVersion: null
         }
         let initialisedInterlock = false
         let mcpReadyInterlock = false
@@ -62,6 +63,7 @@
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
                     if (topic === 'nr-assistant/initialise') {
+                        assistantOptions.assistantVersion = msg?.assistantVersion
                         assistantOptions.standalone = !!msg?.standalone
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
@@ -197,7 +199,83 @@
                 RED.menu.setVisible('ff-assistant-function-builder', true)
             }
 
-            if (!assistantInitialised) {
+             if (!assistantInitialised) {
+                // Allow parent window to command Node-RED actions via postMessage
+                // For the first iteration, this is primarily to allow the FlowFuse Forge to trigger actions like the Function Builder
+                if (window.self !== window.top) {
+                    const supportedActions = { 
+                        'core:manage-palette': {
+                            params: {
+                                type: 'object',
+                                properties: {
+                                    view: {
+                                        type: 'string',
+                                        enum: ['nodes', 'install']
+                                    },
+                                    filter: {
+                                        description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
+                                        type: 'string'
+                                    }
+                                },
+                                required: ['view']
+                            }
+                        }
+                    }
+                    window.addEventListener('message', function (event) {
+                        // Optionally, restrict origin here for security
+                        const { type, action, params } = event.data || {}
+                        // handle version request
+                        if (type === 'nr-assistant:assistant-version-request') {
+                            // Reply with the current version
+                            if (event.source && typeof event.source.postMessage === 'function') {
+                                event.source.postMessage({ type: 'nr-assistant:version-response', version: assistantOptions.assistantVersion }, event.origin)
+                            }
+                            return
+                        }
+                        // handle supported actions request
+                        if (type === 'nr-assistant:supported-actions') {
+                            // Reply with the supported actions and their schemas
+                            if (event.source && typeof event.source.postMessage === 'function') {
+                                event.source.postMessage({ type: 'nr-assistant:supported-actions-response', supportedActions }, event.origin)
+                            }
+                            return
+                        }
+                        
+                        // handle action invocation request
+                        if (type === 'nr-assistant:invoke-action' && typeof action === 'string') {
+                            
+                            if (!supportedActions[action]) {
+                                console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
+                                return
+                            }
+                            // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
+                            const actionSchema = supportedActions[action].params
+                            if (actionSchema) {
+                                if(validateSchema(params, actionSchema) === false) {
+                                    console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema)
+                                    if (event.source && typeof event.source.postMessage === 'function') {
+                                        event.source.postMessage({ type: 'nr-assistant:invoke-action-error', action, error: 'invalid-parameters' }, event.origin)
+                                    }
+                                    return
+                                }
+                            }
+
+                            try {
+                                RED.actions.invoke(action, params)
+                            } catch (err) {
+                                if (event.source && typeof event.source.postMessage === 'function') {
+                                    event.source.postMessage({ type: 'nr-assistant:invoke-action-error', action, error: err?.message }, event.origin)
+                                }
+                            }
+                            return
+                        }
+                        // unknown message type
+                        if(event.source && typeof event.source.postMessage === 'function' && event.source.postMessage) {
+                            event.source.postMessage({ type: 'nr-assistant:error', error: 'unknown-message-type', data: event.data }, event.origin)
+                        }
+                    })
+                }
+
                 registerMonacoExtensions()
                 RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                 setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
@@ -1955,6 +2033,67 @@
                 actionItem.append('<span class="red-ui-popover-key"></span>')
             }
             RED.menu.refreshShortcuts()
+        }
+
+        /**
+         * Validates data against a simple schema
+         * NOTE: This is a very basic implementation and only supports a subset of JSON Schema for now.
+         * @param {any} data - The data to validate
+         * @param {object} schema - The schema to validate against
+         * @returns {{valid: boolean, error?: string}} - The validation result
+         */
+        function validateSchema (data, schema) {
+            if (schema.type === 'object') {
+                if (typeof data !== 'object') {
+                    return { 
+                        valid: false,
+                        error: 'Data is not of type object'
+                    }
+                }
+                if (Array.isArray(data)) {
+                    return { 
+                        valid: false,
+                        error: 'Data is an array but an object was expected'
+                    }
+                }
+                // check required properties
+                if (Array.isArray(schema.required)) {
+                    for (const reqProp of schema.required) {
+                        if (!(reqProp in data)) {
+                            return { 
+                                valid: false,
+                                error: `Data is missing required parameter "${reqProp}"`
+                            }
+                        }
+                    }
+                }
+                // check properties
+                if (schema.properties) {
+                    for (const [propName, propSchema] of Object.entries(schema.properties)) {
+                        // check type
+                        if (propSchema.type && propName in data) {
+                            const expectedType = propSchema.type
+                            const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
+                            if (actualType !== expectedType) {
+                                return { 
+                                    valid: false,
+                                    error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${expectedType}"`
+                                }
+                            }
+                        }
+                        // check enum
+                        if (propSchema.enum && propName in data) {
+                            if (!propSchema.enum.includes(data[propName])) {
+                                return { 
+                                    valid: false,
+                                    error: `Data parameter "${propName}" has invalid value "${data[propName]}". Should be one of: ${propSchema.enum.join(', ')}`
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return { valid: true }
         }
         function debug (...args) {
             if (RED.nrAssistant?.DEBUG) {
