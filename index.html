@@ -224,20 +224,23 @@
                     window.addEventListener('message', function (event) {
                         // Optionally, restrict origin here for security
                         const { type, action, params } = event.data || {}
+                        const postReply = (message) => {
+                            if (event.source && typeof event.source.postMessage === 'function') {
+                                event.source.postMessage(message, event.origin)
+                            } else {
+                                console.warn('Unable to post message reply, source not available', message)
+                            }
+                        }
                         // handle version request
                         if (type === 'nr-assistant:assistant-version-request') {
                             // Reply with the current version
-                            if (event.source && typeof event.source.postMessage === 'function') {
-                                event.source.postMessage({ type: 'nr-assistant:version-response', version: assistantOptions.assistantVersion }, event.origin)
-                            }
+                            postReply({ type: 'nr-assistant:version-response', version: assistantOptions.assistantVersion }, event.origin)
                             return
                         }
                         // handle supported actions request
-                        if (type === 'nr-assistant:supported-actions') {
+                        if (type === 'nr-assistant:supported-actions-request') {
                             // Reply with the supported actions and their schemas
-                            if (event.source && typeof event.source.postMessage === 'function') {
-                                event.source.postMessage({ type: 'nr-assistant:supported-actions-response', supportedActions }, event.origin)
-                            }
+                            postReply({ type: 'nr-assistant:supported-actions-response', supportedActions }, event.origin)
                             return
                         }
                         
@@ -253,27 +256,22 @@
                             if (actionSchema) {
                                 if(validateSchema(params, actionSchema) === false) {
                                     console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema)
-                                    if (event.source && typeof event.source.postMessage === 'function') {
-                                        event.source.postMessage({ type: 'nr-assistant:invoke-action-error', action, error: 'invalid-parameters' }, event.origin)
-                                    }
+                                    postReply({ type: 'nr-assistant:invoke-action-error', action, error: 'invalid-parameters' })
                                     return
                                 }
                             }
 
                             try {
                                 RED.actions.invoke(action, params)
+                                postReply({ type: 'nr-assistant:invoke-action-success', action })
                             } catch (err) {
-                                if (event.source && typeof event.source.postMessage === 'function') {
-                                    event.source.postMessage({ type: 'nr-assistant:invoke-action-error', action, error: err?.message }, event.origin)
-                                }
+                                postReply({ type: 'nr-assistant:invoke-action-error', action, error: err?.message })
                             }
                             return
                         }
                         // unknown message type
-                        if(event.source && typeof event.source.postMessage === 'function' && event.source.postMessage) {
-                            event.source.postMessage({ type: 'nr-assistant:error', error: 'unknown-message-type', data: event.data }, event.origin)
-                        }
-                    })
+                        postReply({ type: 'nr-assistant:error', error: 'unknown-message-type', data: event.data })
+                    }, false)
                 }
 
                 registerMonacoExtensions()
