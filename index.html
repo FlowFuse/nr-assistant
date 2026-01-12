@@ -199,11 +199,11 @@
                 RED.menu.setVisible('ff-assistant-function-builder', true)
             }
 
-             if (!assistantInitialised) {
+            if (!assistantInitialised) {
                 // Allow parent window to command Node-RED actions via postMessage
                 // For the first iteration, this is primarily to allow the FlowFuse Forge to trigger actions like the Function Builder
                 if (window.self !== window.top) {
-                    const supportedActions = { 
+                    const supportedActions = {
                         'core:manage-palette': {
                             params: {
                                 type: 'object',
@@ -243,7 +243,7 @@
                             postReply({ type, supportedActions, success: true }, event.origin)
                             return
                         }
-                        
+
                         // handle action invocation requests
                         if (type === 'nr-assistant:invoke-action' && typeof action === 'string') {
                             if (!supportedActions[action]) {
@@ -255,7 +255,7 @@
                             const actionSchema = supportedActions[action].params
                             if (actionSchema) {
                                 const validation = validateSchema(params, actionSchema)
-                                if(!validation || !validation.valid) {
+                                if (!validation || !validation.valid) {
                                     console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
                                     postReply({ type, action, error: validation.error || 'invalid-parameters' })
                                     return
@@ -2044,13 +2044,13 @@
         function validateSchema (data, schema) {
             if (schema.type === 'object') {
                 if (typeof data !== 'object') {
-                    return { 
+                    return {
                         valid: false,
                         error: 'Data is not of type object'
                     }
                 }
                 if (Array.isArray(data)) {
-                    return { 
+                    return {
                         valid: false,
                         error: 'Data is an array but an object was expected'
                     }
@@ -2059,7 +2059,7 @@
                 if (Array.isArray(schema.required)) {
                     for (const reqProp of schema.required) {
                         if (!(reqProp in data)) {
-                            return { 
+                            return {
                                 valid: false,
                                 error: `Data is missing required parameter "${reqProp}"`
                             }
@@ -2074,7 +2074,7 @@
                             const expectedType = propSchema.type
                             const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
                             if (actualType !== expectedType) {
-                                return { 
+                                return {
                                     valid: false,
                                     error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${expectedType}"`
                                 }
@@ -2083,7 +2083,7 @@
                         // check enum
                         if (propSchema.enum && propName in data) {
                             if (!propSchema.enum.includes(data[propName])) {
-                                return { 
+                                return {
                                     valid: false,
                                     error: `Data parameter "${propName}" has invalid value "${data[propName]}". Should be one of: ${propSchema.enum.join(', ')}`
                                 }
