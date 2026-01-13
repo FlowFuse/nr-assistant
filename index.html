@@ -223,8 +223,25 @@
                                 },
                                 required: ['view']
                             }
+                        },
+                        'custom:import-flow': {
+                            params: {
+                                type: 'object',
+                                properties: {
+                                    flow: {
+                                        type: 'string',
+                                        description: 'The flow JSON to import'
+                                    },
+                                    addFlow: {
+                                        type: 'boolean',
+                                        description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false',
+                                    }
+                                },
+                                required: ['flow']
+                            }
                         }
                     }
+
                     window.addEventListener('message', function (event) {
                         // prevent own messages being processed
                         if (event.source === window.self) {
@@ -263,7 +280,7 @@
                             return
                         }
 
-                        // handle action invocation requests
+                        // handle action invocation requests (must be registered actions in Node-RED)
                         if (type === 'invoke-action' && typeof action === 'string') {
                             if (!supportedActions[action]) {
                                 console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
@@ -281,14 +298,25 @@
                                 }
                             }
 
-                            try {
-                                RED.actions.invoke(action, params)
-                                postReply({ type: 'invoke-action-success', action, success: true })
-                            } catch (err) {
-                                postReply({ type: 'invoke-action-error', action, error: err?.message })
+                            if (action === 'custom:import-flow') {
+                                // import-flow is a custom action - handle it here directly
+                                try {
+                                    importNodes(event.data?.flow, event.data?.addFlow);
+                                    postReply({ type, success: true })
+                                } catch (err) {
+                                    postReply({ type, error: err?.message })
+                                }
+                            } else {
+                                // Handle native Node-RED actions
+                                try {
+                                    RED.actions.invoke(action, params)
+                                    postReply({ type, action, success: true })
+                                } catch (err) {
+                                    postReply({ type, action, error: err?.message })
+                                }
                             }
-                            return
                         }
+
                         // unknown message type
                         // todo disables for now, the nr-launcher receives load, navigate, logout, toggle-drawer and request-drawer-state events
                         // postReply({ type: 'error', error: 'unknown-type', data: event.data })
@@ -2122,6 +2150,62 @@
             }
             return { valid: true }
         }
+
+        /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
+        /**
+         * Performs the import of nodes, handling any conflicts that may arise
+         * @param {string} nodesStr the nodes to import as a string
+         * @param {boolean} addFlow whether to add the nodes to a new flow or to the current flow
+         */
+        function importNodes(nodesStr, addFlow) {
+            let newNodes = nodesStr;
+            if (typeof nodesStr === 'string') {
+                try {
+                    nodesStr = nodesStr.trim();
+                    if (nodesStr.length === 0) {
+                        return;
+                    }
+                    newNodes = validateFlowString(nodesStr)
+                } catch(err) {
+                    const e = new Error(RED._("clipboard.invalidFlow",{message:"test"}));
+                    e.code = "NODE_RED";
+                    throw e;
+                }
+            }
+            var importOptions = {generateIds: false, addFlow: addFlow};
+            try {
+                RED.view.importNodes(newNodes, importOptions);
+            } catch(error) {
+                // Thrown for import_conflict
+                confirmImport(error.importConfig, newNodes, importOptions);
+            }
+        }
+
+        /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
+        /**
+         * Validates if the provided string looks like valid flow json
+         * @param {string} flowString the string to validate
+         * @returns If valid, returns the node array
+         */
+        function validateFlowString(flowString) {
+            const res = JSON.parse(flowString)
+            if (!Array.isArray(res)) {
+                throw new Error(RED._("clipboard.import.errors.notArray"));
+            }
+            for (let i = 0; i < res.length; i++) {
+                if (typeof res[i] !== "object") {
+                    throw new Error(RED._("clipboard.import.errors.itemNotObject",{index:i}));
+                }
+                if (!Object.hasOwn(res[i], 'id')) {
+                    throw new Error(RED._("clipboard.import.errors.missingId",{index:i}));
+                }
+                if (!Object.hasOwn(res[i], 'type')) {
+                    throw new Error(RED._("clipboard.import.errors.missingType",{index:i}));
+                }
+            }
+            return res
+        }
+
         function debug (...args) {
             if (RED.nrAssistant?.DEBUG) {
                 const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
