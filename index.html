@@ -249,10 +249,10 @@
                         }
                         // TODO: restrict origin here for security? Necessary? The source and scope checks should be sufficient?
 
-                        const { type, action, params, source, scope } = event.data || {}
+                        const { type, action, params, target, source, scope } = event.data || {}
                         
                         // Ensure scope and source match expected values
-                        if (source !== MESSAGE_TARGET || scope !== MESSAGE_SCOPE) {
+                        if (target !== MESSAGE_SOURCE || source !== MESSAGE_TARGET || scope !== MESSAGE_SCOPE) {
                             return
                         }
 
@@ -261,12 +261,14 @@
                                 event.source.postMessage({
                                     ...message,
                                     source: MESSAGE_SOURCE,
-                                    scope: MESSAGE_SCOPE
+                                    scope: MESSAGE_SCOPE,
+                                    target: MESSAGE_TARGET
                                 }, event.origin)
                             } else {
                                 console.warn('Unable to post message reply, source not available', message)
                             }
                         }
+
                         // handle version request
                         if (type === 'get-assistant-version') {
                             // Reply with the current version
@@ -280,7 +282,7 @@
                             return
                         }
 
-                        // handle action invocation requests (must be registered actions in Node-RED)
+                        // handle action invocation requests (must be registered actions in supportedActions)
                         if (type === 'invoke-action' && typeof action === 'string') {
                             if (!supportedActions[action]) {
                                 console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
@@ -318,15 +320,15 @@
                         }
 
                         // unknown message type
-                        // todo disables for now, the nr-launcher receives load, navigate, logout, toggle-drawer and request-drawer-state events
-                        // postReply({ type: 'error', error: 'unknown-type', data: event.data })
+                        postReply({ type: 'error', error: 'unknown-type', data: event.data })
                     }, false)
 
                     // Notify the parent window that the assistant is ready
                     window.parent.postMessage({
                         type: 'assistant-ready',
-                        source: 'nr-assistant',
-                        scope: 'flowfuse-expert',
+                        source: MESSAGE_SOURCE,
+                        scope: MESSAGE_SCOPE,
+                        target: MESSAGE_TARGET,
                         version: assistantOptions.assistantVersion
                     }, '*') // todo replace the wildcard
                 }
