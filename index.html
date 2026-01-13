@@ -226,26 +226,30 @@
                         const { type, action, params } = event.data || {}
                         const postReply = (message) => {
                             if (event.source && typeof event.source.postMessage === 'function') {
-                                event.source.postMessage(message, event.origin)
+                                event.source.postMessage({
+                                    ...message,
+                                    source: 'nr-assistant',
+                                    scope: 'flowfuse-expert'
+                                }, event.origin)
                             } else {
                                 console.warn('Unable to post message reply, source not available', message)
                             }
                         }
                         // handle version request
-                        if (type === 'nr-assistant:get-assistant-version') {
+                        if (type === 'get-assistant-version') {
                             // Reply with the current version
                             postReply({ type, version: assistantOptions.assistantVersion, success: true }, event.origin)
                             return
                         }
                         // handle supported actions request
-                        if (type === 'nr-assistant:get-supported-actions') {
+                        if (type === 'get-supported-actions') {
                             // Reply with the supported actions and their schemas
                             postReply({ type, supportedActions, success: true }, event.origin)
                             return
                         }
 
                         // handle action invocation requests
-                        if (type === 'nr-assistant:invoke-action' && typeof action === 'string') {
+                        if (type === 'invoke-action' && typeof action === 'string') {
                             if (!supportedActions[action]) {
                                 console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
                                 postReply({ type, action, error: 'unknown-action' })
@@ -264,15 +268,24 @@
 
                             try {
                                 RED.actions.invoke(action, params)
-                                postReply({ type: 'nr-assistant:invoke-action-success', action, success: true })
+                                postReply({ type: 'invoke-action-success', action, success: true })
                             } catch (err) {
-                                postReply({ type: 'nr-assistant:invoke-action-error', action, error: err?.message })
+                                postReply({ type: 'invoke-action-error', action, error: err?.message })
                             }
                             return
                         }
                         // unknown message type
-                        postReply({ type: 'nr-assistant:error', error: 'unknown-type', data: event.data })
+                        // todo disables for now, the nr-launcher receives load, navigate, logout, toggle-drawer and request-drawer-state events
+                        // postReply({ type: 'error', error: 'unknown-type', data: event.data })
                     }, false)
+
+                    // Notify the parent window that the assistant is ready
+                    window.parent.postMessage({
+                        type: 'assistant-ready',
+                        source: 'nr-assistant',
+                        scope: 'flowfuse-expert',
+                        version: assistantOptions.assistantVersion
+                    }, '*') // todo replace the wildcard
                 }
 
                 registerMonacoExtensions()
@@ -909,7 +922,7 @@
                         nodeType: node.type,
                         nodeModule: node._def?.set?.module || 'node-red'
                     }
-    
+
                     context.outputs = +(node.outputs || 1)
                     if (isNaN(context.outputs) || context.outputs < 1) {
                         context.outputs = 1
@@ -2148,7 +2161,7 @@
         flex-grow: 1;
     }
 
-    /*  
+    /*
         As menu icons are drawn by the (RED.menu.init api) as <img> tags, styling the fill of the path is impossible.
         Instead of using a url (e.g. resource/icon.svg), we add them as a "class name" which node-red then renders as an `<i>` tag.
         The CSS below uses the mask-image property to apply the SVG as a mask, allowing us to set the color via background-color.
