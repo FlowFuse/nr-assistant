@@ -200,9 +200,10 @@
             }
 
             if (!assistantInitialised) {
-                // Allow parent window to command Node-RED actions via postMessage
-                // For the first iteration, this is primarily to allow the FlowFuse Forge to trigger actions like the Function Builder
-                if (window.self !== window.top) {
+                // Setup postMessage communication with parent window
+                if (!window.parent?.postMessage || window.self === window.top) {
+                    console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
+                } else {
                     const MESSAGE_SOURCE = 'nr-assistant'
                     const MESSAGE_TARGET = 'flowfuse-expert'
                     const MESSAGE_SCOPE = 'flowfuse-expert'
