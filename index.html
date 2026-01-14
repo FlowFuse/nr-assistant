@@ -341,6 +341,7 @@
                                     postReply({ type, action, error: err?.message })
                                 }
                             }
+                            return
                         }
 
                         // unknown message type
@@ -2208,7 +2209,8 @@
                 RED.view.importNodes(newNodes, importOptions)
             } catch (error) {
                 // Thrown for import_conflict
-                confirmImport(error.importConfig, newNodes, importOptions);
+                RED.notify('Import failed:' + error.message, 'error')
+                throw error
             }
         }
 
