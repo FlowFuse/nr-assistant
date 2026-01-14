@@ -1,3 +1,14 @@
+### 0.8.0
+
+- Bump JS-DevTools/npm-publish from 4.1.1 to 4.1.3 (#105)
+- Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#96)
+- Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#95)
+- Bump hono from 4.11.3 to 4.11.4 (#107) @app/dependabot
+- Bump @modelcontextprotocol/sdk from 1.24.2 to 1.25.2 (#102) @app/dependabot
+- Add support expert actions (#106) @Steve-Mcl
+- Bump qs from 6.14.0 to 6.14.1 (#100) @app/dependabot
+- Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml from 0.44.0 to 0.45.0 (#98) @app/dependabot
+- Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml from 0.44.0 to 0.45.0 (#97) @app/dependabot
 
 ### 0.7.0
 
