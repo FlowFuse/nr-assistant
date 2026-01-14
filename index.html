@@ -208,6 +208,24 @@
                     const MESSAGE_TARGET = 'flowfuse-expert'
                     const MESSAGE_SCOPE = 'flowfuse-expert'
 
+                    // proxy certain events from RED Events to the parent window (for state tracking)
+                    RED.events.on('editor:open', function () {
+                        window.parent.postMessage({
+                            type: 'editor:open',
+                            source: MESSAGE_SOURCE,
+                            scope: MESSAGE_SCOPE,
+                            target: MESSAGE_TARGET
+                        }, '*')
+                    })
+                    RED.events.on('editor:close', function () {
+                        window.parent.postMessage({
+                            type: 'editor:close',
+                            source: MESSAGE_SOURCE,
+                            scope: MESSAGE_SCOPE,
+                            target: MESSAGE_TARGET
+                        }, '*')
+                    })
+
                     // Define supported actions and their parameter schemas
                     const supportedActions = {
                         'core:manage-palette': {
