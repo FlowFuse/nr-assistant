@@ -214,14 +214,15 @@
                                 properties: {
                                     view: {
                                         type: 'string',
-                                        enum: ['nodes', 'install']
+                                        enum: ['nodes', 'install'],
+                                        default: 'install',
                                     },
                                     filter: {
                                         description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
                                         type: 'string'
                                     }
                                 },
-                                required: ['view']
+                                required: ['filter']
                             }
                         },
                         'custom:import-flow': {
@@ -303,13 +304,13 @@
                             if (action === 'custom:import-flow') {
                                 // import-flow is a custom action - handle it here directly
                                 try {
-                                    importNodes(event.data?.flow, event.data?.addFlow);
+                                    importNodes(params.flow, { addFlow: params.addFlow === true })
                                     postReply({ type, success: true })
                                 } catch (err) {
                                     postReply({ type, error: err?.message })
                                 }
                             } else {
-                                // Handle native Node-RED actions
+                                // Handle (supported) native Node-RED actions
                                 try {
                                     RED.actions.invoke(action, params)
                                     postReply({ type, action, success: true })
@@ -2124,11 +2125,12 @@
                         }
                     }
                 }
-                // check properties
+                // check properties & apply defaults
                 if (schema.properties) {
                     for (const [propName, propSchema] of Object.entries(schema.properties)) {
+                        const propExists = propName in data
                         // check type
-                        if (propSchema.type && propName in data) {
+                        if (propSchema.type && propExists) {
                             const expectedType = propSchema.type
                             const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
                             if (actualType !== expectedType) {
@@ -2139,13 +2141,17 @@
                             }
                         }
                         // check enum
-                        if (propSchema.enum && propName in data) {
+                        if (propSchema.enum && propExists) {
                             if (!propSchema.enum.includes(data[propName])) {
                                 return {
                                     valid: false,
                                     error: `Data parameter "${propName}" has invalid value "${data[propName]}". Should be one of: ${propSchema.enum.join(', ')}`
                                 }
                             }
+                        }
+                        // apply defaults
+                        if (propSchema.default !== undefined && !propExists) {
+                            data[propName] = propSchema.default
                         }
                     }
                 }
