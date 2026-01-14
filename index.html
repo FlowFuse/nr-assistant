@@ -208,6 +208,7 @@
                     const MESSAGE_TARGET = 'flowfuse-expert'
                     const MESSAGE_SCOPE = 'flowfuse-expert'
 
+                    // Define supported actions and their parameter schemas
                     const supportedActions = {
                         'core:manage-palette': {
                             params: {
@@ -244,12 +245,12 @@
                         }
                     }
 
+                    //Listen for postMessages from parent window
                     window.addEventListener('message', function (event) {
                         // prevent own messages being processed
                         if (event.source === window.self) {
                             return
                         }
-                        // TODO: restrict origin here for security? Necessary? The source and scope checks should be sufficient?
 
                         const { type, action, params, target, source, scope } = event.data || {}
                         
@@ -332,7 +333,7 @@
                         scope: MESSAGE_SCOPE,
                         target: MESSAGE_TARGET,
                         version: assistantOptions.assistantVersion
-                    }, '*') // todo replace the wildcard
+                    }, '*')
                 }
 
                 registerMonacoExtensions()
