@@ -277,7 +277,10 @@
                             return
                         }
 
+                        debug('Received postMessage:', event.data)
+
                         const postReply = (message) => {
+                            debug('Posting reply message:', message)
                             if (event.source && typeof event.source.postMessage === 'function') {
                                 event.source.postMessage({
                                     ...message,
