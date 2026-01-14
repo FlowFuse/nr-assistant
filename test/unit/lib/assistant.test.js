@@ -96,6 +96,7 @@ describe('assistant', () => {
     let assistant
     /** @type {import('got').Got} */
     let fakeGot
+    const packageVersion = require('../../../package.json').version
 
     beforeEach(() => {
         // first, delete the cached assistant module
@@ -209,6 +210,7 @@ describe('assistant', () => {
         RED.comms.publish.calledThrice.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
         RED.comms.publish.firstCall.args[1].should.eql({
+            assistantVersion: packageVersion, // required for the frontend to support ff-expert features
             enabled: true,
             tablesEnabled: false,
             requestTimeout: 60000,
@@ -217,6 +219,7 @@ describe('assistant', () => {
 
         RED.comms.publish.secondCall.args[0].should.equal('nr-assistant/mcp/ready')
         RED.comms.publish.secondCall.args[1].should.eql({
+            assistantVersion: packageVersion, // required for the frontend to support ff-expert features
             enabled: true,
             tablesEnabled: false,
             inlineCompletionsEnabled: false,
@@ -251,6 +254,7 @@ describe('assistant', () => {
         RED.comms.publish.called.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
         RED.comms.publish.firstCall.args[1].should.eql({
+            assistantVersion: packageVersion,
             enabled: true,
             tablesEnabled: false,
             inlineCompletionsEnabled: true,
