@@ -306,7 +306,7 @@
                             if (action === 'custom:import-flow') {
                                 // import-flow is a custom action - handle it here directly
                                 try {
-                                    importNodes(params.flow, { addFlow: params.addFlow === true })
+                                    importNodes(params.flow, params.addFlow === true)
                                     postReply({ type, success: true })
                                 } catch (err) {
                                     postReply({ type, error: err?.message })
