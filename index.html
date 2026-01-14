@@ -45,7 +45,8 @@
             enabled: false,
             tablesEnabled: false,
             inlineCompletionsEnabled: false,
-            requestTimeout: AI_TIMEOUT
+            requestTimeout: AI_TIMEOUT,
+            assistantVersion: null
         }
         let initialisedInterlock = false
         let mcpReadyInterlock = false
@@ -62,6 +63,7 @@
                 RED.comms.subscribe('nr-assistant/#', (topic, msg) => {
                     debug('comms', topic, msg)
                     if (topic === 'nr-assistant/initialise') {
+                        assistantOptions.assistantVersion = msg?.assistantVersion
                         assistantOptions.standalone = !!msg?.standalone
                         assistantOptions.enabled = !!msg?.enabled
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
@@ -198,6 +200,164 @@
             }
 
             if (!assistantInitialised) {
+                // Setup postMessage communication with parent window
+                if (!window.parent?.postMessage || window.self === window.top) {
+                    console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
+                } else {
+                    const MESSAGE_SOURCE = 'nr-assistant'
+                    const MESSAGE_TARGET = 'flowfuse-expert'
+                    const MESSAGE_SCOPE = 'flowfuse-expert'
+
+                    // proxy certain events from RED Events to the parent window (for state tracking)
+                    RED.events.on('editor:open', function () {
+                        window.parent.postMessage({
+                            type: 'editor:open',
+                            source: MESSAGE_SOURCE,
+                            scope: MESSAGE_SCOPE,
+                            target: MESSAGE_TARGET
+                        }, '*')
+                    })
+                    RED.events.on('editor:close', function () {
+                        window.parent.postMessage({
+                            type: 'editor:close',
+                            source: MESSAGE_SOURCE,
+                            scope: MESSAGE_SCOPE,
+                            target: MESSAGE_TARGET
+                        }, '*')
+                    })
+
+                    // Define supported actions and their parameter schemas
+                    const supportedActions = {
+                        'core:manage-palette': {
+                            params: {
+                                type: 'object',
+                                properties: {
+                                    view: {
+                                        type: 'string',
+                                        enum: ['nodes', 'install'],
+                                        default: 'install'
+                                    },
+                                    filter: {
+                                        description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
+                                        type: 'string'
+                                    }
+                                },
+                                required: ['filter']
+                            }
+                        },
+                        'custom:import-flow': {
+                            params: {
+                                type: 'object',
+                                properties: {
+                                    flow: {
+                                        type: 'string',
+                                        description: 'The flow JSON to import'
+                                    },
+                                    addFlow: {
+                                        type: 'boolean',
+                                        description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false'
+                                    }
+                                },
+                                required: ['flow']
+                            }
+                        }
+                    }
+
+                    // Listen for postMessages from parent window
+                    window.addEventListener('message', function (event) {
+                        // prevent own messages being processed
+                        if (event.source === window.self) {
+                            return
+                        }
+
+                        const { type, action, params, target, source, scope } = event.data || {}
+
+                        // Ensure scope and source match expected values
+                        if (target !== MESSAGE_SOURCE || source !== MESSAGE_TARGET || scope !== MESSAGE_SCOPE) {
+                            return
+                        }
+
+                        debug('Received postMessage:', event.data)
+
+                        const postReply = (message) => {
+                            debug('Posting reply message:', message)
+                            if (event.source && typeof event.source.postMessage === 'function') {
+                                event.source.postMessage({
+                                    ...message,
+                                    source: MESSAGE_SOURCE,
+                                    scope: MESSAGE_SCOPE,
+                                    target: MESSAGE_TARGET
+                                }, event.origin)
+                            } else {
+                                console.warn('Unable to post message reply, source not available', message)
+                            }
+                        }
+
+                        // handle version request
+                        if (type === 'get-assistant-version') {
+                            // Reply with the current version
+                            postReply({ type, version: assistantOptions.assistantVersion, success: true }, event.origin)
+                            return
+                        }
+                        // handle supported actions request
+                        if (type === 'get-supported-actions') {
+                            // Reply with the supported actions and their schemas
+                            postReply({ type, supportedActions, success: true }, event.origin)
+                            return
+                        }
+
+                        // handle action invocation requests (must be registered actions in supportedActions)
+                        if (type === 'invoke-action' && typeof action === 'string') {
+                            if (!supportedActions[action]) {
+                                console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
+                                postReply({ type, action, error: 'unknown-action' })
+                                return
+                            }
+                            // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
+                            const actionSchema = supportedActions[action].params
+                            if (actionSchema) {
+                                const validation = validateSchema(params, actionSchema)
+                                if (!validation || !validation.valid) {
+                                    console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
+                                    postReply({ type, action, error: validation.error || 'invalid-parameters' })
+                                    return
+                                }
+                            }
+
+                            if (action === 'custom:import-flow') {
+                                // import-flow is a custom action - handle it here directly
+                                try {
+                                    importNodes(params.flow, params.addFlow === true)
+                                    postReply({ type, success: true })
+                                } catch (err) {
+                                    postReply({ type, error: err?.message })
+                                }
+                            } else {
+                                // Handle (supported) native Node-RED actions
+                                try {
+                                    RED.actions.invoke(action, params)
+                                    postReply({ type, action, success: true })
+                                } catch (err) {
+                                    postReply({ type, action, error: err?.message })
+                                }
+                            }
+                            return
+                        }
+
+                        // unknown message type
+                        postReply({ type: 'error', error: 'unknown-type', data: event.data })
+                    }, false)
+
+                    // Notify the parent window that the assistant is ready
+                    window.parent.postMessage({
+                        type: 'assistant-ready',
+                        source: MESSAGE_SOURCE,
+                        scope: MESSAGE_SCOPE,
+                        target: MESSAGE_TARGET,
+                        version: assistantOptions.assistantVersion
+                    }, '*')
+                }
+
                 registerMonacoExtensions()
                 RED.actions.add('flowfuse-nr-assistant:function-builder', showFunctionBuilderPrompt, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:function-builder.action.label' })
                 setMenuShortcutKey('ff-assistant-function-builder', 'red-ui-workspace', 'ctrl-alt-f', 'flowfuse-nr-assistant:function-builder')
@@ -832,7 +992,7 @@
                         nodeType: node.type,
                         nodeModule: node._def?.set?.module || 'node-red'
                     }
-    
+
                     context.outputs = +(node.outputs || 1)
                     if (isNaN(context.outputs) || context.outputs < 1) {
                         context.outputs = 1
@@ -1956,6 +2116,129 @@
             }
             RED.menu.refreshShortcuts()
         }
+
+        /**
+         * Validates data against a simple schema
+         * NOTE: This is a very basic implementation and only supports a subset of JSON Schema for now.
+         * @param {any} data - The data to validate
+         * @param {object} schema - The schema to validate against
+         * @returns {{valid: boolean, error?: string}} - The validation result
+         */
+        function validateSchema (data, schema) {
+            if (schema.type === 'object') {
+                if (typeof data !== 'object') {
+                    return {
+                        valid: false,
+                        error: 'Data is not of type object'
+                    }
+                }
+                if (Array.isArray(data)) {
+                    return {
+                        valid: false,
+                        error: 'Data is an array but an object was expected'
+                    }
+                }
+                // check required properties
+                if (Array.isArray(schema.required)) {
+                    for (const reqProp of schema.required) {
+                        if (!(reqProp in data)) {
+                            return {
+                                valid: false,
+                                error: `Data is missing required parameter "${reqProp}"`
+                            }
+                        }
+                    }
+                }
+                // check properties & apply defaults
+                if (schema.properties) {
+                    for (const [propName, propSchema] of Object.entries(schema.properties)) {
+                        const propExists = propName in data
+                        // check type
+                        if (propSchema.type && propExists) {
+                            const expectedType = propSchema.type
+                            const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
+                            if (actualType !== expectedType) {
+                                return {
+                                    valid: false,
+                                    error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${expectedType}"`
+                                }
+                            }
+                        }
+                        // check enum
+                        if (propSchema.enum && propExists) {
+                            if (!propSchema.enum.includes(data[propName])) {
+                                return {
+                                    valid: false,
+                                    error: `Data parameter "${propName}" has invalid value "${data[propName]}". Should be one of: ${propSchema.enum.join(', ')}`
+                                }
+                            }
+                        }
+                        // apply defaults
+                        if (propSchema.default !== undefined && !propExists) {
+                            data[propName] = propSchema.default
+                        }
+                    }
+                }
+            }
+            return { valid: true }
+        }
+
+        /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
+        /**
+         * Performs the import of nodes, handling any conflicts that may arise
+         * @param {string} nodesStr the nodes to import as a string
+         * @param {boolean} addFlow whether to add the nodes to a new flow or to the current flow
+         */
+        function importNodes (nodesStr, addFlow) {
+            let newNodes = nodesStr
+            if (typeof nodesStr === 'string') {
+                try {
+                    nodesStr = nodesStr.trim()
+                    if (nodesStr.length === 0) {
+                        return
+                    }
+                    newNodes = validateFlowString(nodesStr)
+                } catch (err) {
+                    const e = new Error(RED._('clipboard.invalidFlow', { message: 'test' }))
+                    e.code = 'NODE_RED'
+                    throw e
+                }
+            }
+            const importOptions = { generateIds: true, addFlow }
+            try {
+                RED.view.importNodes(newNodes, importOptions)
+            } catch (error) {
+                // Thrown for import_conflict
+                RED.notify('Import failed:' + error.message, 'error')
+                throw error
+            }
+        }
+
+        /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
+        /**
+         * Validates if the provided string looks like valid flow json
+         * @param {string} flowString the string to validate
+         * @returns If valid, returns the node array
+         */
+        function validateFlowString (flowString) {
+            const res = JSON.parse(flowString)
+            if (!Array.isArray(res)) {
+                throw new Error(RED._('clipboard.import.errors.notArray'))
+            }
+            for (let i = 0; i < res.length; i++) {
+                if (typeof res[i] !== 'object') {
+                    throw new Error(RED._('clipboard.import.errors.itemNotObject', { index: i }))
+                }
+                if (!Object.hasOwn(res[i], 'id')) {
+                    throw new Error(RED._('clipboard.import.errors.missingId', { index: i }))
+                }
+                if (!Object.hasOwn(res[i], 'type')) {
+                    throw new Error(RED._('clipboard.import.errors.missingType', { index: i }))
+                }
+            }
+            return res
+        }
+
         function debug (...args) {
             if (RED.nrAssistant?.DEBUG) {
                 const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
@@ -2010,7 +2293,7 @@
         flex-grow: 1;
     }
 
-    /*  
+    /*
         As menu icons are drawn by the (RED.menu.init api) as <img> tags, styling the fill of the path is impossible.
         Instead of using a url (e.g. resource/icon.svg), we add them as a "class name" which node-red then renders as an `<i>` tag.
         The CSS below uses the mask-image property to apply the SVG as a mask, allowing us to set the color via background-color.
