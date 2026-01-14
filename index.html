@@ -235,7 +235,7 @@
                                     view: {
                                         type: 'string',
                                         enum: ['nodes', 'install'],
-                                        default: 'install',
+                                        default: 'install'
                                     },
                                     filter: {
                                         description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
@@ -255,7 +255,7 @@
                                     },
                                     addFlow: {
                                         type: 'boolean',
-                                        description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false',
+                                        description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false'
                                     }
                                 },
                                 required: ['flow']
@@ -263,7 +263,7 @@
                         }
                     }
 
-                    //Listen for postMessages from parent window
+                    // Listen for postMessages from parent window
                     window.addEventListener('message', function (event) {
                         // prevent own messages being processed
                         if (event.source === window.self) {
@@ -271,7 +271,7 @@
                         }
 
                         const { type, action, params, target, source, scope } = event.data || {}
-                        
+
                         // Ensure scope and source match expected values
                         if (target !== MESSAGE_SOURCE || source !== MESSAGE_TARGET || scope !== MESSAGE_SCOPE) {
                             return
@@ -2185,25 +2185,25 @@
          * @param {string} nodesStr the nodes to import as a string
          * @param {boolean} addFlow whether to add the nodes to a new flow or to the current flow
          */
-        function importNodes(nodesStr, addFlow) {
-            let newNodes = nodesStr;
+        function importNodes (nodesStr, addFlow) {
+            let newNodes = nodesStr
             if (typeof nodesStr === 'string') {
                 try {
-                    nodesStr = nodesStr.trim();
+                    nodesStr = nodesStr.trim()
                     if (nodesStr.length === 0) {
-                        return;
+                        return
                     }
                     newNodes = validateFlowString(nodesStr)
-                } catch(err) {
-                    const e = new Error(RED._("clipboard.invalidFlow",{message:"test"}));
-                    e.code = "NODE_RED";
-                    throw e;
+                } catch (err) {
+                    const e = new Error(RED._('clipboard.invalidFlow', { message: 'test' }))
+                    e.code = 'NODE_RED'
+                    throw e
                 }
             }
-            var importOptions = {generateIds: false, addFlow: addFlow};
+            const importOptions = { generateIds: true, addFlow }
             try {
-                RED.view.importNodes(newNodes, importOptions);
-            } catch(error) {
+                RED.view.importNodes(newNodes, importOptions)
+            } catch (error) {
                 // Thrown for import_conflict
                 confirmImport(error.importConfig, newNodes, importOptions);
             }
@@ -2215,20 +2215,20 @@
          * @param {string} flowString the string to validate
          * @returns If valid, returns the node array
          */
-        function validateFlowString(flowString) {
+        function validateFlowString (flowString) {
             const res = JSON.parse(flowString)
             if (!Array.isArray(res)) {
-                throw new Error(RED._("clipboard.import.errors.notArray"));
+                throw new Error(RED._('clipboard.import.errors.notArray'))
             }
             for (let i = 0; i < res.length; i++) {
-                if (typeof res[i] !== "object") {
-                    throw new Error(RED._("clipboard.import.errors.itemNotObject",{index:i}));
+                if (typeof res[i] !== 'object') {
+                    throw new Error(RED._('clipboard.import.errors.itemNotObject', { index: i }))
                 }
                 if (!Object.hasOwn(res[i], 'id')) {
-                    throw new Error(RED._("clipboard.import.errors.missingId",{index:i}));
+                    throw new Error(RED._('clipboard.import.errors.missingId', { index: i }))
                 }
                 if (!Object.hasOwn(res[i], 'type')) {
-                    throw new Error(RED._("clipboard.import.errors.missingType",{index:i}));
+                    throw new Error(RED._('clipboard.import.errors.missingType', { index: i }))
                 }
             }
             return res
