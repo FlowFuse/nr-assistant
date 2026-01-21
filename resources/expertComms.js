@@ -206,6 +206,9 @@
             })
         }
 
+        /**
+         * FlowFuse Expert Node-RED event notifiers
+         */
         async notifyPaletteChange () {
             this.postParent({
                 type: 'set-palette',
@@ -214,7 +217,7 @@
         }
 
         /**
-         * Flowfuse Expert message handlers
+         * FlowFuse Expert message handlers
          */
         handleActionInvocation ({ event, type, action, params } = {}) {
             // handle action invocation requests (must be registered actions in supportedActions)
