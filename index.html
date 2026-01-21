@@ -161,7 +161,8 @@
             })
         }
 
-        async function getPluginsAndNodes () {
+        async function getPalette () {
+            const palette = {}
             const plugins = await $.ajax({
                 url: 'plugins',
                 method: 'GET',
@@ -177,10 +178,39 @@
                 }
             })
 
-            return {
-                plugins,
-                nodes
-            }
+            plugins.forEach(plugin => {
+                if (Object.prototype.hasOwnProperty.call(palette, plugin.module)) {
+                    palette[plugin.module].plugins.push(plugin)
+                } else {
+                    palette[plugin.module] = {
+                        version: plugin.version,
+                        enabled: plugin.enabled,
+                        module: plugin.module,
+                        plugins: [
+                            plugin
+                        ],
+                        nodes: []
+                    }
+                }
+            })
+
+            nodes.forEach(node => {
+                if (Object.prototype.hasOwnProperty.call(palette, node.module)) {
+                    palette[node.module].nodes.push(node)
+                } else {
+                    palette[node.module] = {
+                        version: node.version,
+                        enabled: node.enabled,
+                        module: node.module,
+                        plugins: [],
+                        nodes: [
+                            node
+                        ]
+                    }
+                }
+            })
+
+            return palette
         }
 
         function initAssistant (options) {
@@ -263,16 +293,16 @@
                         postParent({ type: 'editor:close' })
                     })
                     RED.events.on('registry:node-set-added', async function () {
-                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                        postParent({ type: 'set-palette', palette: await getPalette() })
                     })
                     RED.events.on('registry:node-set-removed', async function () {
-                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                        postParent({ type: 'set-palette', palette: await getPalette() })
                     })
                     RED.events.on('registry:node-set-disabled', async function () {
-                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                        postParent({ type: 'set-palette', palette: await getPalette() })
                     })
                     RED.events.on('registry:node-set-enabled', async function () {
-                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                        postParent({ type: 'set-palette', palette: await getPalette() })
                     })
 
                     // Define supported actions and their parameter schemas
@@ -345,9 +375,9 @@
                             postReply({ type, supportedActions, success: true }, event)
                             return
                         }
-                        if (type === 'get-modules') {
+                        if (type === 'get-palette') {
                             // Reply with the supported actions and their schemas
-                            postReply({ type: 'set-modules', modules: await getPluginsAndNodes(), success: true }, event)
+                            postReply({ type: 'set-palette', palette: await getPalette(), success: true }, event)
                             return
                         }
 
