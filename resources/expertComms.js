@@ -27,16 +27,23 @@
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
+        assistantOptions = {}
 
         MESSAGE_SOURCE = 'nr-assistant'
         MESSAGE_TARGET = 'flowfuse-expert'
         MESSAGE_SCOPE = 'flowfuse-expert'
 
-        // targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
-        // This is fine for the initial handshake with the FF Expert (will change to the origin of the expert page once it is loaded)
+        /**
+         * targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
+         * This is fine for the initial handshake with the FF Expert (will change to the origin of the expert page once it is loaded)
+         *
+         * @type {string}
+         */
         targetOrigin = '*'
 
-        // Define supported actions and their parameter schemas
+        /**
+         * Define supported actions and their parameter schemas
+         */
         supportedActions = {
             'core:manage-palette': {
                 params: {
@@ -79,6 +86,7 @@
          * This map acts as a router for the assistant's event listeners:
          * - Functions: Executed immediately when the event fires (e.g., notifying the parent of UI state).
          * - Strings: Represent the name of a method within this class to be invoked (e.g., refreshing the palette).
+         *            The method name being referenced must be appended with 'notify'
          *
          * @type {Object.<string, Function|string>}
          */
@@ -93,6 +101,32 @@
             'registry:node-set-removed': 'notifyPaletteChange',
             'registry:node-set-disabled': 'notifyPaletteChange',
             'registry:node-set-enabled': 'notifyPaletteChange'
+        }
+
+        /**
+         * A mapping of FlowFuse Expert events to their respective handler logic.
+         *
+         * This map acts as a router for the expert's event listeners:
+         * - Functions: Executed immediately when the event fires (e.g., notifying the parent of UI state).
+         * - Strings: Represent the name of a method within this class to be invoked (e.g., refreshing the palette).
+         *            The method name being referenced must be appended with 'handle'
+         *
+         * @type {Object.<string, Function|string>}
+         */
+        expertEventsMap = {
+            'get-assistant-version': ({ event, type, action, params } = {}) => {
+                // handle version request
+                this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
+            },
+            'get-supported-actions': ({ event, type, action, params } = {}) => {
+                // handle supported actions request
+                this.postReply({ type, supportedActions: this.supportedActions, success: true }, event)
+            },
+            'get-palette': async ({ event, type, action, params } = {}) => {
+                // handle palette request
+                this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
+            },
+            'invoke-action': 'handleActionInvocation'
         }
 
         init (RED, assistantOptions) {
@@ -114,7 +148,7 @@
         }
 
         setupMessageListeners () {
-            // Listen for postMessages from parent window
+            // Listen for postMessages from the parent window
             window.addEventListener('message', async (event) => {
                 // prevent own messages being processed
                 if (event.source === window.self) {
@@ -135,63 +169,28 @@
 
                 this.debug('Received postMessage:', event.data)
 
-                // handle version request
-                if (type === 'get-assistant-version') {
-                    // Reply with the current version
-                    this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
-                    return
-                }
-                // handle supported actions request
-                if (type === 'get-supported-actions') {
-                    // Reply with the supported actions and their schemas
-                    this.postReply({ type, supportedActions: this.supportedActions, success: true }, event)
-                    return
-                }
-                if (type === 'get-palette') {
-                    // Reply with the supported actions and their schemas
-                    this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
-                    return
+                const payload = {
+                    event: event.data,
+                    type,
+                    action,
+                    params
                 }
 
-                // handle action invocation requests (must be registered actions in supportedActions)
-                if (type === 'invoke-action' && typeof action === 'string') {
-                    if (!this.supportedActions[action]) {
-                        console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
-                        this.postReply({ type, action, error: 'unknown-action' }, event)
-                        return
-                    }
-                    // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
-                    const actionSchema = this.supportedActions[action].params
-                    if (actionSchema) {
-                        const validation = this.validateSchema(params, actionSchema)
-                        if (!validation || !validation.valid) {
-                            console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
-                            this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
-                            return
-                        }
+                for (const eventName in this.expertEventsMap) {
+                    if (type === eventName && typeof this.expertEventsMap[eventName] === 'function') {
+                        return this.expertEventsMap[eventName](payload)
                     }
 
-                    if (action === 'custom:import-flow') {
-                        // import-flow is a custom action - handle it here directly
-                        try {
-                            this.importNodes(params.flow, params.addFlow === true)
-                            this.postReply({ type, success: true }, event)
-                        } catch (err) {
-                            this.postReply({ type, error: err?.message }, event)
-                        }
-                    } else {
-                        // Handle (supported) native Node-RED actions
-                        try {
-                            this.RED.actions.invoke(action, params)
-                            this.postReply({ type, action, success: true }, event)
-                        } catch (err) {
-                            this.postReply({ type, action, error: err?.message }, event)
-                        }
+                    if (
+                        type === eventName &&
+                        typeof this.expertEventsMap[eventName] === 'string' &&
+                        this.nodeRedEventsMap[eventName] in this
+                    ) {
+                        return this[this.nodeRedEventsMap[eventName]].bind(this)
                     }
-                    return
                 }
 
-                // unknown message type
+                // handles unknown message type
                 this.postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
             }, false)
         }
@@ -212,6 +211,51 @@
                 type: 'set-palette',
                 palette: await this.getPalette()
             })
+        }
+
+        /**
+         * Flowfuse Expert message handlers
+         */
+        handleActionInvocation ({ event, type, action, params } = {}) {
+            // handle action invocation requests (must be registered actions in supportedActions)
+            if (typeof action !== 'string') {
+                return
+            }
+
+            if (!this.supportedActions[action]) {
+                console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
+                this.postReply({ type, action, error: 'unknown-action' }, event)
+                return
+            }
+
+            // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
+            const actionSchema = this.supportedActions[action].params
+            if (actionSchema) {
+                const validation = this.validateSchema(params, actionSchema)
+                if (!validation || !validation.valid) {
+                    console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
+                    this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
+                    return
+                }
+            }
+
+            if (action === 'custom:import-flow') {
+                // import-flow is a custom action - handle it here directly
+                try {
+                    this.importNodes(params.flow, params.addFlow === true)
+                    this.postReply({ type, success: true }, event)
+                } catch (err) {
+                    this.postReply({ type, error: err?.message }, event)
+                }
+            } else {
+                // Handle (supported) native Node-RED actions
+                try {
+                    this.RED.actions.invoke(action, params)
+                    this.postReply({ type, action, success: true }, event)
+                } catch (err) {
+                    this.postReply({ type, action, error: err?.message }, event)
+                }
+            }
         }
 
         async getPalette () {
