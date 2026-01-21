@@ -160,6 +160,29 @@
                 }
             })
         }
+
+        async function getPluginsAndNodes () {
+            const plugins = await $.ajax({
+                url: 'plugins',
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json'
+                }
+            })
+            const nodes = await $.ajax({
+                url: 'nodes',
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json'
+                }
+            })
+
+            return {
+                plugins,
+                nodes
+            }
+        }
+
         function initAssistant (options) {
             debug('initialising...', assistantOptions)
             if (!initialisedInterlock) {
@@ -208,22 +231,48 @@
                     const MESSAGE_TARGET = 'flowfuse-expert'
                     const MESSAGE_SCOPE = 'flowfuse-expert'
 
+                    let targetOrigin = '*' // initial value, replaced with origin after handshake
+
+                    const postReply = (message, event) => {
+                        debug('Posting reply message:', message)
+                        if (event.source && typeof event.source.postMessage === 'function') {
+                            event.source.postMessage({
+                                ...message,
+                                source: MESSAGE_SOURCE,
+                                scope: MESSAGE_SCOPE,
+                                target: MESSAGE_TARGET
+                            }, targetOrigin)
+                        } else {
+                            console.warn('Unable to post message reply, source not available', message)
+                        }
+                    }
+                    const postParent = (payload = {}) => {
+                        window.parent.postMessage({
+                            ...payload,
+                            source: MESSAGE_SOURCE,
+                            scope: MESSAGE_SCOPE,
+                            target: MESSAGE_TARGET
+                        }, targetOrigin)
+                    }
+
                     // proxy certain events from RED Events to the parent window (for state tracking)
                     RED.events.on('editor:open', function () {
-                        window.parent.postMessage({
-                            type: 'editor:open',
-                            source: MESSAGE_SOURCE,
-                            scope: MESSAGE_SCOPE,
-                            target: MESSAGE_TARGET
-                        }, '*')
+                        postParent({ type: 'editor:open' })
                     })
                     RED.events.on('editor:close', function () {
-                        window.parent.postMessage({
-                            type: 'editor:close',
-                            source: MESSAGE_SOURCE,
-                            scope: MESSAGE_SCOPE,
-                            target: MESSAGE_TARGET
-                        }, '*')
+                        postParent({ type: 'editor:close' })
+                    })
+                    RED.events.on('registry:node-set-added', async function () {
+                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                    })
+                    RED.events.on('registry:node-set-removed', async function () {
+                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                    })
+                    RED.events.on('registry:node-set-disabled', async function () {
+                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
+                    })
+                    RED.events.on('registry:node-set-enabled', async function () {
+                        postParent({ type: 'set-modules', modules: await getPluginsAndNodes() })
                     })
 
                     // Define supported actions and their parameter schemas
@@ -264,7 +313,7 @@
                     }
 
                     // Listen for postMessages from parent window
-                    window.addEventListener('message', function (event) {
+                    window.addEventListener('message', async function (event) {
                         // prevent own messages being processed
                         if (event.source === window.self) {
                             return
@@ -277,32 +326,28 @@
                             return
                         }
 
-                        debug('Received postMessage:', event.data)
-
-                        const postReply = (message) => {
-                            debug('Posting reply message:', message)
-                            if (event.source && typeof event.source.postMessage === 'function') {
-                                event.source.postMessage({
-                                    ...message,
-                                    source: MESSAGE_SOURCE,
-                                    scope: MESSAGE_SCOPE,
-                                    target: MESSAGE_TARGET
-                                }, event.origin)
-                            } else {
-                                console.warn('Unable to post message reply, source not available', message)
-                            }
+                        // Setting target origin for future calls
+                        if (targetOrigin === '*') {
+                            targetOrigin = event.origin
                         }
+
+                        debug('Received postMessage:', event.data)
 
                         // handle version request
                         if (type === 'get-assistant-version') {
                             // Reply with the current version
-                            postReply({ type, version: assistantOptions.assistantVersion, success: true }, event.origin)
+                            postReply({ type, version: assistantOptions.assistantVersion, success: true }, event)
                             return
                         }
                         // handle supported actions request
                         if (type === 'get-supported-actions') {
                             // Reply with the supported actions and their schemas
-                            postReply({ type, supportedActions, success: true }, event.origin)
+                            postReply({ type, supportedActions, success: true }, event)
+                            return
+                        }
+                        if (type === 'get-modules') {
+                            // Reply with the supported actions and their schemas
+                            postReply({ type: 'set-modules', modules: await getPluginsAndNodes(), success: true }, event)
                             return
                         }
 
@@ -310,7 +355,7 @@
                         if (type === 'invoke-action' && typeof action === 'string') {
                             if (!supportedActions[action]) {
                                 console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
-                                postReply({ type, action, error: 'unknown-action' })
+                                postReply({ type, action, error: 'unknown-action' }, event)
                                 return
                             }
                             // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
@@ -319,7 +364,7 @@
                                 const validation = validateSchema(params, actionSchema)
                                 if (!validation || !validation.valid) {
                                     console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
-                                    postReply({ type, action, error: validation.error || 'invalid-parameters' })
+                                    postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
                                     return
                                 }
                             }
@@ -328,34 +373,28 @@
                                 // import-flow is a custom action - handle it here directly
                                 try {
                                     importNodes(params.flow, params.addFlow === true)
-                                    postReply({ type, success: true })
+                                    postReply({ type, success: true }, event)
                                 } catch (err) {
-                                    postReply({ type, error: err?.message })
+                                    postReply({ type, error: err?.message }, event)
                                 }
                             } else {
                                 // Handle (supported) native Node-RED actions
                                 try {
                                     RED.actions.invoke(action, params)
-                                    postReply({ type, action, success: true })
+                                    postReply({ type, action, success: true }, event)
                                 } catch (err) {
-                                    postReply({ type, action, error: err?.message })
+                                    postReply({ type, action, error: err?.message }, event)
                                 }
                             }
                             return
                         }
 
                         // unknown message type
-                        postReply({ type: 'error', error: 'unknown-type', data: event.data })
+                        postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
                     }, false)
 
                     // Notify the parent window that the assistant is ready
-                    window.parent.postMessage({
-                        type: 'assistant-ready',
-                        source: MESSAGE_SOURCE,
-                        scope: MESSAGE_SCOPE,
-                        target: MESSAGE_TARGET,
-                        version: assistantOptions.assistantVersion
-                    }, '*')
+                    postParent({ type: 'assistant-ready', version: assistantOptions.assistantVersion })
                 }
 
                 registerMonacoExtensions()
