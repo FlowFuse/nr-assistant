@@ -92,7 +92,10 @@
 
             this.setNodeRedEventListeners()
 
-            this.foo()
+            this.setupMessageListeners()
+
+            // Notify the parent window that the assistant is ready
+            this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
         }
 
         /**
@@ -121,7 +124,7 @@
             this._post(payload, event.source)
         }
 
-        foo () {
+        setupMessageListeners () {
             // Listen for postMessages from parent window
             window.addEventListener('message', async (event) => {
                 // prevent own messages being processed
@@ -202,9 +205,6 @@
                 // unknown message type
                 this.postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
             }, false)
-
-            // Notify the parent window that the assistant is ready
-            this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
         }
 
         setNodeRedEventListeners () {
