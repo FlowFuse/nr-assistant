@@ -184,9 +184,9 @@
                     if (
                         type === eventName &&
                         typeof this.expertEventsMap[eventName] === 'string' &&
-                        this.nodeRedEventsMap[eventName] in this
+                        this.expertEventsMap[eventName] in this
                     ) {
-                        return this[this.nodeRedEventsMap[eventName]].bind(this)
+                        return this[this.expertEventsMap[eventName]](payload)
                     }
                 }
 
