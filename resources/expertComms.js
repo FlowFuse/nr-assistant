@@ -25,6 +25,54 @@
     'use strict'
 
     class ExpertComms {
+        /** @type {import('node-red').NodeRedInstance} */
+        RED = null
+
+        MESSAGE_SOURCE = 'nr-assistant'
+        MESSAGE_TARGET = 'flowfuse-expert'
+        MESSAGE_SCOPE = 'flowfuse-expert'
+
+        // targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
+        // This is fine for the initial handshake with the FF Expert (will change to the origin of the expert page once it is loaded)
+        targetOrigin = '*'
+
+        // Define supported actions and their parameter schemas
+        supportedActions = {
+            'core:manage-palette': {
+                params: {
+                    type: 'object',
+                    properties: {
+                        view: {
+                            type: 'string',
+                            enum: ['nodes', 'install'],
+                            default: 'install'
+                        },
+                        filter: {
+                            description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
+                            type: 'string'
+                        }
+                    },
+                    required: ['filter']
+                }
+            },
+            'custom:import-flow': {
+                params: {
+                    type: 'object',
+                    properties: {
+                        flow: {
+                            type: 'string',
+                            description: 'The flow JSON to import'
+                        },
+                        addFlow: {
+                            type: 'boolean',
+                            description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false'
+                        }
+                    },
+                    required: ['flow']
+                }
+            }
+        }
+
         constructor () {
             /** @type {import('node-red').NodeRedInstance} */
             this.RED = null
@@ -33,208 +81,161 @@
         }
 
         init (RED, assistantOptions) {
+            /** @type {import('node-red').NodeRedInstance} */
             this.RED = RED
             this.assistantOptions = assistantOptions
+
+            if (!window.parent?.postMessage || window.self === window.top) {
+                console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
+                return
+            }
+
+            this.setNodeRedEventListeners()
 
             this.foo()
         }
 
-        foo () {
-            // Setup postMessage communication with parent window
-            if (!window.parent?.postMessage || window.self === window.top) {
-                console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
+        postParent (payload = {}) {
+            window.parent.postMessage({
+                ...payload,
+                source: this.MESSAGE_SOURCE,
+                scope: this.MESSAGE_SCOPE,
+                target: this.MESSAGE_TARGET
+            }, this.targetOrigin)
+        }
+
+        postReply (message, event) {
+            this.debug('Posting reply message:', message)
+            if (event.source && typeof event.source.postMessage === 'function') {
+                event.source.postMessage({
+                    ...message,
+                    source: this.MESSAGE_SOURCE,
+                    scope: this.MESSAGE_SCOPE,
+                    target: this.MESSAGE_TARGET
+                }, this.targetOrigin)
             } else {
-                const MESSAGE_SOURCE = 'nr-assistant'
-                const MESSAGE_TARGET = 'flowfuse-expert'
-                const MESSAGE_SCOPE = 'flowfuse-expert'
-
-                let targetOrigin = '*' // initial value, replaced with origin after handshake
-
-                const postReply = (message, event) => {
-                    this.debug('Posting reply message:', message)
-                    if (event.source && typeof event.source.postMessage === 'function') {
-                        event.source.postMessage({
-                            ...message,
-                            source: MESSAGE_SOURCE,
-                            scope: MESSAGE_SCOPE,
-                            target: MESSAGE_TARGET
-                        }, targetOrigin)
-                    } else {
-                        console.warn('Unable to post message reply, source not available', message)
-                    }
-                }
-                const postParent = (payload = {}) => {
-                    window.parent.postMessage({
-                        ...payload,
-                        source: MESSAGE_SOURCE,
-                        scope: MESSAGE_SCOPE,
-                        target: MESSAGE_TARGET
-                    }, targetOrigin)
-                }
-
-                // proxy certain events from RED Events to the parent window (for state tracking)
-                this.RED.events.on('editor:open', () => {
-                    postParent({ type: 'editor:open' })
-                })
-                this.RED.events.on('editor:close', () => {
-                    postParent({ type: 'editor:close' })
-                })
-                this.RED.events.on('registry:node-set-added', async () => {
-                    postParent({ type: 'set-palette', palette: await this.getPalette() })
-                })
-                this.RED.events.on('registry:node-set-removed', async () => {
-                    postParent({ type: 'set-palette', palette: await this.getPalette() })
-                })
-                this.RED.events.on('registry:node-set-disabled', async () => {
-                    postParent({ type: 'set-palette', palette: await this.getPalette() })
-                })
-                this.RED.events.on('registry:node-set-enabled', async () => {
-                    postParent({ type: 'set-palette', palette: await this.getPalette() })
-                })
-
-                // Define supported actions and their parameter schemas
-                const supportedActions = {
-                    'core:manage-palette': {
-                        params: {
-                            type: 'object',
-                            properties: {
-                                view: {
-                                    type: 'string',
-                                    enum: ['nodes', 'install'],
-                                    default: 'install'
-                                },
-                                filter: {
-                                    description: 'Optional filter string. e.g. `"node-red-contrib-s7","node-red-contrib-other"` to pre-filter the palette view',
-                                    type: 'string'
-                                }
-                            },
-                            required: ['filter']
-                        }
-                    },
-                    'custom:import-flow': {
-                        params: {
-                            type: 'object',
-                            properties: {
-                                flow: {
-                                    type: 'string',
-                                    description: 'The flow JSON to import'
-                                },
-                                addFlow: {
-                                    type: 'boolean',
-                                    description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false'
-                                }
-                            },
-                            required: ['flow']
-                        }
-                    }
-                }
-
-                // Listen for postMessages from parent window
-                window.addEventListener('message', async (event) => {
-                    // prevent own messages being processed
-                    if (event.source === window.self) {
-                        return
-                    }
-
-                    const { type, action, params, target, source, scope } = event.data || {}
-
-                    // Ensure scope and source match expected values
-                    if (target !== MESSAGE_SOURCE || source !== MESSAGE_TARGET || scope !== MESSAGE_SCOPE) {
-                        return
-                    }
-
-                    // Setting target origin for future calls
-                    if (targetOrigin === '*') {
-                        targetOrigin = event.origin
-                    }
-
-                    this.debug('Received postMessage:', event.data)
-
-                    // handle version request
-                    if (type === 'get-assistant-version') {
-                        // Reply with the current version
-                        postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
-                        return
-                    }
-                    // handle supported actions request
-                    if (type === 'get-supported-actions') {
-                        // Reply with the supported actions and their schemas
-                        postReply({ type, supportedActions, success: true }, event)
-                        return
-                    }
-                    if (type === 'get-palette') {
-                        // Reply with the supported actions and their schemas
-                        postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
-                        return
-                    }
-
-                    // handle action invocation requests (must be registered actions in supportedActions)
-                    if (type === 'invoke-action' && typeof action === 'string') {
-                        if (!supportedActions[action]) {
-                            console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
-                            postReply({ type, action, error: 'unknown-action' }, event)
-                            return
-                        }
-                        // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
-                        const actionSchema = supportedActions[action].params
-                        if (actionSchema) {
-                            const validation = this.validateSchema(params, actionSchema)
-                            if (!validation || !validation.valid) {
-                                console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
-                                postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
-                                return
-                            }
-                        }
-
-                        if (action === 'custom:import-flow') {
-                            // import-flow is a custom action - handle it here directly
-                            try {
-                                this.importNodes(params.flow, params.addFlow === true)
-                                postReply({ type, success: true }, event)
-                            } catch (err) {
-                                postReply({ type, error: err?.message }, event)
-                            }
-                        } else {
-                            // Handle (supported) native Node-RED actions
-                            try {
-                                this.RED.actions.invoke(action, params)
-                                postReply({ type, action, success: true }, event)
-                            } catch (err) {
-                                postReply({ type, action, error: err?.message }, event)
-                            }
-                        }
-                        return
-                    }
-
-                    // unknown message type
-                    postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
-                }, false)
-
-                // Notify the parent window that the assistant is ready
-                postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
+                console.warn('Unable to post message reply, source not available', message)
             }
         }
 
-        debug (...args) {
-            if (this.RED.nrAssistant?.DEBUG) {
-                const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
-                const stackLine = new Error().stack.split('\n')[2].trim()
-                const match = stackLine.match(/\(?([^\s)]+):(\d+):(\d+)\)?$/) || stackLine.match(/@?([^@]+):(\d+):(\d+)$/)
-                const file = match?.[1] || 'anonymous'
-                const line = match?.[2] || '1'
-                const col = match?.[3] || '1'
-                let link = `${window.location.origin}/${scriptName}:${line}:${col}`
-                if (/^VM\d+$/.test(file)) {
-                    link = `debugger:///${file}:${line}:${col}`
-                } else if (file !== 'anonymous' && file !== '<anonymous>' && file !== scriptName) {
-                    link = `${file}:${line}:${col}`
-                    if (!link.startsWith('http') && !link.includes('/')) {
-                        link = `${window.location.origin}/${link}`
-                    }
+        foo () {
+            // Listen for postMessages from parent window
+            window.addEventListener('message', async (event) => {
+                // prevent own messages being processed
+                if (event.source === window.self) {
+                    return
                 }
-                // eslint-disable-next-line no-console
-                console.log('[nr-assistant]', ...args, `\n   at ${link}`)
-            }
+
+                const { type, action, params, target, source, scope } = event.data || {}
+
+                // Ensure scope and source match expected values
+                if (target !== this.MESSAGE_SOURCE || source !== this.MESSAGE_TARGET || scope !== this.MESSAGE_SCOPE) {
+                    return
+                }
+
+                // Setting target origin for future calls
+                if (this.targetOrigin === '*') {
+                    this.targetOrigin = event.origin
+                }
+
+                this.debug('Received postMessage:', event.data)
+
+                // handle version request
+                if (type === 'get-assistant-version') {
+                    // Reply with the current version
+                    this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
+                    return
+                }
+                // handle supported actions request
+                if (type === 'get-supported-actions') {
+                    // Reply with the supported actions and their schemas
+                    this.postReply({ type, supportedActions: this.supportedActions, success: true }, event)
+                    return
+                }
+                if (type === 'get-palette') {
+                    // Reply with the supported actions and their schemas
+                    this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
+                    return
+                }
+
+                // handle action invocation requests (must be registered actions in supportedActions)
+                if (type === 'invoke-action' && typeof action === 'string') {
+                    if (!this.supportedActions[action]) {
+                        console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
+                        this.postReply({ type, action, error: 'unknown-action' }, event)
+                        return
+                    }
+                    // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
+                    const actionSchema = this.supportedActions[action].params
+                    if (actionSchema) {
+                        const validation = this.validateSchema(params, actionSchema)
+                        if (!validation || !validation.valid) {
+                            console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
+                            this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
+                            return
+                        }
+                    }
+
+                    if (action === 'custom:import-flow') {
+                        // import-flow is a custom action - handle it here directly
+                        try {
+                            this.importNodes(params.flow, params.addFlow === true)
+                            this.postReply({ type, success: true }, event)
+                        } catch (err) {
+                            this.postReply({ type, error: err?.message }, event)
+                        }
+                    } else {
+                        // Handle (supported) native Node-RED actions
+                        try {
+                            this.RED.actions.invoke(action, params)
+                            this.postReply({ type, action, success: true }, event)
+                        } catch (err) {
+                            this.postReply({ type, action, error: err?.message }, event)
+                        }
+                    }
+                    return
+                }
+
+                // unknown message type
+                this.postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
+            }, false)
+
+            // Notify the parent window that the assistant is ready
+            this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
+        }
+
+        setNodeRedEventListeners () {
+            // proxy certain events from RED Events to the parent window (for state tracking)
+            this.RED.events.on('editor:open', () => {
+                this.postParent({ type: 'editor:open' })
+            })
+            this.RED.events.on('editor:close', () => {
+                this.postParent({ type: 'editor:close' })
+            })
+            this.RED.events.on('registry:node-set-added', async () => {
+                this.postParent({
+                    type: 'set-palette',
+                    palette: await this.getPalette()
+                })
+            })
+            this.RED.events.on('registry:node-set-removed', async () => {
+                this.postParent({
+                    type: 'set-palette',
+                    palette: await this.getPalette()
+                })
+            })
+            this.RED.events.on('registry:node-set-disabled', async () => {
+                this.postParent({
+                    type: 'set-palette',
+                    palette: await this.getPalette()
+                })
+            })
+            this.RED.events.on('registry:node-set-enabled', async () => {
+                this.postParent({
+                    type: 'set-palette',
+                    palette: await this.getPalette()
+                })
+            })
         }
 
         async getPalette () {
@@ -402,6 +403,28 @@
                 }
             }
             return res
+        }
+
+        debug (...args) {
+            if (this.RED.nrAssistant?.DEBUG) {
+                const scriptName = 'assistant-index.html.js' // must match the sourceURL set in the script below
+                const stackLine = new Error().stack.split('\n')[2].trim()
+                const match = stackLine.match(/\(?([^\s)]+):(\d+):(\d+)\)?$/) || stackLine.match(/@?([^@]+):(\d+):(\d+)$/)
+                const file = match?.[1] || 'anonymous'
+                const line = match?.[2] || '1'
+                const col = match?.[3] || '1'
+                let link = `${window.location.origin}/${scriptName}:${line}:${col}`
+                if (/^VM\d+$/.test(file)) {
+                    link = `debugger:///${file}:${line}:${col}`
+                } else if (file !== 'anonymous' && file !== '<anonymous>' && file !== scriptName) {
+                    link = `${file}:${line}:${col}`
+                    if (!link.startsWith('http') && !link.includes('/')) {
+                        link = `${window.location.origin}/${link}`
+                    }
+                }
+                // eslint-disable-next-line no-console
+                console.log('[nr-assistant]', ...args, `\n   at ${link}`)
+            }
         }
     }
 
