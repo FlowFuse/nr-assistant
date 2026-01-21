@@ -95,27 +95,30 @@
             this.foo()
         }
 
-        postParent (payload = {}) {
-            window.parent.postMessage({
-                ...payload,
-                source: this.MESSAGE_SOURCE,
-                scope: this.MESSAGE_SCOPE,
-                target: this.MESSAGE_TARGET
-            }, this.targetOrigin)
-        }
-
-        postReply (message, event) {
-            this.debug('Posting reply message:', message)
-            if (event.source && typeof event.source.postMessage === 'function') {
-                event.source.postMessage({
-                    ...message,
+        /**
+         * Internal helper to send a formatted message to a target window
+         */
+        _post (payload, targetWindow) {
+            if (targetWindow && typeof targetWindow.postMessage === 'function') {
+                targetWindow.postMessage({
+                    ...payload,
                     source: this.MESSAGE_SOURCE,
                     scope: this.MESSAGE_SCOPE,
                     target: this.MESSAGE_TARGET
                 }, this.targetOrigin)
             } else {
-                console.warn('Unable to post message reply, source not available', message)
+                console.warn('Unable to post message, target window not available', payload)
             }
+        }
+
+        postParent (payload = {}) {
+            this.debug('Posting parent message', payload)
+            this._post(payload, window.parent)
+        }
+
+        postReply (payload, event) {
+            this.debug('Posting reply message:', payload)
+            this._post(payload, event.source)
         }
 
         foo () {
