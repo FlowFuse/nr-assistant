@@ -73,13 +73,6 @@
             }
         }
 
-        constructor () {
-            /** @type {import('node-red').NodeRedInstance} */
-            this.RED = null
-
-            this.assistantOptions = null
-        }
-
         init (RED, assistantOptions) {
             /** @type {import('node-red').NodeRedInstance} */
             this.RED = RED
@@ -96,32 +89,6 @@
 
             // Notify the parent window that the assistant is ready
             this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
-        }
-
-        /**
-         * Internal helper to send a formatted message to a target window
-         */
-        _post (payload, targetWindow) {
-            if (targetWindow && typeof targetWindow.postMessage === 'function') {
-                targetWindow.postMessage({
-                    ...payload,
-                    source: this.MESSAGE_SOURCE,
-                    scope: this.MESSAGE_SCOPE,
-                    target: this.MESSAGE_TARGET
-                }, this.targetOrigin)
-            } else {
-                console.warn('Unable to post message, target window not available', payload)
-            }
-        }
-
-        postParent (payload = {}) {
-            this.debug('Posting parent message', payload)
-            this._post(payload, window.parent)
-        }
-
-        postReply (payload, event) {
-            this.debug('Posting reply message:', payload)
-            this._post(payload, event.source)
         }
 
         setupMessageListeners () {
@@ -428,6 +395,32 @@
                 // eslint-disable-next-line no-console
                 console.log('[nr-assistant]', ...args, `\n   at ${link}`)
             }
+        }
+
+        /**
+         * Internal helper to send a formatted message to a target window
+         */
+        _post (payload, targetWindow) {
+            if (targetWindow && typeof targetWindow.postMessage === 'function') {
+                targetWindow.postMessage({
+                    ...payload,
+                    source: this.MESSAGE_SOURCE,
+                    scope: this.MESSAGE_SCOPE,
+                    target: this.MESSAGE_TARGET
+                }, this.targetOrigin)
+            } else {
+                console.warn('Unable to post message, target window not available', payload)
+            }
+        }
+
+        postParent (payload = {}) {
+            this.debug('Posting parent message', payload)
+            this._post(payload, window.parent)
+        }
+
+        postReply (payload, event) {
+            this.debug('Posting reply message:', payload)
+            this._post(payload, event.source)
         }
     }
 
