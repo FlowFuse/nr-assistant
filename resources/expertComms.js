@@ -73,6 +73,28 @@
             }
         }
 
+        /**
+         * A mapping of Node-RED core events to their respective handler logic.
+         *
+         * This map acts as a router for the assistant's event listeners:
+         * - Functions: Executed immediately when the event fires (e.g., notifying the parent of UI state).
+         * - Strings: Represent the name of a method within this class to be invoked (e.g., refreshing the palette).
+         *
+         * @type {Object.<string, Function|string>}
+         */
+        nodeRedEventsMap = {
+            'editor:open': () => {
+                this.postParent({ type: 'editor:open' })
+            },
+            'editor:close': () => {
+                this.postParent({ type: 'editor:close' })
+            },
+            'registry:node-set-added': 'notifyPaletteChange',
+            'registry:node-set-removed': 'notifyPaletteChange',
+            'registry:node-set-disabled': 'notifyPaletteChange',
+            'registry:node-set-enabled': 'notifyPaletteChange'
+        }
+
         init (RED, assistantOptions) {
             /** @type {import('node-red').NodeRedInstance} */
             this.RED = RED
@@ -175,36 +197,20 @@
         }
 
         setNodeRedEventListeners () {
-            // proxy certain events from RED Events to the parent window (for state tracking)
-            this.RED.events.on('editor:open', () => {
-                this.postParent({ type: 'editor:open' })
+            Object.keys(this.nodeRedEventsMap).forEach(eventName => {
+                if (typeof this.nodeRedEventsMap[eventName] === 'function') {
+                    this.RED.events.on(eventName, this.nodeRedEventsMap[eventName].bind(this))
+                }
+                if (typeof this.nodeRedEventsMap[eventName] === 'string' && this.nodeRedEventsMap[eventName] in this) {
+                    this.RED.events.on(eventName, this[this.nodeRedEventsMap[eventName]].bind(this))
+                }
             })
-            this.RED.events.on('editor:close', () => {
-                this.postParent({ type: 'editor:close' })
-            })
-            this.RED.events.on('registry:node-set-added', async () => {
-                this.postParent({
-                    type: 'set-palette',
-                    palette: await this.getPalette()
-                })
-            })
-            this.RED.events.on('registry:node-set-removed', async () => {
-                this.postParent({
-                    type: 'set-palette',
-                    palette: await this.getPalette()
-                })
-            })
-            this.RED.events.on('registry:node-set-disabled', async () => {
-                this.postParent({
-                    type: 'set-palette',
-                    palette: await this.getPalette()
-                })
-            })
-            this.RED.events.on('registry:node-set-enabled', async () => {
-                this.postParent({
-                    type: 'set-palette',
-                    palette: await this.getPalette()
-                })
+        }
+
+        async notifyPaletteChange () {
+            this.postParent({
+                type: 'set-palette',
+                palette: await this.getPalette()
             })
         }
 
