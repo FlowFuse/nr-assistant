@@ -170,7 +170,7 @@
                 this.debug('Received postMessage:', event.data)
 
                 const payload = {
-                    event: event.data,
+                    event,
                     type,
                     action,
                     params
