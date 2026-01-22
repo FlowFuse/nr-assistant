@@ -1,7 +1,7 @@
 /**
-* FFA Assistant Utils
+* FFAssistant Utils
 * Expert Communication functions for the FlowFuse Assistant
-* To import this in js backend code, use:
+* To import this in js backend code (although you shouldn't), use:
 * const FFExpertComms = require('flowfuse-nr-assistant/resources/expertComms.js')
 * To import this in frontend code, use:
 * <script src="/resources/@flowfuse/nr-assistant/expertComms.js"></script>
@@ -17,8 +17,6 @@
         module.exports = factory()
     } else {
         // Browser
-        // root.FFExpertComms = root.FFExpertComms || {}
-        // Object.assign(root.FFExpertComms, factory())
         root.FFExpertComms = factory()
     }
 }(typeof self !== 'undefined' ? self : this, function () {
