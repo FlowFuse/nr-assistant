@@ -1,3 +1,12 @@
+### 0.9.0
+
+ - Update dependencies (#119) @Steve-Mcl
+ - Bump actions/setup-node from 6.1.0 to 6.2.0 (#113)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#112)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#111)
+ - Expose installed packages to flowfuse expert (#114) @cstns
+ - ci: Enable SAST (#109) @ppawlowski
+
 ### 0.8.0
 
 - Bump JS-DevTools/npm-publish from 4.1.1 to 4.1.3 (#105)
