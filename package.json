@@ -1,12 +1,14 @@
 {
     "name": "@flowfuse/nr-assistant",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "description": "FlowFuse Node-RED Expert plugin",
     "main": "index.js",
     "scripts": {
         "test": "mocha --exit \"test/**/*.test.js\"",
         "lint": "eslint -c .eslintrc --ext js,html \"*.js\" \"*.html\"",
-        "lint:fix": "eslint -c .eslintrc --ext js,html \"*.js\"  \"*.html\" --fix"
+        "lint:fix": "eslint -c .eslintrc --ext js,html \"*.js\"  \"*.html\" --fix",
+        "test:cov": "npx nyc mocha \"test/**/*.test.js\" && npx nyc report --reporter=html",
+        "test:cov:view": "npx open-cli coverage/index.html"
     },
     "keywords": [
         "node-red",
