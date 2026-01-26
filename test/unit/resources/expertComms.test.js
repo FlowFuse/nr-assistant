@@ -59,7 +59,11 @@ describe('expertComms', () => {
                 invoke: sinon.stub()
             },
             view: {
-                importNodes: sinon.stub()
+                importNodes: sinon.stub(),
+                selection: sinon.stub()
+            },
+            nodes: {
+                createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || [])
             },
             notify: sinon.stub(),
             _: sinon.stub().callsFake((key, params) => {
@@ -383,6 +387,80 @@ describe('expertComms', () => {
             reply.error.should.equal('unknown-type')
             reply.data.should.equal(event.data)
         })
+
+        it('should handle get-selection request with selected nodes', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const selectedNodes = [{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }]
+            mockRED.view.selection.returns(selectedNodes)
+            mockRED.nodes.createExportableNodeSet.returns([{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }])
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'get-selection',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert'
+                }
+            }
+
+            messageHandler(event)
+
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.type.should.equal('set-selection')
+            reply.selection.should.eql([{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }])
+            mockRED.view.selection.calledTwice.should.be.true()
+            mockRED.nodes.createExportableNodeSet.calledOnce.should.be.true()
+            mockRED.nodes.createExportableNodeSet.firstCall.args[0].should.equal(selectedNodes)
+        })
+
+        it('should handle get-selection request when no nodes are selected', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            mockRED.view.selection.returns(null)
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'get-selection',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert'
+                }
+            }
+
+            messageHandler(event)
+
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.type.should.equal('set-selection')
+            reply.selection.should.eql([])
+            mockRED.view.selection.called.should.be.true()
+            mockRED.nodes.createExportableNodeSet.called.should.be.false()
+        })
+
+        it('should handle get-selection request when selection is empty array', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            mockRED.view.selection.returns([])
+            mockRED.nodes.createExportableNodeSet.returns([])
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'get-selection',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert'
+                }
+            }
+
+            messageHandler(event)
+
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.type.should.equal('set-selection')
+            reply.selection.should.eql([])
+        })
     })
 
     describe('Node-RED event handling', () => {
@@ -427,6 +505,45 @@ describe('expertComms', () => {
             parentPostMessageStub.calledOnce.should.be.true()
             const message = parentPostMessageStub.firstCall.args[0]
             message.type.should.equal('set-palette')
+        })
+
+        it('should notify parent of selection when view:selection-changed fires with nodes array', () => {
+            parentPostMessageStub.resetHistory()
+            const mockNodes = [{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }]
+            mockRED.nodes.createExportableNodeSet.returns([{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }])
+
+            mockRED.events.emit('view:selection-changed', { nodes: mockNodes })
+
+            parentPostMessageStub.calledOnce.should.be.true()
+            const message = parentPostMessageStub.firstCall.args[0]
+            message.type.should.equal('set-selection')
+            message.selection.should.eql([{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }])
+            mockRED.nodes.createExportableNodeSet.calledOnce.should.be.true()
+            mockRED.nodes.createExportableNodeSet.firstCall.args[0].should.equal(mockNodes)
+            mockRED.nodes.createExportableNodeSet.firstCall.args[1].should.eql({ includeModuleConfig: true })
+        })
+
+        it('should notify parent with empty selection when view:selection-changed fires without nodes array', () => {
+            parentPostMessageStub.resetHistory()
+
+            mockRED.events.emit('view:selection-changed', { nodes: null })
+
+            parentPostMessageStub.calledOnce.should.be.true()
+            const message = parentPostMessageStub.firstCall.args[0]
+            message.type.should.equal('set-selection')
+            message.selection.should.eql([])
+            mockRED.nodes.createExportableNodeSet.called.should.be.false()
+        })
+
+        it('should notify parent with empty selection when view:selection-changed fires with non-array nodes', () => {
+            parentPostMessageStub.resetHistory()
+
+            mockRED.events.emit('view:selection-changed', { nodes: {} })
+
+            parentPostMessageStub.calledOnce.should.be.true()
+            const message = parentPostMessageStub.firstCall.args[0]
+            message.type.should.equal('set-selection')
+            message.selection.should.eql([])
         })
     })
 
