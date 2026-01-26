@@ -98,7 +98,8 @@
             'registry:node-set-added': 'notifyPaletteChange',
             'registry:node-set-removed': 'notifyPaletteChange',
             'registry:node-set-disabled': 'notifyPaletteChange',
-            'registry:node-set-enabled': 'notifyPaletteChange'
+            'registry:node-set-enabled': 'notifyPaletteChange',
+            'view:selection-changed': 'notifySelectionChanged'
         }
 
         /**
@@ -124,7 +125,8 @@
                 // handle palette request
                 this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
             },
-            'invoke-action': 'handleActionInvocation'
+            'invoke-action': 'handleActionInvocation',
+            'get-selection': 'handleGetSelection'
         }
 
         init (RED, assistantOptions) {
@@ -214,6 +216,20 @@
             })
         }
 
+        notifySelectionChanged ({ nodes }) {
+            if (nodes && Array.isArray(nodes)) {
+                this.postParent({
+                    type: 'set-selection',
+                    selection: this.formatSelectedNodes(nodes)
+                })
+            } else {
+                this.postParent({
+                    type: 'set-selection',
+                    selection: []
+                })
+            }
+        }
+
         /**
          * FlowFuse Expert message handlers
          */
@@ -257,6 +273,17 @@
                     this.postReply({ type, action, error: err?.message }, event)
                 }
             }
+        }
+
+        handleGetSelection ({ event }) {
+            let selection = []
+            const selectedNodes = this.RED.view.selection()
+
+            if (selectedNodes && Array.isArray(selectedNodes)) {
+                selection = this.formatSelectedNodes(this.RED.view.selection())
+            }
+
+            this.postReply({ type: 'set-selection', selection }, event)
         }
 
         async getPalette () {
@@ -309,6 +336,10 @@
             })
 
             return palette
+        }
+
+        formatSelectedNodes (nodes) {
+            return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig: true })
         }
 
         validateSchema (data, schema) {
