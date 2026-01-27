@@ -1,3 +1,12 @@
+### 0.10.0
+
+ - Bump JS-DevTools/npm-publish from 4.1.3 to 4.1.4 (#110)
+ - Bump actions/checkout from 6.0.1 to 6.0.2 (#124)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#123)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/sast_scan.yaml (#122)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#121)
+ - Add selection handling: `view:selection-changed` notifier and `get-selection` handler (#125) @cstns
+
 ### 0.9.0
 
  - Update dependencies (#119) @Steve-Mcl
