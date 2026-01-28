@@ -89,16 +89,21 @@
          * @type {Object.<string, Function|string>}
          */
         nodeRedEventsMap = {
-            'editor:open': () => {
-                this.postParent({ type: 'editor:open' })
-            },
-            'editor:close': () => {
-                this.postParent({ type: 'editor:close' })
-            },
+            // editor state awareness
+            'editor:open': () => this.postParent({ type: 'editor:open' }),
+            'editor:close': () => this.postParent({ type: 'editor:close' }),
+            'search:open': () => this.postParent({ type: 'search:open' }),
+            'search:close': () => this.postParent({ type: 'search:close' }),
+            'actionList:open': () => this.postParent({ type: 'actionList:open' }),
+            'actionList:close': () => this.postParent({ type: 'actionList:close' }),
+            'type-search:open': () => this.postParent({ type: 'type-search:open' }),
+            'type-search:close': () => this.postParent({ type: 'type-search:close' }),
+            // palette changes
             'registry:node-set-added': 'notifyPaletteChange',
             'registry:node-set-removed': 'notifyPaletteChange',
             'registry:node-set-disabled': 'notifyPaletteChange',
             'registry:node-set-enabled': 'notifyPaletteChange',
+            // selection changes
             'view:selection-changed': 'notifySelectionChanged'
         }
 
