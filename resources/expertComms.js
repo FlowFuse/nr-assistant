@@ -129,6 +129,19 @@
             'get-selection': 'handleGetSelection'
         }
 
+        /**
+         * A set of flags and features supported by this plugin version.
+         * These should be used by the FlowFuse Expert to determine what functionality can be leveraged.
+         */
+        features = {
+            commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
+            actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
+            registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
+            flowSelection: { enabled: true }, // supports passing the flow selection
+            flowImport: { enabled: true }, // supports importing flows
+            paletteManagement: { enabled: true } // supports palette management actions
+        }
+
         init (RED, assistantOptions) {
             /** @type {import('node-red').NodeRedInstance} */
             this.RED = RED
@@ -144,7 +157,14 @@
             this.setupMessageListeners()
 
             // Notify the parent window that the assistant is ready
-            this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
+            this.postParent({
+                type: 'assistant-ready',
+                version: this.assistantOptions.assistantVersion,
+                enabled: this.assistantOptions.enabled,
+                standalone: this.assistantOptions.standalone,
+                nodeRedVersion: this.RED.settings.version,
+                features: this.features
+            })
         }
 
         setupMessageListeners () {
