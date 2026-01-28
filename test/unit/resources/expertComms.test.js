@@ -21,6 +21,7 @@ describe('expertComms', () => {
 
         // Mock window object
         mockWindow = {
+            postMessage: sinon.stub(),
             parent: {
                 postMessage: sinon.stub()
             },
