@@ -85,6 +85,18 @@ describe('expertComms', () => {
                 }
                 return key
             }),
+            settings: {
+                version: '4.1.4'
+            },
+            search: {
+                hide: sinon.stub()
+            },
+            typeSearch: {
+                hide: sinon.stub()
+            },
+            actionList: {
+                hide: sinon.stub()
+            },
             nrAssistant: {
                 DEBUG: false
             }
@@ -146,18 +158,58 @@ describe('expertComms', () => {
 
         it('should notify parent when assistant is ready', () => {
             const assistantOptions = {
-                assistantVersion: '1.0.0'
+                assistantVersion: '1.0.0',
+                enabled: true,
+                standalone: false
             }
 
             expertComms.init(mockRED, assistantOptions)
 
             parentPostMessageStub.calledOnce.should.be.true()
             const message = parentPostMessageStub.firstCall.args[0]
-            message.type.should.equal('assistant-ready')
-            message.version.should.equal('1.0.0')
-            message.source.should.equal('nr-assistant')
-            message.target.should.equal('flowfuse-expert')
-            message.scope.should.equal('flowfuse-expert')
+            message.should.have.property('type', 'assistant-ready')
+            message.should.have.property('version', '1.0.0')
+            message.should.have.property('nodeRedVersion', '4.1.4')
+            message.should.have.property('enabled', true)
+            message.should.have.property('standalone', false)
+
+            message.should.have.property('source', 'nr-assistant')
+            message.should.have.property('target', 'flowfuse-expert')
+            message.should.have.property('scope', 'flowfuse-expert')
+            message.should.have.property('features').and.be.an.Object()
+
+            // Ensure features contains expected keys
+            const expectedFeatureKeys = ['commands', 'actions', 'registeredEvents', 'flowSelection', 'flowImport', 'paletteManagement']
+            message.features.should.only.have.keys(...expectedFeatureKeys)
+
+            // ensure commands contains all expected commands and that they are an object with enabled:true
+            const commandKeys = Object.keys(expertComms.commandMap)
+            message.features.should.have.property('commands').and.be.an.Object()
+            message.features.commands.should.only.have.keys(...commandKeys)
+            commandKeys.forEach(commandName => {
+                message.features.commands.should.have.property(commandName, { enabled: true })
+            })
+
+            // ensure actions contains all expected actions and that they are an object with enabled:true
+            const actionKeys = Object.keys(expertComms.supportedActions)
+            message.features.should.have.property('actions').and.be.an.Object()
+            message.features.actions.should.only.have.keys(...actionKeys)
+            actionKeys.forEach(actionName => {
+                message.features.actions.should.have.property(actionName, { enabled: true })
+            })
+
+            // ensure registeredEvents contains all expected events and that they are an object with enabled:true
+            message.features.should.have.property('registeredEvents').and.be.an.Object()
+            const registeredEventKeys = Object.keys(expertComms.nodeRedEventsMap)
+            message.features.registeredEvents.should.only.have.keys(...registeredEventKeys)
+            registeredEventKeys.forEach(eventName => {
+                message.features.registeredEvents.should.have.property(eventName, { enabled: true })
+            })
+
+            // ensure other features are present and are an object with enabled:true
+            message.features.should.have.property('flowSelection', { enabled: true })
+            message.features.should.have.property('flowImport', { enabled: true })
+            message.features.should.have.property('paletteManagement', { enabled: true })
         })
 
         it('should warn and return early if parent window does not exist', () => {
@@ -700,6 +752,81 @@ describe('expertComms', () => {
             eventSource.postMessage.calledOnce.should.be.true()
             const reply = eventSource.postMessage.firstCall.args[0]
             reply.success.should.be.true()
+        })
+
+        it('should handle custom:close-search action', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'invoke-action',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert',
+                    action: 'custom:close-search',
+                    params: null
+                }
+            }
+
+            mockRED.view.importNodes.returns(true)
+
+            messageHandler(event)
+
+            mockRED.search.hide.calledOnce.should.be.true()
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.should.have.property('acknowledged', true)
+        })
+
+        it('should handle custom:close-typeSearch action', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'invoke-action',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert',
+                    action: 'custom:close-typeSearch',
+                    params: null
+                }
+            }
+
+            mockRED.view.importNodes.returns(true)
+
+            messageHandler(event)
+
+            mockRED.typeSearch.hide.calledOnce.should.be.true()
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.should.have.property('acknowledged', true)
+        })
+
+        it('should handle custom:close-actionList action', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'invoke-action',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert',
+                    action: 'custom:close-actionList',
+                    params: null
+                }
+            }
+
+            mockRED.view.importNodes.returns(true)
+
+            messageHandler(event)
+
+            mockRED.actionList.hide.calledOnce.should.be.true()
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.should.have.property('acknowledged', true)
         })
 
         it('should handle errors in action invocation', () => {
