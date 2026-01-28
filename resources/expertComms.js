@@ -112,7 +112,7 @@
          *
          * @type {Object.<string, Function|string>}
          */
-        expertEventsMap = {
+        commandMap = {
             'get-assistant-version': ({ event, type, action, params } = {}) => {
                 // handle version request
                 this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
@@ -196,17 +196,17 @@
                     params
                 }
 
-                for (const eventName in this.expertEventsMap) {
-                    if (type === eventName && typeof this.expertEventsMap[eventName] === 'function') {
-                        return this.expertEventsMap[eventName](payload)
+                for (const eventName in this.commandMap) {
+                    if (type === eventName && typeof this.commandMap[eventName] === 'function') {
+                        return this.commandMap[eventName](payload)
                     }
 
                     if (
                         type === eventName &&
-                        typeof this.expertEventsMap[eventName] === 'string' &&
-                        this.expertEventsMap[eventName] in this
+                        typeof this.commandMap[eventName] === 'string' &&
+                        this.commandMap[eventName] in this
                     ) {
-                        return this[this.expertEventsMap[eventName]](payload)
+                        return this[this.commandMap[eventName]](payload)
                     }
                 }
 
