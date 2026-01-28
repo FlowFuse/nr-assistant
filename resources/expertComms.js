@@ -122,6 +122,10 @@
                 // handle version request
                 this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
             },
+            'get-assistant-features': ({ event, type, action, params } = {}) => {
+                // handle features request
+                this.postReply({ type, features: this.features, success: true }, event)
+            },
             'get-supported-actions': ({ event, type, action, params } = {}) => {
                 // handle supported actions request
                 this.postReply({ type, supportedActions: this.supportedActions, success: true }, event)
