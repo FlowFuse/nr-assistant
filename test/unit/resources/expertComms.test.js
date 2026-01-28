@@ -12,7 +12,6 @@ describe('expertComms', () => {
     let mockRED
     let mockJQuery
     let addEventListenerStub
-    let postMessageStub
     let parentPostMessageStub
 
     beforeEach(() => {
