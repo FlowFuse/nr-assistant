@@ -75,7 +75,10 @@
                     },
                     required: ['flow']
                 }
-            }
+            },
+            'custom:close-search': { params: null },
+            'custom:close-typeSearch': { params: null },
+            'custom:close-actionList': { params: null }
         }
 
         /**
@@ -285,7 +288,20 @@
                 }
             }
 
-            if (action === 'custom:import-flow') {
+            switch (action) {
+            case 'custom:close-search':
+                this.RED.search.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:close-typeSearch':
+                this.RED.typeSearch.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:close-actionList':
+                this.RED.actionList.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:import-flow':
                 // import-flow is a custom action - handle it here directly
                 try {
                     this.importNodes(params.flow, params.addFlow === true)
@@ -293,7 +309,8 @@
                 } catch (err) {
                     this.postReply({ type, error: err?.message }, event)
                 }
-            } else {
+                return
+            default:
                 // Handle (supported) native Node-RED actions
                 try {
                     this.RED.actions.invoke(action, params)
