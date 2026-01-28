@@ -267,11 +267,15 @@ describe('expertComms', () => {
 
             // Should not process the message
             parentPostMessageStub.calledOnce.should.be.true() // Only the initial 'assistant-ready' message
+
+            event.source.postMessage.calledOnce.should.be.false()
         })
 
         it('should ignore messages with wrong target', () => {
             const event = {
-                source: {},
+                source: {
+                    postMessage: sinon.stub() // called by postReply
+                },
                 origin: 'http://example.com',
                 data: {
                     type: 'get-assistant-version',
@@ -284,11 +288,15 @@ describe('expertComms', () => {
             messageHandler(event)
 
             parentPostMessageStub.calledOnce.should.be.true() // Only the initial 'assistant-ready' message
+
+            event.source.postMessage.calledOnce.should.be.false()
         })
 
         it('should ignore messages with wrong source', () => {
             const event = {
-                source: {},
+                source: {
+                    postMessage: sinon.stub() // called by postReply
+                },
                 origin: 'http://example.com',
                 data: {
                     type: 'get-assistant-version',
@@ -301,11 +309,15 @@ describe('expertComms', () => {
             messageHandler(event)
 
             parentPostMessageStub.calledOnce.should.be.true() // Only the initial 'assistant-ready' message
+
+            event.source.postMessage.calledOnce.should.be.false()
         })
 
         it('should ignore messages with wrong scope', () => {
             const event = {
-                source: {},
+                source: {
+                    postMessage: sinon.stub() // called by postReply
+                },
                 origin: 'http://example.com',
                 data: {
                     type: 'get-assistant-version',
@@ -318,6 +330,8 @@ describe('expertComms', () => {
             messageHandler(event)
 
             parentPostMessageStub.calledOnce.should.be.true() // Only the initial 'assistant-ready' message
+
+            event.source.postMessage.calledOnce.should.be.false()
         })
 
         it('should set targetOrigin from event.origin when initially "*"', () => {
