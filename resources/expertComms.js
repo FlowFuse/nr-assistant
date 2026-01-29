@@ -22,6 +22,19 @@
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict'
 
+    function debounce (func, wait) {
+        let timeout
+        return function () {
+            const context = this; const args = arguments
+            const later = function () {
+                timeout = null
+                func.apply(context, args)
+            }
+            clearTimeout(timeout)
+            timeout = setTimeout(later, wait)
+        }
+    }
+
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
@@ -92,15 +105,6 @@
          * @type {Object.<string, Function|string>}
          */
         nodeRedEventsMap = {
-            // editor state awareness
-            'editor:open': () => this.postParent({ type: 'editor:open' }),
-            'editor:close': () => this.postParent({ type: 'editor:close' }),
-            'search:open': () => this.postParent({ type: 'search:open' }),
-            'search:close': () => this.postParent({ type: 'search:close' }),
-            'actionList:open': () => this.postParent({ type: 'actionList:open' }),
-            'actionList:close': () => this.postParent({ type: 'actionList:close' }),
-            'type-search:open': () => this.postParent({ type: 'type-search:open' }),
-            'type-search:close': () => this.postParent({ type: 'type-search:close' }),
             // palette changes
             'registry:node-set-added': 'notifyPaletteChange',
             'registry:node-set-removed': 'notifyPaletteChange',
@@ -138,20 +142,24 @@
                 this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
             },
             'invoke-action': 'handleActionInvocation',
-            'get-selection': 'handleGetSelection'
+            'get-selection': 'handleGetSelection',
+            'register-event-listeners': 'handleRegisterEvents'
         }
 
         /**
          * A set of flags and features supported by this plugin version.
          * These should be used by the FlowFuse Expert to determine what functionality can be leveraged.
          */
-        features = {
-            commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
-            actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
-            registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
-            flowSelection: { enabled: true }, // supports passing the flow selection
-            flowImport: { enabled: true }, // supports importing flows
-            paletteManagement: { enabled: true } // supports palette management actions
+        get features () {
+            return {
+                commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
+                actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
+                registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
+                dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
+                flowSelection: { enabled: true }, // supports passing the flow selection
+                flowImport: { enabled: true }, // supports importing flows
+                paletteManagement: { enabled: true } // supports palette management actions
+            }
         }
 
         init (RED, assistantOptions) {
@@ -227,6 +235,34 @@
             }, false)
         }
 
+        /**
+         * Register Node-RED events to be listened to and echoed to the FlowFuse Expert
+         * @param {Record<string,string>} events - Key is Node-RED event to register, Value is event to emit back
+         */
+        handleRegisterEvents ({ event, params }) {
+            if (!params || typeof params !== 'object') {
+                return
+            }
+
+            for (const key in params) {
+                const eventMapping = params[key] // FF Expert will send  { eventName: {nodeRedEvent: 'editor:open', future: xxx} }
+                const callBackName = key // the key is the FF event name to call back on
+                const nodeRedEvent = eventMapping.nodeRedEvent // the NR event to subscribe to
+                if (callBackName && nodeRedEvent) {
+                    if (Object.prototype.hasOwnProperty.call(this.nodeRedEventsMap, nodeRedEvent)) {
+                        continue // nodeRedEvent already registered
+                    }
+                    this.nodeRedEventsMap[nodeRedEvent] = callBackName
+                    this.RED.events.on(key, (eventData) => {
+                        this.postReply({ type: callBackName, eventMapping, eventData }, event)
+                    })
+                }
+            }
+
+            // send updated feature list
+            this.postReply({ type: 'set-assistant-features', features: this.features }, event)
+        }
+
         setNodeRedEventListeners () {
             Object.keys(this.nodeRedEventsMap).forEach(eventName => {
                 if (typeof this.nodeRedEventsMap[eventName] === 'function') {
@@ -245,7 +281,7 @@
             this.postParent({
                 type: 'set-palette',
                 palette: await this.getPalette()
-            })
+            }, true) // debounced
         }
 
         notifySelectionChanged ({ nodes }) {
@@ -541,9 +577,16 @@
             }
         }
 
-        postParent (payload = {}) {
-            this.debug('Posting parent message', payload)
-            this._post(payload, window.parent)
+        _postDebounced = debounce(this._post, 150)
+
+        postParent (payload = {}, debounce) {
+            if (debounce) {
+                this.debug('Posting parent message (debounced)', payload)
+                this._postDebounced(payload, window.parent)
+            } else {
+                this.debug('Posting parent message', payload)
+                this._post(payload, window.parent)
+            }
         }
 
         postReply (payload, event) {
