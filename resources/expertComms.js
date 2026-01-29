@@ -22,6 +22,19 @@
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict'
 
+    function debounce (func, wait) {
+        let timeout
+        return function () {
+            const context = this; const args = arguments
+            const later = function () {
+                timeout = null
+                func.apply(context, args)
+            }
+            clearTimeout(timeout)
+            timeout = setTimeout(later, wait)
+        }
+    }
+
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
@@ -137,14 +150,16 @@
          * A set of flags and features supported by this plugin version.
          * These should be used by the FlowFuse Expert to determine what functionality can be leveraged.
          */
-        features = {
-            commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
-            actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
-            registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
-            dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
-            flowSelection: { enabled: true }, // supports passing the flow selection
-            flowImport: { enabled: true }, // supports importing flows
-            paletteManagement: { enabled: true } // supports palette management actions
+        get features () {
+            return {
+                commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
+                actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
+                registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
+                dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
+                flowSelection: { enabled: true }, // supports passing the flow selection
+                flowImport: { enabled: true }, // supports importing flows
+                paletteManagement: { enabled: true } // supports palette management actions
+            }
         }
 
         init (RED, assistantOptions) {
@@ -243,6 +258,9 @@
                     })
                 }
             }
+
+            // send updated feature list
+            this.postReply({ type: 'set-assistant-features', features: this.features }, event)
         }
 
         setNodeRedEventListeners () {
@@ -263,7 +281,7 @@
             this.postParent({
                 type: 'set-palette',
                 palette: await this.getPalette()
-            })
+            }, true) // debounced
         }
 
         notifySelectionChanged ({ nodes }) {
@@ -559,9 +577,16 @@
             }
         }
 
-        postParent (payload = {}) {
-            this.debug('Posting parent message', payload)
-            this._post(payload, window.parent)
+        _postDebounced = debounce(this._post, 150)
+
+        postParent (payload = {}, debounce) {
+            if (debounce) {
+                this.debug('Posting parent message (debounced)', payload)
+                this._postDebounced(payload, window.parent)
+            } else {
+                this.debug('Posting parent message', payload)
+                this._post(payload, window.parent)
+            }
         }
 
         postReply (payload, event) {
