@@ -92,15 +92,6 @@
          * @type {Object.<string, Function|string>}
          */
         nodeRedEventsMap = {
-            // editor state awareness
-            'editor:open': () => this.postParent({ type: 'editor:open' }),
-            'editor:close': () => this.postParent({ type: 'editor:close' }),
-            'search:open': () => this.postParent({ type: 'search:open' }),
-            'search:close': () => this.postParent({ type: 'search:close' }),
-            'actionList:open': () => this.postParent({ type: 'actionList:open' }),
-            'actionList:close': () => this.postParent({ type: 'actionList:close' }),
-            'type-search:open': () => this.postParent({ type: 'type-search:open' }),
-            'type-search:close': () => this.postParent({ type: 'type-search:close' }),
             // palette changes
             'registry:node-set-added': 'notifyPaletteChange',
             'registry:node-set-removed': 'notifyPaletteChange',
@@ -138,7 +129,8 @@
                 this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
             },
             'invoke-action': 'handleActionInvocation',
-            'get-selection': 'handleGetSelection'
+            'get-selection': 'handleGetSelection',
+            'register-event-listeners': 'handleRegisterEvents'
         }
 
         /**
@@ -149,6 +141,7 @@
             commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
             actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
             registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
+            dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
             flowSelection: { enabled: true }, // supports passing the flow selection
             flowImport: { enabled: true }, // supports importing flows
             paletteManagement: { enabled: true } // supports palette management actions
@@ -225,6 +218,31 @@
                 // handles unknown message type
                 this.postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
             }, false)
+        }
+
+        /**
+         * Register Node-RED events to be listened to and echoed to the FlowFuse Expert
+         * @param {Record<string,string>} events - Key is Node-RED event to register, Value is event to emit back
+         */
+        handleRegisterEvents ({ event, params }) {
+            if (!params || typeof params !== 'object') {
+                return
+            }
+
+            for (const key in params) {
+                const eventMapping = params[key] // FF Expert will send  { eventName: {nodeRedEvent: 'editor:open', future: xxx} }
+                const callBackName = key // the key is the FF event name to call back on
+                const nodeRedEvent = eventMapping.nodeRedEvent // the NR event to subscribe to
+                if (callBackName && nodeRedEvent) {
+                    if (Object.prototype.hasOwnProperty.call(this.nodeRedEventsMap, nodeRedEvent)) {
+                        continue // nodeRedEvent already registered
+                    }
+                    this.nodeRedEventsMap[nodeRedEvent] = callBackName
+                    this.RED.events.on(key, (eventData) => {
+                        this.postReply({ type: callBackName, eventMapping, eventData }, event)
+                    })
+                }
+            }
         }
 
         setNodeRedEventListeners () {
