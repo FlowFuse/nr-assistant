@@ -22,6 +22,19 @@
 }(typeof self !== 'undefined' ? self : this, function () {
     'use strict'
 
+    function debounce (func, wait) {
+        let timeout
+        return function () {
+            const context = this; const args = arguments
+            const later = function () {
+                timeout = null
+                func.apply(context, args)
+            }
+            clearTimeout(timeout)
+            timeout = setTimeout(later, wait)
+        }
+    }
+
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
@@ -75,7 +88,10 @@
                     },
                     required: ['flow']
                 }
-            }
+            },
+            'custom:close-search': { params: null },
+            'custom:close-typeSearch': { params: null },
+            'custom:close-actionList': { params: null }
         }
 
         /**
@@ -89,16 +105,12 @@
          * @type {Object.<string, Function|string>}
          */
         nodeRedEventsMap = {
-            'editor:open': () => {
-                this.postParent({ type: 'editor:open' })
-            },
-            'editor:close': () => {
-                this.postParent({ type: 'editor:close' })
-            },
+            // palette changes
             'registry:node-set-added': 'notifyPaletteChange',
             'registry:node-set-removed': 'notifyPaletteChange',
             'registry:node-set-disabled': 'notifyPaletteChange',
             'registry:node-set-enabled': 'notifyPaletteChange',
+            // selection changes
             'view:selection-changed': 'notifySelectionChanged'
         }
 
@@ -112,10 +124,14 @@
          *
          * @type {Object.<string, Function|string>}
          */
-        expertEventsMap = {
+        commandMap = {
             'get-assistant-version': ({ event, type, action, params } = {}) => {
                 // handle version request
                 this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
+            },
+            'get-assistant-features': ({ event, type, action, params } = {}) => {
+                // handle features request
+                this.postReply({ type, features: this.features, success: true }, event)
             },
             'get-supported-actions': ({ event, type, action, params } = {}) => {
                 // handle supported actions request
@@ -126,7 +142,24 @@
                 this.postReply({ type: 'set-palette', palette: await this.getPalette(), success: true }, event)
             },
             'invoke-action': 'handleActionInvocation',
-            'get-selection': 'handleGetSelection'
+            'get-selection': 'handleGetSelection',
+            'register-event-listeners': 'handleRegisterEvents'
+        }
+
+        /**
+         * A set of flags and features supported by this plugin version.
+         * These should be used by the FlowFuse Expert to determine what functionality can be leveraged.
+         */
+        get features () {
+            return {
+                commands: Object.fromEntries(Object.entries(this.commandMap).map(([name, value]) => [name, { enabled: true }])),
+                actions: Object.fromEntries(Object.entries(this.supportedActions).map(([name, value]) => [name, { enabled: true }])),
+                registeredEvents: Object.fromEntries(Object.entries(this.nodeRedEventsMap).map(([name, value]) => [name, { enabled: true }])), // list of Node-RED events registered to be echoed to the expert
+                dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
+                flowSelection: { enabled: true }, // supports passing the flow selection
+                flowImport: { enabled: true }, // supports importing flows
+                paletteManagement: { enabled: true } // supports palette management actions
+            }
         }
 
         init (RED, assistantOptions) {
@@ -144,7 +177,14 @@
             this.setupMessageListeners()
 
             // Notify the parent window that the assistant is ready
-            this.postParent({ type: 'assistant-ready', version: this.assistantOptions.assistantVersion })
+            this.postParent({
+                type: 'assistant-ready',
+                version: this.assistantOptions.assistantVersion,
+                enabled: this.assistantOptions.enabled,
+                standalone: this.assistantOptions.standalone,
+                nodeRedVersion: this.RED.settings.version,
+                features: this.features
+            })
         }
 
         setupMessageListeners () {
@@ -176,23 +216,51 @@
                     params
                 }
 
-                for (const eventName in this.expertEventsMap) {
-                    if (type === eventName && typeof this.expertEventsMap[eventName] === 'function') {
-                        return this.expertEventsMap[eventName](payload)
+                for (const eventName in this.commandMap) {
+                    if (type === eventName && typeof this.commandMap[eventName] === 'function') {
+                        return this.commandMap[eventName](payload)
                     }
 
                     if (
                         type === eventName &&
-                        typeof this.expertEventsMap[eventName] === 'string' &&
-                        this.expertEventsMap[eventName] in this
+                        typeof this.commandMap[eventName] === 'string' &&
+                        this.commandMap[eventName] in this
                     ) {
-                        return this[this.expertEventsMap[eventName]](payload)
+                        return this[this.commandMap[eventName]](payload)
                     }
                 }
 
                 // handles unknown message type
                 this.postReply({ type: 'error', error: 'unknown-type', data: event.data }, event)
             }, false)
+        }
+
+        /**
+         * Register Node-RED events to be listened to and echoed to the FlowFuse Expert
+         * @param {Record<string,string>} events - Key is Node-RED event to register, Value is event to emit back
+         */
+        handleRegisterEvents ({ event, params }) {
+            if (!params || typeof params !== 'object') {
+                return
+            }
+
+            for (const key in params) {
+                const eventMapping = params[key] // FF Expert will send  { eventName: {nodeRedEvent: 'editor:open', future: xxx} }
+                const callBackName = key // the key is the FF event name to call back on
+                const nodeRedEvent = eventMapping.nodeRedEvent // the NR event to subscribe to
+                if (callBackName && nodeRedEvent) {
+                    if (Object.prototype.hasOwnProperty.call(this.nodeRedEventsMap, nodeRedEvent)) {
+                        continue // nodeRedEvent already registered
+                    }
+                    this.nodeRedEventsMap[nodeRedEvent] = callBackName
+                    this.RED.events.on(nodeRedEvent, (eventData) => {
+                        this.postParent({ type: callBackName, eventMapping, eventData })
+                    })
+                }
+            }
+
+            // send updated feature list
+            this.postReply({ type: 'set-assistant-features', features: this.features }, event)
         }
 
         setNodeRedEventListeners () {
@@ -213,7 +281,7 @@
             this.postParent({
                 type: 'set-palette',
                 palette: await this.getPalette()
-            })
+            }, true) // debounced
         }
 
         notifySelectionChanged ({ nodes }) {
@@ -256,7 +324,20 @@
                 }
             }
 
-            if (action === 'custom:import-flow') {
+            switch (action) {
+            case 'custom:close-search':
+                this.RED.search.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:close-typeSearch':
+                this.RED.typeSearch.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:close-actionList':
+                this.RED.actionList.hide()
+                this.postReply({ type, action, acknowledged: true }, event)
+                return
+            case 'custom:import-flow':
                 // import-flow is a custom action - handle it here directly
                 try {
                     this.importNodes(params.flow, params.addFlow === true)
@@ -264,7 +345,8 @@
                 } catch (err) {
                     this.postReply({ type, error: err?.message }, event)
                 }
-            } else {
+                return
+            default:
                 // Handle (supported) native Node-RED actions
                 try {
                     this.RED.actions.invoke(action, params)
@@ -495,9 +577,16 @@
             }
         }
 
-        postParent (payload = {}) {
-            this.debug('Posting parent message', payload)
-            this._post(payload, window.parent)
+        _postDebounced = debounce(this._post, 150)
+
+        postParent (payload = {}, debounce) {
+            if (debounce) {
+                this.debug('Posting parent message (debounced)', payload)
+                this._postDebounced(payload, window.parent)
+            } else {
+                this.debug('Posting parent message', payload)
+                this._post(payload, window.parent)
+            }
         }
 
         postReply (payload, event) {
