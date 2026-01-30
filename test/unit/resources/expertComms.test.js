@@ -179,7 +179,7 @@ describe('expertComms', () => {
             message.should.have.property('features').and.be.an.Object()
 
             // Ensure features contains expected keys
-            const expectedFeatureKeys = ['commands', 'actions', 'registeredEvents', 'flowSelection', 'flowImport', 'paletteManagement']
+            const expectedFeatureKeys = ['commands', 'actions', 'registeredEvents', 'dynamicEventRegistration', 'flowSelection', 'flowImport', 'paletteManagement']
             message.features.should.only.have.keys(...expectedFeatureKeys)
 
             // ensure commands contains all expected commands and that they are an object with enabled:true
@@ -537,40 +537,75 @@ describe('expertComms', () => {
             expertComms.init(mockRED, assistantOptions)
         })
 
-        it('should notify parent on editor:open event', () => {
+        it('should notify parent on dynamic event with same name', () => {
+            // expertComms.nodeRedEventsMap wont have 'editor:open' unless registered
+            expertComms.nodeRedEventsMap.should.not.have.property('editor:open')
+            // spy this.RED.events.on to ensure it is setup
+            const redEventsOnSpy = sinon.spy(mockRED.events, 'on')
+
+            // register event editor:open
+            const params = {
+                'editor:open': {
+                    nodeRedEvent: 'editor:open'
+                }
+            }
+            expertComms.handleRegisterEvents({ event: {}, params })
+
+            // ensure it was setup
+            redEventsOnSpy.calledWith('editor:open').should.be.true()
+            expertComms.nodeRedEventsMap.should.have.property('editor:open')
+
+            // Emit the event and verify parent is notified
             parentPostMessageStub.resetHistory()
-
             mockRED.events.emit('editor:open')
-
             parentPostMessageStub.calledOnce.should.be.true()
             const message = parentPostMessageStub.firstCall.args[0]
             message.type.should.equal('editor:open')
         })
 
-        it('should notify parent on editor:close event', () => {
+        it('should notify parent on dynamic event with alt name', () => {
+            // expertComms.nodeRedEventsMap wont have 'editor:open' unless registered
+            expertComms.nodeRedEventsMap.should.not.have.property('editor:open')
+            // spy this.RED.events.on to ensure it is setup
+            const redEventsOnSpy = sinon.spy(mockRED.events, 'on')
+
+            // register event editor:open
+            const params = {
+                'my-made-up-name': { // expert wants to be notified under this name
+                    nodeRedEvent: 'editor:open' // this is the actual Node-RED event name
+                }
+            }
+            expertComms.handleRegisterEvents({ event: {}, params })
+
+            // ensure it was setup
+            redEventsOnSpy.calledWith('editor:open').should.be.true()
+            expertComms.nodeRedEventsMap.should.have.property('editor:open')
+
+            // Emit the event and verify parent is notified
             parentPostMessageStub.resetHistory()
-
-            mockRED.events.emit('editor:close')
-
+            mockRED.events.emit('editor:open') // fake node-red sending the real event name
             parentPostMessageStub.calledOnce.should.be.true()
             const message = parentPostMessageStub.firstCall.args[0]
-            message.type.should.equal('editor:close')
+            message.type.should.equal('my-made-up-name') // expert wants to be notified under this name
         })
 
         it('should notify parent of palette changes on registry events', async () => {
-            parentPostMessageStub.resetHistory()
-
             // Mock getPalette
             expertComms.getPalette = sinon.stub().resolves({})
+
+            // spy postParent so we can see args are correct
+            sinon.spy(expertComms, 'postParent')
 
             mockRED.events.emit('registry:node-set-added')
 
             // Wait for async operation
-            await new Promise(resolve => setTimeout(resolve, 10))
+            await new Promise(resolve => setTimeout(resolve, 200)) // this one is debounced by 150ms in expertComms
 
-            parentPostMessageStub.calledOnce.should.be.true()
-            const message = parentPostMessageStub.firstCall.args[0]
+            expertComms.postParent.calledOnce.should.be.true()
+            const message = expertComms.postParent.firstCall.args[0]
             message.type.should.equal('set-palette')
+            const debounceFlag = expertComms.postParent.firstCall.args[1]
+            debounceFlag.should.be.true()
         })
 
         it('should notify parent of selection when view:selection-changed fires with nodes array', () => {

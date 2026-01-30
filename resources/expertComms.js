@@ -253,8 +253,8 @@
                         continue // nodeRedEvent already registered
                     }
                     this.nodeRedEventsMap[nodeRedEvent] = callBackName
-                    this.RED.events.on(key, (eventData) => {
-                        this.postReply({ type: callBackName, eventMapping, eventData }, event)
+                    this.RED.events.on(nodeRedEvent, (eventData) => {
+                        this.postParent({ type: callBackName, eventMapping, eventData })
                     })
                 }
             }
