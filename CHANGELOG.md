@@ -1,3 +1,9 @@
+### 0.10.1
+
+ - Bump hono from 4.11.5 to 4.11.7 (#129) @app/dependabot
+ - Improve discoverability of supported features (#131) @Steve-Mcl
+ - Replace hard coded event mapping with dynamic registrations (#132) @Steve-Mcl
+
 ### 0.10.0
 
  - Bump JS-DevTools/npm-publish from 4.1.3 to 4.1.4 (#110)
