@@ -35,6 +35,50 @@
         }
     }
 
+    // Copied from Node-RED core editor-client/src/js/ui/utils.js
+    const loggingLevels = {
+        off: 1,
+        fatal: 10,
+        error: 20,
+        warn: 30,
+        info: 40,
+        debug: 50,
+        trace: 60,
+        audit: 98,
+        metric: 99
+    }
+    const logLevelLabels = {
+        [loggingLevels.fatal]: 'fatal',
+        [loggingLevels.error]: 'error',
+        [loggingLevels.warn]: 'warn',
+        [loggingLevels.info]: 'info',
+        [loggingLevels.debug]: 'debug',
+        [loggingLevels.trace]: 'trace',
+        [loggingLevels.audit]: 'audit',
+        [loggingLevels.metric]: 'metric'
+    }
+
+    const getNearestLoggingLevel = (level, fallback = logLevelLabels[loggingLevels.debug]) => {
+        // if level == one of the strings, just return it
+        const logLabels = Object.values(logLevelLabels)
+        if (typeof level === 'string' && logLabels.includes(level)) {
+            return level
+        }
+        if (loggingLevels[level]) {
+            return loggingLevels[level]
+        }
+        const levelNo = +level
+        if (isNaN(levelNo)) {
+            return fallback
+        }
+        let nearestLevel = 0
+        Object.values(loggingLevels).forEach(l => {
+            if (Math.abs(levelNo - l) < Math.abs(levelNo - nearestLevel)) {
+                nearestLevel = l
+            }
+        })
+        return logLevelLabels[nearestLevel] || fallback
+    }
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
@@ -143,7 +187,9 @@
             },
             'invoke-action': 'handleActionInvocation',
             'get-selection': 'handleGetSelection',
-            'register-event-listeners': 'handleRegisterEvents'
+            'register-event-listeners': 'handleRegisterEvents',
+            'debug-log-context-registered': 'handleDebugLogContextRegistration',
+            'debug-log-context-get-entries': 'handleDebugLogContextGetEntries'
         }
 
         /**
@@ -158,7 +204,8 @@
                 dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
                 flowSelection: { enabled: true }, // supports passing the flow selection
                 flowImport: { enabled: true }, // supports importing flows
-                paletteManagement: { enabled: true } // supports palette management actions
+                paletteManagement: { enabled: true }, // supports palette management actions
+                debugLog: { enabled: true } // supports passing debug log context
             }
         }
 
@@ -185,6 +232,102 @@
                 nodeRedVersion: this.RED.settings.version,
                 features: this.features
             })
+
+            // Hook into Node-RED's debug sidebar to add "Add to FF Expert context" buttons to debug log entries, and handle their interactions
+            const allowHook = this.assistantOptions.enabled && this.assistantOptions.standalone !== true
+            const that = this
+            let debugClearRegistered = false
+            const OriginalCreateObjectElement = allowHook && RED.utils.createObjectElement
+            if (RED.utils.createObjectElement && !RED.utils.createObjectElement._ffWrapped) {
+                const hasProperty = (obj, prop) => obj && Object.prototype.hasOwnProperty.call(obj, prop)
+                RED.utils.createObjectElement = function (obj, options) {
+                    try {
+                        // This function is called for more than just debug log entries (it is used for info panel props and context props) but it provides no
+                        // clear `reason` so, based on very strict duck-typing approach, we can identify debug log entry creation based the below conditions:
+                        // 1. options.sourceId will be a string which is the id of the node which generated the debug message
+                        // 2. options.key will === `null`.
+                        // 3. options.hideKey will === `false`.
+                        // 4. options.enablePinning will === `true` (if present - it was added in Jan 2025 13cac1b5efe9888c2a1bc922674f42ed9994af27, so may not be there in older versions)
+                        // 5. options.tools will not be present (for top level debug messages, nested ones may have a pin tool for example)
+                        // 6. options.typeHint will be present
+                        // 7. options.path and options.rootPath keys must be string and must === each other.
+                        // 8. options.nodeSelector will be a function (if present - it was added in Nov 2023 febc769df5a0f530ff43225611e412dee4f1ca08, so may not be there in older versions)
+                        // 9. must ONLY contain 8 keys (those verified above)
+                        // REF: See https://github.com/node-red/node-red/blob/661828b208c0024335841afde14e184a278e96b4/packages/node_modules/%40node-red/nodes/core/common/lib/debug/debug-utils.js#L514-L515
+                        // NOTE: An obvious alternative to this would be to check the stack trace for calls originating from `processDebugMessage` however that is an order
+                        // of magnitude slower than the cascading duck-typing property reads and comparisons (very fast, native ops).
+
+                        const propCount = 6 // for 8 years prior, there were 6 properties. In 2023, nodeSelector was added, in 2025, enablePinning was added
+
+                        // perform the checks in a cascading manner to avoid unnecessary checks once a condition fails, as this function can be called frequently
+                        const check1 = typeof options.sourceId === 'string' && options.sourceId.length > 0
+                        const check2 = check1 && options.key === null
+                        const check3 = check2 && options.hideKey === false
+                        const hasEnablePinning = (check3 && hasProperty(options, 'enablePinning')) ? 1 : 0
+                        const check4 = check3 && (hasEnablePinning === false || options.enablePinning === true)
+                        const check5 = check4 && hasProperty(options, 'tools') === false
+                        const check6 = check5 && hasProperty(options, 'typeHint')
+                        const check7 = check6 && typeof options.path === 'string' && options.path === options.rootPath // blank is OK (it can mean full msg or not even be a msg at all!)
+                        const hasNodeSelector = (check7 && hasProperty(options, 'nodeSelector')) ? 1 : 0
+                        const check8 = check7 && (hasNodeSelector === false || typeof options.nodeSelector === 'function')
+
+                        const isTopLevelDebugMsg = check8 && Object.keys(options).length === (propCount + hasEnablePinning + hasNodeSelector)
+
+                        if (isTopLevelDebugMsg) {
+                            // This is a debug log entry creation - add an "Add to context" tool button to the entry
+                            options.tools = function (key, msg) {
+                                const buttonEl = $('<button class="ff-expert-debug-context red-ui-button red-ui-button-small"><i class="fa fa-plus"></i></button>')
+                                RED.popover.tooltip(buttonEl, 'Add debug message to FlowFuse Expert context')
+                                buttonEl.css('cursor', 'pointer')
+                                // to allow us to tie together the button with the relevant debug log entry data when the button is clicked
+                                // we generate a unique id here and store it as a data attribute on the button, along with the relevant options, msg, and key data
+                                // (jquery data is used for storage as it allows storing complex objects, whereas data attributes can only store strings)
+                                const uuid = `${options.path}:${options.sourceId}:${Math.random().toString(16).slice(2)}`
+                                buttonEl.attr('data-ff-expert-debug-uuid', uuid)
+                                buttonEl.data('ff-expert-debug-data', { options, msg, key })
+                                buttonEl.on('click', function (evt) {
+                                    evt.preventDefault()
+                                    evt.stopPropagation()
+
+                                    if (!debugClearRegistered) {
+                                        const clearButton = $('#red-ui-sidebar-debug-clear')
+                                        clearButton.on('click', function () {
+                                            that.postParent({
+                                                type: 'debug-log-context-clear',
+                                                data: {}
+                                            })
+                                        })
+                                        debugClearRegistered = true
+                                    }
+
+                                    if (buttonEl.hasClass('selected')) {
+                                        const uuid = buttonEl.attr('data-ff-expert-debug-uuid')
+                                        that.postParent({
+                                            type: 'debug-log-context-remove',
+                                            debugLog: [{ uuid }]
+                                        })
+                                        return
+                                    }
+
+                                    const entry = that.getDebugEntry(options, buttonEl, uuid, key, msg)
+                                    that.postParent({
+                                        type: 'debug-log-context-add',
+                                        debugLog: [entry]
+                                    })
+                                })
+                                return buttonEl
+                            }
+                            return OriginalCreateObjectElement.call(this, obj, options)
+                        } else {
+                            // not a debug log entry - proceed as normal
+                            return OriginalCreateObjectElement.call(this, obj, options)
+                        }
+                    } catch (_err) {
+                        return OriginalCreateObjectElement.call(this, obj, options)
+                    }
+                }
+                RED.utils.createObjectElement._ffWrapped = true
+            }
         }
 
         setupMessageListeners () {
@@ -261,6 +404,93 @@
 
             // send updated feature list
             this.postReply({ type: 'set-assistant-features', features: this.features }, event)
+        }
+
+        /**
+         * This function syncs the selected debug log entries in the Node-RED debug sidebar with the FlowFuse Expert.
+         * It should be called when the user clears logs from chat context
+         */
+        handleDebugLogContextRegistration ({ event, params }) {
+            if (!params || typeof params !== 'object') {
+                return
+            }
+            const { register } = params
+            if (register) {
+                // update class on the debug panel
+                // remove all .selected'
+                $('button.ff-expert-debug-context').removeClass('selected')
+                register.forEach(uuid => {
+                    // find the element with data-ff-expert-debug-uuid=uuid and add class .selected
+                    $(`button[data-ff-expert-debug-uuid="${uuid}"]`).addClass('selected')
+                })
+            }
+        }
+
+        /**
+         * This function retrieves the debug log entries from the Node-RED debug sidebar and sends them to the FlowFuse Expert.
+         * It supports filtering by log level and visibility in the UI.
+         * This is typically commanded by the user in the Chat UI where they may request to add debug log entries to the context.
+         */
+        handleDebugLogContextGetEntries ({ event, params }) {
+            const { visibleOnly = true, fatal = true, error = true, warn = true, info = true, debug = true, trace = true } = params || {}
+            const wantLevels = []
+            if (fatal) wantLevels.push('fatal')
+            if (error) wantLevels.push('error')
+            if (warn) wantLevels.push('warn')
+            if (info) wantLevels.push('info')
+            if (debug) wantLevels.push('debug')
+            if (trace) wantLevels.push('trace')
+
+            const isElementInView = (jElement) => {
+                if (jElement.length === 0) {
+                    return false
+                }
+                if (!visibleOnly) {
+                    return true
+                }
+                if (jElement.hasClass('hide')) {
+                    return false // not visible, skip this entry
+                }
+                const rect = jElement[0].getBoundingClientRect()
+                if (!rect?.width || !rect?.height) {
+                    return false
+                }
+                return (
+                    rect.top >= 0 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= $(window).height() &&
+                    rect.right <= $(window).width()
+                )
+            }
+            // first remove class .selected from all entries. It will be re-added once the expert responds with the list uuids it has registered.
+            $('button.ff-expert-debug-context').removeClass('selected')
+
+            const filteredEntries = []
+            // get buttons `#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context` in the debug sidebar
+            // but dont include any with `.hide` on the parent `.red-ui-debug-msg` element, as those are not visible
+            $('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').each((i, el) => {
+                const expertToolButtonEl = $(el)
+                const parent = expertToolButtonEl.closest('div.red-ui-debug-msg')
+                if (!isElementInView(parent)) {
+                    return // hidden or not visible in the viewport, skip this entry
+                }
+                const uuid = expertToolButtonEl.attr('data-ff-expert-debug-uuid')
+                if (uuid) {
+                    // const options = expertToolButtonEl.data('ff-expert-debug-options')
+                    // const msg = expertToolButtonEl.data('ff-expert-debug-msg')
+                    // const key = expertToolButtonEl.data('ff-expert-debug-key')
+                    const data = expertToolButtonEl.data('ff-expert-debug-data')
+                    if (!data) return
+                    const { options, msg, key } = data
+                    const entry = this.getDebugEntry(options, expertToolButtonEl, uuid, key, msg)
+                    const level = entry?.level
+                    if (!wantLevels.includes(level)) {
+                        return // not a level we want to include, skip this entry
+                    }
+                    filteredEntries.push(entry)
+                }
+            })
+            this.postReply({ type: 'debug-log-context-add', debugLog: filteredEntries }, event)
         }
 
         setNodeRedEventListeners () {
@@ -592,6 +822,61 @@
         postReply (payload, event) {
             this.debug('Posting reply message:', payload)
             this._post(payload, event.source)
+        }
+
+        /**
+         * Internal helper to format a debug log entry based on the options and message provided by the Node-RED debug sidebar,
+         * enriched with metadata about the source node and workspace.
+         * @param {Object} options - the options object provided by the Node-RED debug sidebar when it generates a debug log entry
+         * @param {*} button - the jQuery button element that was clicked to add this debug entry to the FlowFuse Expert context
+         * @param {*} uuid - a unique identifier for this debug log entry, used to manage selection state between Node-RED and the FlowFuse Expert
+         * @param {*} key - the key of the debug message (e.g., "payload", "topic", etc.)
+         * @param {*} msg - the debug message content
+         * @returns an object representing the debug log entry, enriched with metadata about its source and context, suitable for sending to the FlowFuse Expert
+         */
+        getDebugEntry (options, button, uuid, key, msg) {
+            const node = this.RED.nodes.node(options.sourceId)
+            // if no z and _def.category is "config" this is on the global flow
+            let tabId = 'global'
+            let tabLabel = 'global'
+            if (node && node.z) {
+                tabId = node.z
+                const tab = this.RED.nodes.workspace(tabId)
+                tabLabel = tab ? tab.label : 'unknown'
+            }
+
+            // get log level from grand parent element "div.red-ui-debug-msg" (it _might_ have a class like red-ui-debug-msg-level-{level})
+            const parent = button.closest('div.red-ui-debug-msg')
+            const levelClass = parent.attr('class').split(' ').find(c => c.startsWith('red-ui-debug-msg-level-'))
+            const level = getNearestLoggingLevel(levelClass ? levelClass.replace('red-ui-debug-msg-level-', '') : 'debug')
+
+            // get meta data from entry div.red-ui-debug-msg-meta
+            // typically: red-ui-debug-msg-topic, red-ui-debug-msg-name, red-ui-debug-msg-date
+            // but lets just grab whatever is there and include it in the context
+            const meta = {}
+            parent.find('.red-ui-debug-msg-meta').children().each((i, el) => {
+                const metaClass = el.className.split(' ').find(c => c.startsWith('red-ui-debug-msg-'))
+                if (metaClass) {
+                    const key = metaClass.replace('red-ui-debug-msg-', '')
+                    meta[key] = el.innerText
+                }
+            })
+            const event = {
+                uuid,
+                level,
+                path: options.path,
+                data: msg,
+                source: {
+                    id: options.sourceId || '',
+                    type: node?.type || '',
+                    isConfig: node?._def?.category === 'config' || false,
+                    name: node?.name || '',
+                    z: tabId,
+                    zName: tabLabel
+                },
+                metadata: meta
+            }
+            return event
         }
     }
 
