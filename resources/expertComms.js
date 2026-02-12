@@ -205,7 +205,7 @@
                 flowSelection: { enabled: true }, // supports passing the flow selection
                 flowImport: { enabled: true }, // supports importing flows
                 paletteManagement: { enabled: true }, // supports palette management actions
-                debugLog: { enabled: true } // supports passing debug log context
+                debugLogContext: { enabled: true } // supports providing debug log context to the expert
             }
         }
 
