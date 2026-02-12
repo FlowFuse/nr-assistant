@@ -1,3 +1,12 @@
+### 0.10.2
+
+ - Bump JS-DevTools/npm-publish from 4.1.4 to 4.1.5 (#136)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#141)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/sast_scan.yaml (#142)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#143)
+ - Bump @modelcontextprotocol/sdk from 1.25.3 to 1.26.0 (#138) @app/dependabot
+ - Update public catalouge on release (#144) @hardillb
+
 ### 0.10.1
 
  - Bump hono from 4.11.5 to 4.11.7 (#129) @app/dependabot
