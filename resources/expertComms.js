@@ -264,12 +264,12 @@
                         const check2 = check1 && options.key === null
                         const check3 = check2 && options.hideKey === false
                         const hasEnablePinning = (check3 && hasProperty(options, 'enablePinning')) ? 1 : 0
-                        const check4 = check3 && (hasEnablePinning === false || options.enablePinning === true)
+                        const check4 = check3 && (hasEnablePinning === 0 || options.enablePinning === true)
                         const check5 = check4 && hasProperty(options, 'tools') === false
                         const check6 = check5 && hasProperty(options, 'typeHint')
                         const check7 = check6 && typeof options.path === 'string' && options.path === options.rootPath // blank is OK (it can mean full msg or not even be a msg at all!)
                         const hasNodeSelector = (check7 && hasProperty(options, 'nodeSelector')) ? 1 : 0
-                        const check8 = check7 && (hasNodeSelector === false || typeof options.nodeSelector === 'function')
+                        const check8 = check7 && (hasNodeSelector === 0 || typeof options.nodeSelector === 'function')
 
                         const isTopLevelDebugMsg = check8 && Object.keys(options).length === (propCount + hasEnablePinning + hasNodeSelector)
 
