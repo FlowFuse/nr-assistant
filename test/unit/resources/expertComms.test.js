@@ -6,9 +6,12 @@ const sinon = require('sinon')
 const EventEmitter = require('events')
 
 describe('expertComms', () => {
+    /** @type {import('../../../resources/expertComms.js')} */
     let ExpertComms
+    /** @type {import('../../../resources/expertComms.js')} */
     let expertComms
     let mockWindow
+    let mockDocument
     let mockRED
     let mockJQuery
     let addEventListenerStub
@@ -31,6 +34,14 @@ describe('expertComms', () => {
             },
             addEventListener: sinon.stub()
         }
+        mockDocument = {
+            documentElement: {
+                style: {
+                    setProperty: sinon.stub()
+                }
+            }
+        }
+
         // Make window.self !== window.parent for testing
         Object.defineProperty(mockWindow, 'self', {
             value: mockWindow,
@@ -49,6 +60,7 @@ describe('expertComms', () => {
 
         // Mock global objects
         global.window = mockWindow
+        global.document = mockDocument
         global.$ = mockJQuery
         global.self = mockWindow
 
@@ -99,6 +111,9 @@ describe('expertComms', () => {
             },
             nrAssistant: {
                 DEBUG: false
+            },
+            utils: {
+                createObjectElement: sinon.stub()
             }
         }
 
@@ -238,6 +253,28 @@ describe('expertComms', () => {
 
             consoleWarnStub.calledOnce.should.be.true()
             consoleWarnStub.restore()
+        })
+
+        it('should set shadow RED.utils.createObjectElement with own implementation', () => {
+            const assistantOptions = {
+                assistantVersion: '1.0.0',
+                enabled: true,
+                standalone: false
+            }
+            expertComms.init(mockRED, assistantOptions)
+            expertComms.RED.utils.should.have.property('createObjectElement')
+            expertComms.RED.utils.createObjectElement.should.be.a.Function()
+            expertComms.RED.utils.createObjectElement.should.have.property('_ffWrapped', true)
+        })
+        it('should not set shadow RED.utils.createObjectElement in standalone mode', () => {
+            const assistantOptions = {
+                assistantVersion: '1.0.0',
+                standalone: true
+            }
+            expertComms.init(mockRED, assistantOptions)
+            expertComms.RED.utils.should.have.property('createObjectElement')
+            expertComms.RED.utils.createObjectElement.should.be.a.Function()
+            expertComms.RED.utils.createObjectElement.should.not.have.property('_ffWrapped')
         })
     })
 
@@ -992,6 +1029,231 @@ describe('expertComms', () => {
             palette['node-red'].should.be.an.Object()
             palette['node-red'].nodes.should.have.length(1)
             palette['node-red'].plugins.should.have.length(0)
+        })
+    })
+
+    describe('handleDebugLogContextRegistration', () => {
+        it('should return early when params is not an object', () => {
+            // ensure jQuery is not called when params invalid
+            expertComms.handleDebugLogContextRegistration({ event: {} })
+            mockJQuery.called.should.be.false()
+        })
+
+        it('should remove selected class then add selected for provided uuids', () => {
+            const removeClassStub = sinon.stub()
+            const addClassStub1 = sinon.stub()
+            const addClassStub2 = sinon.stub()
+
+            // stub queries
+            mockJQuery.withArgs('button.ff-expert-debug-context').returns({ removeClass: removeClassStub })
+            mockJQuery.withArgs('button[data-ff-expert-debug-uuid="uuid-1"]').returns({ addClass: addClassStub1 })
+            mockJQuery.withArgs('button[data-ff-expert-debug-uuid="uuid-2"]').returns({ addClass: addClassStub2 })
+
+            expertComms.handleDebugLogContextRegistration({ params: { register: ['uuid-1', 'uuid-2'] } })
+
+            removeClassStub.calledOnce.should.be.true()
+            addClassStub1.calledOnce.should.be.true()
+            addClassStub2.calledOnce.should.be.true()
+        })
+    })
+
+    describe('handleDebugLogContextGetEntries', () => {
+        beforeEach(() => {
+            const assistantOptions = {
+                assistantVersion: '1.0.0',
+                enabled: true,
+                standalone: false
+            }
+            expertComms.init(mockRED, assistantOptions)
+        })
+        it('should collect debug entries matching requested levels', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = { source: eventSource }
+
+            // Prepare two raw elements which will be passed into the jQuery each callback
+            const rawEl1 = { id: 1 }
+            const rawEl2 = { id: 2 }
+            const rawEl3 = { id: 3 }
+
+            // Wrapper for element 1
+            const expertToolButtonEl1 = {
+                closest: sinon.stub(),
+                attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-1'),
+                data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'a' }, key: 'payload' })
+            }
+            // Parent for element 1 (visible)
+            const parent1 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
+            parent1.hasClass = sinon.stub().returns(false)
+            parent1.length = 1
+            expertToolButtonEl1.closest.returns(parent1)
+
+            // Wrapper for element 2
+            const expertToolButtonEl2 = {
+                closest: sinon.stub(),
+                attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-2'),
+                data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'b' }, key: 'payload' })
+            }
+            // Parent for element 2 (visible)
+            const parent2 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
+            parent2.hasClass = sinon.stub().returns(false)
+            parent2.length = 1
+            expertToolButtonEl2.closest.returns(parent2)
+
+            // Wrapper for element 3
+            const expertToolButtonEl3 = {
+                closest: sinon.stub(),
+                attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-3'),
+                data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'c' }, key: 'payload' })
+            }
+            // Parent for element 3 (trace level)
+            const parent3 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
+            parent3.hasClass = sinon.stub().returns(false)
+            parent3.length = 1
+            expertToolButtonEl3.closest.returns(parent3)
+
+            // Stub $ calls: selector for list and window dimensions and element wrappers
+            mockJQuery.withArgs('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').returns({
+                each: (cb) => {
+                    // eslint-disable-next-line n/no-callback-literal
+                    cb(0, rawEl1)
+                    // eslint-disable-next-line n/no-callback-literal
+                    cb(1, rawEl2)
+                    // eslint-disable-next-line n/no-callback-literal
+                    cb(2, rawEl3)
+                }
+            })
+
+            mockJQuery.withArgs(rawEl1).returns(expertToolButtonEl1)
+            mockJQuery.withArgs(rawEl2).returns(expertToolButtonEl2)
+            mockJQuery.withArgs(rawEl3).returns(expertToolButtonEl3)
+            mockJQuery.withArgs(mockWindow).returns({ height: () => 1000, width: () => 1000 })
+            mockJQuery.withArgs('button.ff-expert-debug-context').returns({ removeClass: sinon.stub() })
+
+            // Stub getDebugEntry to return entries with different levels
+            const entry1 = { uuid: 'uuid-1', level: 'debug', data: { payload: 'a' } }
+            const entry2 = { uuid: 'uuid-2', level: 'error', data: { payload: 'b' } }
+            const entry3 = { uuid: 'uuid-3', level: 'trace', data: { payload: 'c' } }
+            sinon.replace(
+                expertComms, 'getDebugEntry',
+                sinon.stub().onCall(0).returns(entry1).onCall(1).returns(entry2).onCall(2).returns(entry3)
+            )
+
+            expertComms.handleDebugLogContextGetEntries({ event, params: { visibleOnly: true, debug: true, error: true, trace: false } })
+
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.type.should.equal('debug-log-context-add')
+            reply.debugLog.should.be.an.Array()
+            // only 2 entries should be returned since the 3rd is off-screen
+            reply.debugLog.length.should.equal(2)
+            // Verify the correct entries are included
+            reply.debugLog[0].should.deepEqual(entry1)
+            reply.debugLog[1].should.deepEqual(entry2)
+        })
+
+        it('should filter out entries not visible', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = { source: eventSource }
+
+            const rawEl1 = { id: 'a' }
+            const rawEl2 = { id: 'b' }
+
+            const expertToolButtonEl1 = {
+                closest: sinon.stub(),
+                attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-a'),
+                data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'a' }, key: 'payload' })
+            }
+            // Parent 1 is hidden via .hide class
+            const parent1 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 }) }]
+            parent1.hasClass = sinon.stub().withArgs('hide').returns(true)
+            parent1.length = 1
+            expertToolButtonEl1.closest.returns(parent1)
+
+            const expertToolButtonEl2 = {
+                closest: sinon.stub(),
+                attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-b'),
+                data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'b' }, key: 'payload' })
+            }
+            // Parent 2 not visible because zero-dimension
+            const parent2 = [{ getBoundingClientRect: () => ({ top: -1000, left: -1000, bottom: -999, right: -999, width: 0, height: 0 }) }]
+            parent2.hasClass = sinon.stub().returns(false)
+            parent2.length = 1
+            expertToolButtonEl2.closest.returns(parent2)
+
+            mockJQuery.withArgs('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').returns({
+                each: (cb) => {
+                    // eslint-disable-next-line n/no-callback-literal
+                    cb(0, rawEl1)
+                    // eslint-disable-next-line n/no-callback-literal
+                    cb(1, rawEl2)
+                }
+            })
+            mockJQuery.withArgs(rawEl1).returns(expertToolButtonEl1)
+            mockJQuery.withArgs(rawEl2).returns(expertToolButtonEl2)
+            mockJQuery.withArgs(mockWindow).returns({ height: () => 1000, width: () => 1000 })
+            mockJQuery.withArgs('button.ff-expert-debug-context').returns({ removeClass: sinon.stub() })
+
+            // Return one entry with level 'debug' and one with 'error'
+            const entry1 = { uuid: 'uuid-a', level: 'debug', data: {} }
+            const entry2 = { uuid: 'uuid-b', level: 'error', data: {} }
+            sinon.replace(expertComms, 'getDebugEntry', sinon.stub().onCall(0).returns(entry1).onCall(1).returns(entry2))
+
+            // Request only 'error' level and visibleOnly true (default)
+            expertComms.handleDebugLogContextGetEntries({ event, params: { visibleOnly: true, debug: true, error: true } })
+
+            eventSource.postMessage.calledOnce.should.be.true()
+            const reply = eventSource.postMessage.firstCall.args[0]
+            reply.type.should.equal('debug-log-context-add')
+            // entry1 should be filtered out (hidden/zero size and/or level not requested), entry2 may be filtered by visibility too
+            // In this setup both are not visible (one hide, one zero-dimension) so none should be returned
+            reply.debugLog.should.be.an.Array()
+            reply.debugLog.length.should.equal(0)
+        })
+    })
+
+    describe('handleExpertReady', () => {
+        it('should call handleExpertReady and apply necessary logic', () => {
+            const handleExpertReadySpy = sinon.spy(expertComms, 'handleExpertReady')
+
+            expertComms.handleExpertReady({
+                event: {},
+                params: {
+                    supportedFeatures: {
+                        debugLogContext: { enabled: false }, // allows the expert to include debug log entries in the expert context
+                        flowImport: { enabled: false }, // flag to let assistant know flows can be offered to import onto the workspace
+                        flowSelection: { enabled: false }, // allows user to select nodes on workspace and have that selection sent to the expert context
+                        paletteManagement: { enabled: false } // allows the expert to send commands to show the palette manager
+                    }
+                }
+            })
+
+            handleExpertReadySpy.calledOnce.should.be.true()
+
+            expertComms.expertSupportedFeatures.should.eql({
+                debugLogContext: { enabled: false },
+                flowImport: { enabled: false },
+                flowSelection: { enabled: false },
+                paletteManagement: { enabled: false }
+            })
+            // Additional logic can be tested here if handleExpertReady does more than just send a message
+        })
+        it('should set debug log context style property when enabled', () => {
+            const handleExpertReadySpy = sinon.spy(expertComms, 'handleExpertReady')
+
+            expertComms.handleExpertReady({ event: {}, params: { supportedFeatures: { debugLogContext: { enabled: true } } } })
+            handleExpertReadySpy.calledOnce.should.be.true()
+
+            expertComms.expertSupportedFeatures.should.eql({ debugLogContext: { enabled: true } })
+            mockDocument.documentElement.style.setProperty.calledWith('--ff-feature--display-debug-log-context', 'unset').should.be.true()
+        })
+        it('should not set debug log context style property when disabled', () => {
+            const handleExpertReadySpy = sinon.spy(expertComms, 'handleExpertReady')
+
+            expertComms.handleExpertReady({ event: {}, params: { supportedFeatures: { debugLogContext: { enabled: false } } } })
+            handleExpertReadySpy.calledOnce.should.be.true()
+
+            expertComms.expertSupportedFeatures.should.eql({ debugLogContext: { enabled: false } })
+            mockDocument.documentElement.style.setProperty.called.should.not.be.true()
         })
     })
 
