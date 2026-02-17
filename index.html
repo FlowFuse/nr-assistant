@@ -2078,6 +2078,14 @@
     .ff-nr-ai-dialog-message  li {
         margin-bottom: 3px;
     }
+
+    :root {
+        --ff-feature--display-debug-log-context: none; /* expert support will unset this as required */
+    }
+    .red-ui-debug-msg-hover button.ff-expert-debug-context {
+        /* only show the button if supported */
+        display: var(--ff-feature--display-debug-log-context) !important;
+    }
     button.ff-expert-debug-context.selected {
         /* background-color: var(--red-ui-deploy-button-color-active); */
         box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
