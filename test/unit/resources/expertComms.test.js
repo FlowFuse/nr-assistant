@@ -179,7 +179,7 @@ describe('expertComms', () => {
             message.should.have.property('features').and.be.an.Object()
 
             // Ensure features contains expected keys
-            const expectedFeatureKeys = ['commands', 'actions', 'registeredEvents', 'dynamicEventRegistration', 'flowSelection', 'flowImport', 'paletteManagement']
+            const expectedFeatureKeys = ['commands', 'actions', 'registeredEvents', 'dynamicEventRegistration', 'flowSelection', 'flowImport', 'paletteManagement', 'debugLogContext']
             message.features.should.only.have.keys(...expectedFeatureKeys)
 
             // ensure commands contains all expected commands and that they are an object with enabled:true
