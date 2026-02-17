@@ -85,6 +85,7 @@
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
         assistantOptions = {}
+        expertSupportedFeatures = {}
 
         MESSAGE_SOURCE = 'nr-assistant'
         MESSAGE_TARGET = 'flowfuse-expert'
@@ -171,6 +172,7 @@
          * @type {Object.<string, Function|string>}
          */
         commandMap = {
+            'expert-ready': 'handleExpertReady',
             'get-assistant-version': ({ event, type, action, params } = {}) => {
                 // handle version request
                 this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
@@ -652,6 +654,20 @@
             })
 
             return palette
+        }
+
+        handleExpertReady ({ event, params }) {
+            // Expert is ready. `params` should contain flags for features the expert supports, which
+            // can be used to conditionally enable/disable functionality in the assistant.
+            // For now, the only functionality we need to gate is showing the "Add to FF Expert context" buttons
+            // in the debug sidebar, which we don't want to show if the expert does not support debug log context!
+            const { supportedFeatures } = params || {}
+            this.expertSupportedFeatures = { ...supportedFeatures }
+            // if the expert supports debug log context, then we should allow the buttons to be shown
+            // by setting --ff-feature--display-debug-log-context: unset in the CSS
+            if (supportedFeatures.debugLogContext && supportedFeatures.debugLogContext.enabled) {
+                document.documentElement.style.setProperty('--ff-feature--display-debug-log-context', 'unset')
+            }
         }
 
         formatSelectedNodes (nodes) {
