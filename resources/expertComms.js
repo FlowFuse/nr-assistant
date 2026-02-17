@@ -79,6 +79,8 @@
         })
         return logLevelLabels[nearestLevel] || fallback
     }
+
+    const hasProperty = (obj, prop) => obj && Object.prototype.hasOwnProperty.call(obj, prop)
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
@@ -235,11 +237,12 @@
 
             // Hook into Node-RED's debug sidebar to add "Add to FF Expert context" buttons to debug log entries, and handle their interactions
             const allowHook = this.assistantOptions.enabled && this.assistantOptions.standalone !== true
-            const that = this
-            let debugClearRegistered = false
-            const OriginalCreateObjectElement = allowHook && RED.utils.createObjectElement
-            if (RED.utils.createObjectElement && !RED.utils.createObjectElement._ffWrapped) {
-                const hasProperty = (obj, prop) => obj && Object.prototype.hasOwnProperty.call(obj, prop)
+            const allowWrap = this.RED.utils.createObjectElement && hasProperty(this.RED.utils.createObjectElement, '_ffWrapped') === false
+            if (allowHook && allowWrap && RED.utils.createObjectElement) {
+                const that = this
+                const OriginalCreateObjectElement = RED.utils.createObjectElement
+                let debugClearRegistered = false
+
                 RED.utils.createObjectElement = function (obj, options) {
                     try {
                         // This function is called for more than just debug log entries (it is used for info panel props and context props) but it provides no
@@ -323,6 +326,7 @@
                             return OriginalCreateObjectElement.call(this, obj, options)
                         }
                     } catch (_err) {
+                        // fallback to original function if any error is encountered
                         return OriginalCreateObjectElement.call(this, obj, options)
                     }
                 }
