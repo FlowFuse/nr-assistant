@@ -1081,7 +1081,7 @@ describe('expertComms', () => {
                 attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-1'),
                 data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'a' }, key: 'payload' })
             }
-            // Parent for element 1 (visible)
+            // Parent for element 1 (debug)
             const parent1 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
             parent1.hasClass = sinon.stub().returns(false)
             parent1.length = 1
@@ -1093,7 +1093,7 @@ describe('expertComms', () => {
                 attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-2'),
                 data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'b' }, key: 'payload' })
             }
-            // Parent for element 2 (visible)
+            // Parent for element 2 (error)
             const parent2 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
             parent2.hasClass = sinon.stub().returns(false)
             parent2.length = 1
@@ -1105,7 +1105,7 @@ describe('expertComms', () => {
                 attr: sinon.stub().withArgs('data-ff-expert-debug-uuid').returns('uuid-3'),
                 data: sinon.stub().withArgs('ff-expert-debug-data').returns({ options: {}, msg: { payload: 'c' }, key: 'payload' })
             }
-            // Parent for element 3 (trace level)
+            // Parent for element 3 (trace)
             const parent3 = [{ getBoundingClientRect: () => ({ top: 0, left: 0, bottom: 10, right: 10, width: 10, height: 10 }) }]
             parent3.hasClass = sinon.stub().returns(false)
             parent3.length = 1
@@ -1144,7 +1144,7 @@ describe('expertComms', () => {
             const reply = eventSource.postMessage.firstCall.args[0]
             reply.type.should.equal('debug-log-context-add')
             reply.debugLog.should.be.an.Array()
-            // only 2 entries should be returned since the 3rd is off-screen
+            // only 2 entries should be returned since the 3rd is trace level
             reply.debugLog.length.should.equal(2)
             // Verify the correct entries are included
             reply.debugLog[0].should.deepEqual(entry1)
