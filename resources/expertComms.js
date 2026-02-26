@@ -825,20 +825,59 @@
          * @returns an object representing the debug log entry, enriched with metadata about its source and context, suitable for sending to the FlowFuse Expert
          */
         formatDebugMessage (uuid, message, payload) {
+            const getInfo = (id, name, type, z) => {
+                const result = { id, name: name || '', type, z }
+                const node = this.RED.nodes.node(id)
+                const isNodeSubFlowInstance = (node?.type || '').startsWith('subflow:')
+                const flow = !node ? this.RED.nodes.workspace(id) : null
+                if (node) {
+                    result.type = node.type || result.type
+                    result.name = node.name || result.name
+                    result.z = node.z || result.z
+                    if (isNodeSubFlowInstance) {
+                        result.isSubflowInstance = true
+                        result.subflowTemplateId = node.type.replace('subflow:', '')
+                        const subflowTemplate = this.RED.nodes.subflow(result.subflowTemplateId)
+                        result.subFlowTemplateName = subflowTemplate?.name || ''
+                    }
+                    if (node._def?.category === 'config') {
+                        result.isConfig = true
+                    }
+                } else if (flow) {
+                    result.type = flow.type || result.type || 'tab'
+                    result.name = flow.name || result.name
+                    if (!flow.z && !result.z) {
+                        result.z = flow.id // set to self (to aid in identification in the expert)
+                    }
+                }
+                return result
+            }
+
+            const _source = message._source || {}
+            const _sourceId = message._alias || _source._alias || _source.id || message.id || ''
+            const _hierarchy = _source.pathHierarchy || [{ id: _sourceId }]
+            const hierarchy = _hierarchy.map(e => getInfo(e.id, e.name || e.label, e.type, e.z))
+            const source = hierarchy.pop()
+            const ancestors = hierarchy
+            const metadata = {
+                format: message.format,
+                timestamp: message.timestamp || Date.now(),
+                path: message.path || ''
+            }
+            if (hasProperty(message, 'topic')) {
+                metadata.topic = message.topic // sometimes the message has a topic
+            }
+            if (hasProperty(message, 'property')) {
+                metadata.property = message.property // if the message has a property, it indicates what property of the message is being debugged (e.g. msg.payload, msg.payload.value, etc.)
+            }
+
             const event = {
                 uuid,
-                level,
-                path: options.path,
-                data: msg,
-                source: {
-                    id: options.sourceId || '',
-                    type: node?.type || '',
-                    isConfig: node?._def?.category === 'config' || false,
-                    name: node?.name || '',
-                    z: tabId,
-                    zName: tabLabel
-                },
-                metadata: meta
+                level: getNearestLoggingLevel(message.level, 'debug'), // default to 'debug' if no level is provided
+                data: payload, // the data in the debug message, as sent from the backend (rehydrated)
+                source, // info about the node that generated the debug message
+                ancestors, // info about the parent nodes of the source node, up to the workspace level
+                metadata
             }
             return event
         }
