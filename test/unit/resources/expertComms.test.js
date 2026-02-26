@@ -185,7 +185,24 @@ describe('expertComms', () => {
                 enabled: true,
                 standalone: false
             }
-
+            mockRED.palette = {
+                editor: {
+                    getAvailableUpdates: sinon.stub().returns({
+                        count: 2,
+                        core: {
+                            current: '4.1.4',
+                            latest: '4.1.6'
+                        },
+                        palette: [
+                            {
+                                package: '@flowfuse/nr-assistant',
+                                current: '0.10.0',
+                                latest: '0.11.0'
+                            }
+                        ]
+                    })
+                }
+            }
             expertComms.init(mockRED, assistantOptions)
 
             parentPostMessageStub.calledOnce.should.be.true()
@@ -195,6 +212,10 @@ describe('expertComms', () => {
             message.should.have.property('nodeRedVersion', '4.1.4')
             message.should.have.property('enabled', true)
             message.should.have.property('standalone', false)
+            message.should.have.property('nodeRedUpdatesAvailable').and.be.an.Object()
+            message.nodeRedUpdatesAvailable.should.have.property('count', 2)
+            message.nodeRedUpdatesAvailable.should.have.property('core').and.be.an.Object()
+            message.nodeRedUpdatesAvailable.should.have.property('palette').and.be.an.Array()
 
             message.should.have.property('source', 'nr-assistant')
             message.should.have.property('target', 'flowfuse-expert')

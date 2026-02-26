@@ -234,6 +234,7 @@
                 enabled: this.assistantOptions.enabled,
                 standalone: this.assistantOptions.standalone,
                 nodeRedVersion: this.RED.settings.version,
+                nodeRedUpdatesAvailable: this.RED.palette?.editor?.getAvailableUpdates ? this.RED.palette.editor.getAvailableUpdates() : null,
                 features: this.features
             })
 
