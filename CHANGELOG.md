@@ -1,3 +1,16 @@
+### 0.11.0
+
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#149)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#148)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/sast_scan.yaml (#147)
+ - Include available updates in the initial handshake with the expert (#156) @Steve-Mcl
+ - Bump hono from 4.12.0 to 4.12.3 (#157) @app/dependabot
+ - Bump ajv from 6.12.6 to 6.14.0 (#159) @app/dependabot
+ - Add Debug context support (#151) @Steve-Mcl
+ - Bump mcp sdk to latest (#158) @Steve-Mcl
+ - Bump hono from 4.11.7 to 4.12.0 (#152) @app/dependabot
+ - Bump qs from 6.14.1 to 6.14.2 (#146) @app/dependabot
+
 ### 0.10.2
 
  - Bump JS-DevTools/npm-publish from 4.1.4 to 4.1.5 (#136)
