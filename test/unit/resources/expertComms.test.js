@@ -114,6 +114,14 @@ describe('expertComms', () => {
             },
             utils: {
                 createObjectElement: sinon.stub()
+            },
+            hooks: {
+                // return true
+                isKnownHook: sinon.stub().returns(true),
+                // fake it with and event emitter to add by name and callback upon event
+                add: sinon.stub().callsFake((hookName, callback) => {
+                    mockRED.events.on(`hook:${hookName}`, callback)
+                })
             }
         }
 
@@ -255,26 +263,108 @@ describe('expertComms', () => {
             consoleWarnStub.restore()
         })
 
-        it('should set shadow RED.utils.createObjectElement with own implementation', () => {
+        it('should check and register a hook for debugPostProcessMessage', () => {
             const assistantOptions = {
                 assistantVersion: '1.0.0',
                 enabled: true,
                 standalone: false
             }
             expertComms.init(mockRED, assistantOptions)
-            expertComms.RED.utils.should.have.property('createObjectElement')
-            expertComms.RED.utils.createObjectElement.should.be.a.Function()
-            expertComms.RED.utils.createObjectElement.should.have.property('_ffWrapped', true)
+            // Ensure it checks if the hook is known
+            mockRED.hooks.isKnownHook.calledWith('debugPostProcessMessage').should.be.true()
+            // Ensure it registers the hook by name and a callback
+            const callArgs = mockRED.hooks.add.firstCall.args
+            callArgs[0].should.equal('debugPostProcessMessage.nr-assistant')
+            callArgs[1].should.be.a.Function()
         })
-        it('should not set shadow RED.utils.createObjectElement in standalone mode', () => {
+        it('should not register a hook in standalone mode', () => {
             const assistantOptions = {
                 assistantVersion: '1.0.0',
                 standalone: true
             }
             expertComms.init(mockRED, assistantOptions)
-            expertComms.RED.utils.should.have.property('createObjectElement')
-            expertComms.RED.utils.createObjectElement.should.be.a.Function()
-            expertComms.RED.utils.createObjectElement.should.not.have.property('_ffWrapped')
+            mockRED.hooks.add.called.should.be.false()
+        })
+        it('should not fail for older Node-RED where the hook is not supported', () => {
+            const assistantOptions = {
+                assistantVersion: '1.0.0',
+                enabled: true,
+                standalone: false
+            }
+            mockRED.hooks.isKnownHook = null // simulate older Node-RED without this hook function
+            expertComms.init(mockRED, assistantOptions)
+            // Should not attempt to register the hook
+            mockRED.hooks.add.called.should.be.false()
+        })
+        it('should format debug messages', () => {
+            const assistantOptions = {
+                assistantVersion: '1.0.0',
+                enabled: true,
+                standalone: false
+            }
+            mockRED.nodes.node = sinon.stub().callsFake((id) => {
+                if (id === '6f508ac2ce1455cf') {
+                    return { id: '6f508ac2ce1455cf', type: 'function', name: 'cwd' }
+                } else if (id === 'be12d1a7eb3da114') {
+                    return { id: 'be12d1a7eb3da114', type: 'subflow:afbf020d8ce173e6', name: 'Subflow 1' }
+                }
+                return null
+            })
+            mockRED.nodes.workspace = sinon.stub().returns({ id: 'b69037d14b940184', name: 'Flow 1' })
+            mockRED.nodes.subflow = sinon.stub().returns({ id: 'afbf020d8ce173e6', name: 'My Subflow Template' })
+            expertComms.init(mockRED, assistantOptions)
+            // Simulate a debug message being processed by the hook
+            const message = {
+                format: 'error',
+                id: 'be12d1a7eb3da114-6f508ac2ce1455cf',
+                level: 20,
+                msg: '{"__enc__":true,"type":"error","data":{"name":"Error","message":"This is a test error","stack":"Error: This is a test error\\n    at Function node:be12d1a7eb3da114-6f508ac2ce1455cf [cwd]:5:12\\n    at Function node:be12d1a7eb3da114-6f508ac2ce1455cf [cwd]:8:3\\n    at Script.runInContext (node:vm:149:12)\\n    at processMessage (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\nodes\\\\core\\\\function\\\\10-function.js:430:37)\\n    at FunctionNode._inputCallback (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\nodes\\\\core\\\\function\\\\10-function.js:348:17)\\n    at C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\runtime\\\\lib\\\\nodes\\\\Node.js:214:26\\n    at Object.trigger (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\util\\\\lib\\\\hooks.js:166:13)\\n    at Node._emitInput (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\runtime\\\\lib\\\\nodes\\\\Node.js:206:11)\\n    at Node.emit (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\runtime\\\\lib\\\\nodes\\\\Node.js:190:25)\\n    at Node.receive (C:\\\\Users\\\\sdmcl\\\\repos\\\\github\\\\node-red-5\\\\node-red\\\\packages\\\\node_modules\\\\@node-red\\\\runtime\\\\lib\\\\nodes\\\\Node.js:506:10)"}}',
+                name: 'cwd',
+                path: 'b69037d14b940184/be12d1a7eb3da114',
+                timestamp: 1772046225643,
+                type: 'function',
+                z: 'be12d1a7eb3da114',
+                _alias: '6f508ac2ce1455cf',
+                _source: {
+                    flowName: 'Flow 1',
+                    id: 'be12d1a7eb3da114',
+                    name: undefined,
+                    path: ['b69037d14b940184', 'be12d1a7eb3da114'],
+                    pathHierarchy: [
+                        { id: 'b69037d14b940184', label: 'Flow 1' },
+                        { id: 'be12d1a7eb3da114', label: 'Subflow 1' },
+                        { id: '6f508ac2ce1455cf', label: 'cwd' }
+                    ],
+                    type: 'subflow:afbf020d8ce173e6',
+                    z: 'b69037d14b940184',
+                    _alias: '6f508ac2ce1455cf'
+                }
+            }
+            const payload = JSON.parse(message.msg)
+            const entry = expertComms.formatDebugMessage('123:abc:xyz', message, payload)
+            entry.should.have.property('uuid', '123:abc:xyz')
+            entry.should.have.property('level', 'error') // 20 maps to 'error'
+            entry.should.have.property('data').and.eql(payload)
+            entry.should.have.property('source').and.be.an.Object()
+            entry.source.should.have.property('id', '6f508ac2ce1455cf')
+            entry.source.should.have.property('type', 'function')
+            entry.source.should.have.property('name', 'cwd')
+            entry.should.have.property('ancestors').and.be.an.Array()
+            entry.ancestors.should.deepEqual([
+                { id: 'b69037d14b940184', name: 'Flow 1', type: 'tab', z: 'b69037d14b940184' },
+                {
+                    id: 'be12d1a7eb3da114',
+                    name: 'Subflow 1',
+                    type: 'subflow:afbf020d8ce173e6',
+                    z: undefined,
+                    isSubflowInstance: true,
+                    subflowTemplateId: 'afbf020d8ce173e6',
+                    subFlowTemplateName: 'My Subflow Template'
+                }
+            ])
+            entry.should.have.property('metadata').and.be.an.Object()
+            entry.metadata.should.have.property('timestamp', 1772046225643)
+            entry.metadata.should.have.property('path', 'b69037d14b940184/be12d1a7eb3da114')
         })
     })
 
@@ -1129,12 +1219,12 @@ describe('expertComms', () => {
             mockJQuery.withArgs(mockWindow).returns({ height: () => 1000, width: () => 1000 })
             mockJQuery.withArgs('button.ff-expert-debug-context').returns({ removeClass: sinon.stub() })
 
-            // Stub getDebugEntry to return entries with different levels
+            // Stub formatDebugMessage to return entries with different levels
             const entry1 = { uuid: 'uuid-1', level: 'debug', data: { payload: 'a' } }
             const entry2 = { uuid: 'uuid-2', level: 'error', data: { payload: 'b' } }
             const entry3 = { uuid: 'uuid-3', level: 'trace', data: { payload: 'c' } }
             sinon.replace(
-                expertComms, 'getDebugEntry',
+                expertComms, 'formatDebugMessage',
                 sinon.stub().onCall(0).returns(entry1).onCall(1).returns(entry2).onCall(2).returns(entry3)
             )
 
@@ -1196,7 +1286,7 @@ describe('expertComms', () => {
             // Return one entry with level 'debug' and one with 'error'
             const entry1 = { uuid: 'uuid-a', level: 'debug', data: {} }
             const entry2 = { uuid: 'uuid-b', level: 'error', data: {} }
-            sinon.replace(expertComms, 'getDebugEntry', sinon.stub().onCall(0).returns(entry1).onCall(1).returns(entry2))
+            sinon.replace(expertComms, 'formatDebugMessage', sinon.stub().onCall(0).returns(entry1).onCall(1).returns(entry2))
 
             // Request only 'error' level and visibleOnly true (default)
             expertComms.handleDebugLogContextGetEntries({ event, params: { visibleOnly: true, debug: true, error: true } })
