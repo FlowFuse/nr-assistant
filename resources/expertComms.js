@@ -80,7 +80,7 @@
         return logLevelLabels[nearestLevel] || fallback
     }
 
-    const hasProperty = (obj, prop) => obj && Object.prototype.hasOwnProperty.call(obj, prop)
+    const hasProperty = (obj, prop) => !!(obj && Object.prototype.hasOwnProperty.call(obj, prop))
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
