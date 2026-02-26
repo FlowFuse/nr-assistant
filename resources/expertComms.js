@@ -8,7 +8,7 @@
 * To use this in the browser, you can access it via:
 * FFExpertComms.cleanFlow(nodeArray)
 */
-
+/* global $ */
 'use strict';
 
 (function (root, factory) {
@@ -35,10 +35,57 @@
         }
     }
 
+    // Copied from Node-RED core editor-client/src/js/ui/utils.js
+    const loggingLevels = {
+        off: 1,
+        fatal: 10,
+        error: 20,
+        warn: 30,
+        info: 40,
+        debug: 50,
+        trace: 60,
+        audit: 98,
+        metric: 99
+    }
+    const logLevelLabels = {
+        [loggingLevels.fatal]: 'fatal',
+        [loggingLevels.error]: 'error',
+        [loggingLevels.warn]: 'warn',
+        [loggingLevels.info]: 'info',
+        [loggingLevels.debug]: 'debug',
+        [loggingLevels.trace]: 'trace',
+        [loggingLevels.audit]: 'audit',
+        [loggingLevels.metric]: 'metric'
+    }
+
+    const getNearestLoggingLevel = (level, fallback = logLevelLabels[loggingLevels.debug]) => {
+        // if level == one of the strings, just return it
+        const logLabels = Object.values(logLevelLabels)
+        if (typeof level === 'string' && logLabels.includes(level)) {
+            return level
+        }
+        if (loggingLevels[level]) {
+            return loggingLevels[level]
+        }
+        const levelNo = +level
+        if (isNaN(levelNo)) {
+            return fallback
+        }
+        let nearestLevel = 0
+        Object.values(loggingLevels).forEach(l => {
+            if (Math.abs(levelNo - l) < Math.abs(levelNo - nearestLevel)) {
+                nearestLevel = l
+            }
+        })
+        return logLevelLabels[nearestLevel] || fallback
+    }
+
+    const hasProperty = (obj, prop) => !!(obj && Object.prototype.hasOwnProperty.call(obj, prop))
     class ExpertComms {
         /** @type {import('node-red').NodeRedInstance} */
         RED = null
         assistantOptions = {}
+        expertSupportedFeatures = {}
 
         MESSAGE_SOURCE = 'nr-assistant'
         MESSAGE_TARGET = 'flowfuse-expert'
@@ -125,6 +172,7 @@
          * @type {Object.<string, Function|string>}
          */
         commandMap = {
+            'expert-ready': 'handleExpertReady',
             'get-assistant-version': ({ event, type, action, params } = {}) => {
                 // handle version request
                 this.postReply({ type, version: this.assistantOptions.assistantVersion, success: true }, event)
@@ -143,7 +191,9 @@
             },
             'invoke-action': 'handleActionInvocation',
             'get-selection': 'handleGetSelection',
-            'register-event-listeners': 'handleRegisterEvents'
+            'register-event-listeners': 'handleRegisterEvents',
+            'debug-log-context-registered': 'handleDebugLogContextRegistration',
+            'debug-log-context-get-entries': 'handleDebugLogContextGetEntries'
         }
 
         /**
@@ -158,7 +208,8 @@
                 dynamicEventRegistration: { enabled: true }, // supports dynamic registration of Node-RED events to be listened to
                 flowSelection: { enabled: true }, // supports passing the flow selection
                 flowImport: { enabled: true }, // supports importing flows
-                paletteManagement: { enabled: true } // supports palette management actions
+                paletteManagement: { enabled: true }, // supports palette management actions
+                debugLogContext: { enabled: true } // supports providing debug log context to the expert
             }
         }
 
@@ -185,6 +236,79 @@
                 nodeRedVersion: this.RED.settings.version,
                 features: this.features
             })
+
+            // Hook into Node-RED's FrontEnd `debugPostProcessMessage` hook to add an "Add to context" button to debug log
+            // entries in the debug sidebar, allowing users to easily add relevant debug messages to the FlowFuse Expert context.
+            const allowHook = this.assistantOptions.enabled && this.assistantOptions.standalone !== true
+            const hookValid = RED.hooks.isKnownHook ? RED.hooks.isKnownHook('debugPostProcessMessage') : false
+            let alreadyHooked = false
+            if (allowHook && hookValid && !alreadyHooked) {
+                alreadyHooked = true
+                const that = this
+
+                // listen for `flows:loaded` (i.e. editor is ready) then hook the debug clear button
+                const hookDebugClearButton = function () {
+                    if ($('#red-ui-sidebar-debug-clear').length) {
+                        $('#red-ui-sidebar-debug-clear').on('click', function () {
+                            that.postParent({
+                                type: 'debug-log-context-clear',
+                                data: {}
+                            })
+                        })
+                        that.RED.events.off('flows:loaded', hookDebugClearButton)
+                    }
+                }
+                that.RED.events.on('flows:loaded', hookDebugClearButton)
+
+                // Hook into the debug message post-processing to add our "Add to context" button
+                RED.hooks.add('debugPostProcessMessage.nr-assistant', function (processedMessage) {
+                    try {
+                        const { message, element, payload } = processedMessage
+                        const metaRowTools = element && element.find('.red-ui-debug-msg-meta .red-ui-debug-msg-tools')
+                        if (!metaRowTools || !metaRowTools.length) {
+                            return // can't find the tools container, so we can't add our button
+                        }
+                        // Check if the button already exists to avoid adding multiple buttons
+                        if (metaRowTools.find('button.ff-expert-debug-context').length) {
+                            return // button already exists, no need to add another
+                        }
+
+                        // Create button and add data/click handler
+                        const buttonEl = $('<button class="ff-expert-debug-context red-ui-button red-ui-button-small"><i class="fa fa-plus"></i></button>')
+                        RED.popover.tooltip(buttonEl, 'Add to FlowFuse Expert context')
+                        buttonEl.css('cursor', 'pointer')
+                        // Here we generate a unique id here and store it as a data attribute on the button, along with the relevant data
+                        // (jquery data is used for storage as it allows storing complex objects, whereas data attributes can only store strings)
+                        const uuid = `${message._source?.id || message.id}:${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
+                        buttonEl.attr('data-ff-expert-debug-uuid', uuid)
+                        buttonEl.data('ff-expert-debug-data', { message, payload })
+                        buttonEl.on('click', function (evt) {
+                            evt.preventDefault()
+                            evt.stopPropagation()
+                            // toggle off if already selected
+                            if (buttonEl.hasClass('selected')) {
+                                const uuid = buttonEl.attr('data-ff-expert-debug-uuid')
+                                that.postParent({
+                                    type: 'debug-log-context-remove',
+                                    debugLog: [{ uuid }]
+                                })
+                                return
+                            }
+                            // send formatted debug message to the parent
+
+                            const entry = that.formatDebugMessage(uuid, message, payload)
+                            that.postParent({
+                                type: 'debug-log-context-add',
+                                debugLog: [entry]
+                            })
+                        })
+                        metaRowTools.append(buttonEl)
+                    } catch (_err) {
+                        // fallback to original function if any error is encountered
+                        this.debug('Error adding debug log context button, falling back to original element creation', _err)
+                    }
+                })
+            }
         }
 
         setupMessageListeners () {
@@ -249,7 +373,7 @@
                 const callBackName = key // the key is the FF event name to call back on
                 const nodeRedEvent = eventMapping.nodeRedEvent // the NR event to subscribe to
                 if (callBackName && nodeRedEvent) {
-                    if (Object.prototype.hasOwnProperty.call(this.nodeRedEventsMap, nodeRedEvent)) {
+                    if (hasProperty(this.nodeRedEventsMap, nodeRedEvent)) {
                         continue // nodeRedEvent already registered
                     }
                     this.nodeRedEventsMap[nodeRedEvent] = callBackName
@@ -261,6 +385,90 @@
 
             // send updated feature list
             this.postReply({ type: 'set-assistant-features', features: this.features }, event)
+        }
+
+        /**
+         * This function syncs the selected debug log entries in the Node-RED debug sidebar with the FlowFuse Expert.
+         * It should be called when the user clears logs from chat context
+         */
+        handleDebugLogContextRegistration ({ event, params }) {
+            if (!params || typeof params !== 'object') {
+                return
+            }
+            const { register } = params
+            if (register) {
+                // update class on the debug panel
+                // remove all .selected'
+                $('button.ff-expert-debug-context').removeClass('selected')
+                register.forEach(uuid => {
+                    // find the element with data-ff-expert-debug-uuid=uuid and add class .selected
+                    $(`button[data-ff-expert-debug-uuid="${uuid}"]`).addClass('selected')
+                })
+            }
+        }
+
+        /**
+         * This function retrieves the debug log entries from the Node-RED debug sidebar and sends them to the FlowFuse Expert.
+         * It supports filtering by log level and visibility in the UI.
+         * This is typically commanded by the user in the Chat UI where they may request to add debug log entries to the context.
+         */
+        handleDebugLogContextGetEntries ({ event, params }) {
+            const { visibleOnly = true, fatal = true, error = true, warn = true, info = true, debug = true, trace = true } = params || {}
+            const wantLevels = []
+            if (fatal) wantLevels.push('fatal')
+            if (error) wantLevels.push('error')
+            if (warn) wantLevels.push('warn')
+            if (info) wantLevels.push('info')
+            if (debug) wantLevels.push('debug')
+            if (trace) wantLevels.push('trace')
+
+            const isElementInView = (jElement) => {
+                if (jElement.length === 0) {
+                    return false
+                }
+                if (!visibleOnly) {
+                    return true
+                }
+                if (jElement.hasClass('hide')) {
+                    return false // not visible, skip this entry
+                }
+                const rect = jElement[0].getBoundingClientRect()
+                if (!rect?.width || !rect?.height) {
+                    return false
+                }
+                return (
+                    rect.top >= 0 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= $(window).height() &&
+                    rect.right <= $(window).width()
+                )
+            }
+            // first remove class .selected from all entries. It will be re-added once the expert responds with the list uuids it has registered.
+            $('button.ff-expert-debug-context').removeClass('selected')
+
+            const filteredEntries = []
+            // get buttons `#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context` in the debug sidebar
+            // but dont include any with `.hide` on the parent `.red-ui-debug-msg` element, as those are not visible
+            $('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').each((i, el) => {
+                const expertToolButtonEl = $(el)
+                const parent = expertToolButtonEl.closest('div.red-ui-debug-msg')
+                if (!isElementInView(parent)) {
+                    return // hidden or not visible in the viewport, skip this entry
+                }
+                const uuid = expertToolButtonEl.attr('data-ff-expert-debug-uuid')
+                if (uuid) {
+                    const data = expertToolButtonEl.data('ff-expert-debug-data')
+                    if (!data) return
+                    const { message, payload } = data
+                    const entry = this.formatDebugMessage(uuid, message, payload)
+                    const level = entry?.level
+                    if (!wantLevels.includes(level)) {
+                        return // not a level we want to include, skip this entry
+                    }
+                    filteredEntries.push(entry)
+                }
+            })
+            this.postReply({ type: 'debug-log-context-add', debugLog: filteredEntries }, event)
         }
 
         setNodeRedEventListeners () {
@@ -386,7 +594,7 @@
             })
 
             plugins.forEach(plugin => {
-                if (Object.prototype.hasOwnProperty.call(palette, plugin.module)) {
+                if (hasProperty(palette, plugin.module)) {
                     palette[plugin.module].plugins.push(plugin)
                 } else {
                     palette[plugin.module] = {
@@ -402,7 +610,7 @@
             })
 
             nodes.forEach(node => {
-                if (Object.prototype.hasOwnProperty.call(palette, node.module)) {
+                if (hasProperty(palette, node.module)) {
                     palette[node.module].nodes.push(node)
                 } else {
                     palette[node.module] = {
@@ -418,6 +626,20 @@
             })
 
             return palette
+        }
+
+        handleExpertReady ({ event, params }) {
+            // Expert is ready. `params` should contain flags for features the expert supports, which
+            // can be used to conditionally enable/disable functionality in the assistant.
+            // For now, the only functionality we need to gate is showing the "Add to FF Expert context" buttons
+            // in the debug sidebar, which we don't want to show if the expert does not support debug log context!
+            const { supportedFeatures } = params || {}
+            this.expertSupportedFeatures = { ...supportedFeatures }
+            // if the expert supports debug log context, then we should allow the buttons to be shown
+            // by setting --ff-feature--display-debug-log-context: unset in the CSS
+            if (supportedFeatures.debugLogContext && supportedFeatures.debugLogContext.enabled) {
+                document.documentElement.style.setProperty('--ff-feature--display-debug-log-context', 'unset')
+            }
         }
 
         formatSelectedNodes (nodes) {
@@ -592,6 +814,72 @@
         postReply (payload, event) {
             this.debug('Posting reply message:', payload)
             this._post(payload, event.source)
+        }
+
+        /**
+         * Internal helper to format a debug log entry based on the options and message provided by the Node-RED debug sidebar,
+         * enriched with metadata about the source node and workspace.
+         * @param {string} uuid - a unique identifier for this debug log entry, used to manage selection state between Node-RED and the FlowFuse Expert
+         * @param {*} message - the debug message object
+         * @param {*} payload - the debug payload as sent from backend (rehydrated)
+         * @returns an object representing the debug log entry, enriched with metadata about its source and context, suitable for sending to the FlowFuse Expert
+         */
+        formatDebugMessage (uuid, message, payload) {
+            const getInfo = (id, name, type, z) => {
+                const result = { id, name: name || '', type, z }
+                const node = this.RED.nodes.node(id)
+                const isNodeSubFlowInstance = (node?.type || '').startsWith('subflow:')
+                const flow = !node ? this.RED.nodes.workspace(id) : null
+                if (node) {
+                    result.type = node.type || result.type
+                    result.name = node.name || result.name
+                    result.z = node.z || result.z
+                    if (isNodeSubFlowInstance) {
+                        result.isSubflowInstance = true
+                        result.subflowTemplateId = node.type.replace('subflow:', '')
+                        const subflowTemplate = this.RED.nodes.subflow(result.subflowTemplateId)
+                        result.subFlowTemplateName = subflowTemplate?.name || ''
+                    }
+                    if (node._def?.category === 'config') {
+                        result.isConfig = true
+                    }
+                } else if (flow) {
+                    result.type = flow.type || result.type || 'tab'
+                    result.name = flow.name || result.name
+                    if (!flow.z && !result.z) {
+                        result.z = flow.id // set to self (to aid in identification in the expert)
+                    }
+                }
+                return result
+            }
+
+            const _source = message._source || {}
+            const _sourceId = message._alias || _source._alias || _source.id || message.id || ''
+            const _hierarchy = _source.pathHierarchy || [{ id: _sourceId }]
+            const hierarchy = _hierarchy.map(e => getInfo(e.id, e.name || e.label, e.type, e.z))
+            const source = hierarchy.pop()
+            const ancestors = hierarchy
+            const metadata = {
+                format: message.format,
+                timestamp: message.timestamp || Date.now(),
+                path: message.path || ''
+            }
+            if (hasProperty(message, 'topic')) {
+                metadata.topic = message.topic // sometimes the message has a topic
+            }
+            if (hasProperty(message, 'property')) {
+                metadata.property = message.property // if the message has a property, it indicates what property of the message is being debugged (e.g. msg.payload, msg.payload.value, etc.)
+            }
+
+            const event = {
+                uuid,
+                level: getNearestLoggingLevel(message.level, 'debug'), // default to 'debug' if no level is provided
+                data: payload, // the data in the debug message, as sent from the backend (rehydrated)
+                source, // info about the node that generated the debug message
+                ancestors, // info about the parent nodes of the source node, up to the workspace level
+                metadata
+            }
+            return event
         }
     }
 
