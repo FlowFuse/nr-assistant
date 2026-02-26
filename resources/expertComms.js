@@ -373,7 +373,7 @@
                 const callBackName = key // the key is the FF event name to call back on
                 const nodeRedEvent = eventMapping.nodeRedEvent // the NR event to subscribe to
                 if (callBackName && nodeRedEvent) {
-                    if (Object.prototype.hasOwnProperty.call(this.nodeRedEventsMap, nodeRedEvent)) {
+                    if (hasProperty(this.nodeRedEventsMap, nodeRedEvent)) {
                         continue // nodeRedEvent already registered
                     }
                     this.nodeRedEventsMap[nodeRedEvent] = callBackName
@@ -594,7 +594,7 @@
             })
 
             plugins.forEach(plugin => {
-                if (Object.prototype.hasOwnProperty.call(palette, plugin.module)) {
+                if (hasProperty(palette, plugin.module)) {
                     palette[plugin.module].plugins.push(plugin)
                 } else {
                     palette[plugin.module] = {
@@ -610,7 +610,7 @@
             })
 
             nodes.forEach(node => {
-                if (Object.prototype.hasOwnProperty.call(palette, node.module)) {
+                if (hasProperty(palette, node.module)) {
                     palette[node.module].nodes.push(node)
                 } else {
                     palette[node.module] = {
