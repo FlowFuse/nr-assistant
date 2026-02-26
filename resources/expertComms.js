@@ -8,7 +8,7 @@
 * To use this in the browser, you can access it via:
 * FFExpertComms.cleanFlow(nodeArray)
 */
-
+/* global $ */
 'use strict';
 
 (function (root, factory) {
