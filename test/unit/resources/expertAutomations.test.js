@@ -1,11 +1,21 @@
 /// <reference types="should" />
 'use strict'
-// eslint-disable-next-line no-unused-vars
-const ExpertAutomationsModule = import('../../../resources/expertAutomations.js')
 const should = require('should')
 const sinon = require('sinon')
 
-describe('expertAutomations', () => {
+// These tests are for frontend only code.
+// Since the tests run in a node Env CI and node versions below 20 do not support ES modules,
+// we will skip these FE tests if we detect an older node version that doesn't support ESM.
+const [major] = process.versions.node.split('.').map(Number)
+let skipTests = false
+if (major < 20) {
+    console.debug(`Skipping expertAutomations frontend tests since Node v${process.versions.node} does not support ES modules! These will be covered in another CI run.`)
+    skipTests = true
+}
+
+const describeMain = skipTests ? describe.skip : describe
+
+describeMain('expertAutomations', () => {
     /** @type {import('../../../resources/expertAutomations.js').ExpertAutomations} */
     let expertAutomations
     /** @type {ReturnType<typeof createMockRed>} */
@@ -36,7 +46,7 @@ describe('expertAutomations', () => {
         mockRED = createMockRed()
 
         mockExpertComms = {}
-
+        const ExpertAutomationsModule = import('../../../resources/expertAutomations.js')
         expertAutomations = new (await ExpertAutomationsModule).ExpertAutomations()
     })
 
