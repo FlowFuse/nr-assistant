@@ -1,3 +1,5 @@
+import { ExpertAutomations } from './expertAutomations.js'
+
 function debounce (func, wait) {
     let timeout
     return function () {
@@ -68,6 +70,9 @@ export class ExpertComms {
     MESSAGE_TARGET = 'flowfuse-expert'
     MESSAGE_SCOPE = 'flowfuse-expert'
 
+    /** @type {ExpertAutomations} */
+    nodeRedAutomationHelper = new ExpertAutomations() // will set RED instance later in init
+
     /**
      * targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
      * This is fine for the initial handshake with the FF Expert (will change to the origin of the expert page once it is loaded)
@@ -115,7 +120,8 @@ export class ExpertComms {
         },
         'custom:close-search': { params: null },
         'custom:close-typeSearch': { params: null },
-        'custom:close-actionList': { params: null }
+        'custom:close-actionList': { params: null },
+        ...this.nodeRedAutomationHelper.supportedActions
     }
 
     /**
