@@ -1,14 +1,13 @@
 /// <reference types="should" />
 'use strict'
 // eslint-disable-next-line no-unused-vars
+const ExpertCommsModule = import('../../../resources/expertComms.js')
 const should = require('should')
 const sinon = require('sinon')
 const EventEmitter = require('events')
 
 describe('expertComms', () => {
-    /** @type {import('../../../resources/expertComms.js')} */
-    let ExpertComms
-    /** @type {import('../../../resources/expertComms.js')} */
+    /** @type {import('../../../resources/expertComms.js').ExpertComms} */
     let expertComms
     let mockWindow
     let mockDocument
@@ -17,7 +16,7 @@ describe('expertComms', () => {
     let addEventListenerStub
     let parentPostMessageStub
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Mock jQuery
         mockJQuery = sinon.stub()
         mockJQuery.ajax = sinon.stub()
@@ -126,9 +125,8 @@ describe('expertComms', () => {
         }
 
         // Clear require cache to get fresh module
-        delete require.cache[require.resolve('../../../resources/expertComms.js')]
-        ExpertComms = require('../../../resources/expertComms.js')
-        expertComms = ExpertComms
+        // delete require.cache[require.resolve('../../../resources/expertComms.js')]
+        expertComms = new (await ExpertCommsModule).ExpertComms()
     })
 
     afterEach(() => {
