@@ -54,7 +54,7 @@ describe('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -139,6 +139,24 @@ describe('expertAutomations', () => {
             it('should throw error if node not found', () => {
                 mockRED.nodes.node.returns(null);
                 (() => expertAutomations.editNode('node1')).should.throw('Node with id node1 not found')
+            })
+        })
+        describe('search', () => {
+            beforeEach(() => {
+                mockRED.search = {
+                    show: sinon.stub(),
+                    search: sinon.stub()
+                }
+            })
+            it('should call RED.search.show for interactive search', () => {
+                expertAutomations.search('test query', true)
+                mockRED.search.show.calledWith('test query').should.be.true()
+            })
+            it('should call RED.search.search for non-interactive search and return results', () => {
+                mockRED.search.search.returns(['result1', 'result2'])
+                const results = expertAutomations.search('test query', false)
+                mockRED.search.search.calledWith('test query').should.be.true()
+                results.should.deepEqual(['result1', 'result2'])
             })
         })
     })
@@ -237,6 +255,36 @@ describe('expertAutomations', () => {
                 mockRED.nodes.node.returns(null)
                 const result = {};
                 (() => expertAutomations.invokeAction('automation/open-node-edit', { params: { id: ['node1', 'node2'] } }, result)).should.throw()
+            })
+        })
+        describe('search action', () => {
+            beforeEach(() => {
+                mockRED.search = {
+                    show: sinon.stub(),
+                    search: sinon.stub()
+                }
+            })
+            it('should invoke search action in interactive mode', () => {
+                const result = {}
+                expertAutomations.invokeAction('automation/search', { params: { query: 'find me', interactive: true } }, result)
+                mockRED.search.show.calledWith('find me').should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should invoke search action in non-interactive mode and return results', () => {
+                mockRED.search.search.returns([{ id: 0, label: 'this is node a find me', node: { id: 'nodeA' } }, { id: 1, label: 'this is node b find me', node: { id: 'nodeB' } }])
+                const result = {}
+                expertAutomations.invokeAction('automation/search', { params: { query: 'find me', interactive: false } }, result)
+                mockRED.search.search.calledWith('find me').should.be.true()
+                result.should.have.property('results').and.is.an.Array().with.lengthOf(2)
+                result.results[0].should.have.property('id', 0)
+                result.results[0].should.have.property('label', 'this is node a find me')
+                result.results[0].should.have.property('node').which.deepEqual({ id: 'nodeA' })
+                result.results[1].should.have.property('id', 1)
+                result.results[1].should.have.property('label', 'this is node b find me')
+                result.results[1].should.have.property('node').which.deepEqual({ id: 'nodeB' })
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
             })
         })
     })
