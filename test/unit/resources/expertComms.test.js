@@ -1,14 +1,23 @@
 /// <reference types="should" />
 'use strict'
-// eslint-disable-next-line no-unused-vars
 const should = require('should')
 const sinon = require('sinon')
 const EventEmitter = require('events')
 
-describe('expertComms', () => {
-    /** @type {import('../../../resources/expertComms.js')} */
-    let ExpertComms
-    /** @type {import('../../../resources/expertComms.js')} */
+// These tests are for frontend only code.
+// Since the tests run in a node Env CI and node versions below 20 do not support ES modules,
+// we will skip these FE tests if we detect an older node version that doesn't support ESM.
+const [major] = process.versions.node.split('.').map(Number)
+let skipTests = false
+if (major < 20) {
+    console.debug(`Skipping expertComms frontend tests since Node v${process.versions.node} does not support ES modules! These will be covered in another CI run.`)
+    skipTests = true
+}
+
+const describeMain = skipTests ? describe.skip : describe
+
+describeMain('expertComms', function () {
+    /** @type {import('../../../resources/expertComms.js').ExpertComms} */
     let expertComms
     let mockWindow
     let mockDocument
@@ -17,7 +26,7 @@ describe('expertComms', () => {
     let addEventListenerStub
     let parentPostMessageStub
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Mock jQuery
         mockJQuery = sinon.stub()
         mockJQuery.ajax = sinon.stub()
@@ -125,10 +134,8 @@ describe('expertComms', () => {
             }
         }
 
-        // Clear require cache to get fresh module
-        delete require.cache[require.resolve('../../../resources/expertComms.js')]
-        ExpertComms = require('../../../resources/expertComms.js')
-        expertComms = ExpertComms
+        const ExpertCommsModule = import('../../../resources/expertComms.js')
+        expertComms = new (await ExpertCommsModule).ExpertComms()
     })
 
     afterEach(() => {
