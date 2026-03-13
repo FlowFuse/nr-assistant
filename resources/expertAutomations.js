@@ -4,9 +4,10 @@ import { ExpertActionsInterface } from './expertActionsInterface.js'
 const SELECT_NODES = 'automation/select-nodes'
 const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
+const SEARCH = 'automation/search'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -66,6 +67,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     id: {
                         type: 'string',
                         description: 'The ID of the node to edit'
+                    }
+                }
+            }
+        },
+        [SEARCH]: {
+            params: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description: 'The search query string'
+                    },
+                    interactive: {
+                        type: 'boolean',
+                        description: 'Whether the search is interactive (e.g. show the search box UI)'
                     }
                 }
             }
@@ -140,6 +156,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return selectedNodes[0]
     }
 
+    search (query, interactive) {
+        if (interactive) {
+            this.RED.search.show(query)
+        } else {
+            const results = this.RED.search.search(query)
+            return results
+        }
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -191,6 +216,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
         }
             break
+        case SEARCH: {
+            const searchResults = this.search(params.query, params.interactive)
+            if (!params.interactive) {
+                result.results = []
+                for (let index = 0; index < searchResults.length; index++) {
+                    const searchResult = searchResults[index]
+                    searchResult.node = this._formatNodes([searchResult.node], false)[0] || null
+                    result.results.push(searchResult)
+                }
+            }
+            result.success = true
+        }
+            break
+
         default:
             result.handled = false
             result.success = false
