@@ -64,7 +64,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -132,6 +132,25 @@ describeMain('expertAutomations', () => {
                 should(result).equal(null)
             })
         })
+        describe('editNode', () => {
+            it('should edit a node when in default state', () => {
+                mockRED.editor = { edit: sinon.stub() }
+                const mockNode = { id: 'node1' }
+                mockRED.nodes.node.returns(mockNode)
+                mockRED.nodes.getAllFlowNodes.returns([mockNode])
+                const result = expertAutomations.editNode('node1')
+                mockRED.editor.edit.calledWith(mockNode).should.be.true()
+                result.should.equal(mockNode)
+            })
+            it('should throw error if not in default state', () => {
+                mockRED.view.state.returns(2);
+                (() => expertAutomations.editNode('node1')).should.throw('Cannot select and edit node when not in default view state')
+            })
+            it('should throw error if node not found', () => {
+                mockRED.nodes.node.returns(null);
+                (() => expertAutomations.editNode('node1')).should.throw('Node with id node1 not found')
+            })
+        })
     })
 
     describe('invokeAction', () => {
@@ -139,10 +158,11 @@ describeMain('expertAutomations', () => {
             expertAutomations.init(mockExpertComms, mockRED)
             sinon.spy(expertAutomations, 'getNodes')
             sinon.spy(expertAutomations, 'selectNodes')
+            sinon.spy(expertAutomations, 'editNode')
             sinon.spy(expertAutomations, '_formatNodes')
         })
         it('should throw an error if action is not found (bad namespace)', () => {
-            (() => expertAutomations.invokeAction('bad-namespace/get-nodes')).should.throw(/Action .* not found/)
+            (() => expertAutomations.invokeAction('bad-namespace/open-edit-node')).should.throw(/Action .* not found/)
         })
         it('should throw an error if action is not found (bad action name)', () => {
             (() => expertAutomations.invokeAction('automation/nonexistent-action')).should.throw(/Action .* not found/)
@@ -203,6 +223,30 @@ describeMain('expertAutomations', () => {
                 expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('error')
+            })
+        })
+        describe('editNode action', () => {
+            it('should invoke action', () => {
+                const mockNode = { id: 'node1' }
+                mockRED.editor = { edit: sinon.stub() }
+                mockRED.nodes.node.returns(mockNode)
+                mockRED.nodes.getAllFlowNodes.returns([mockNode])
+                const result = {}
+                expertAutomations.invokeAction('automation/open-node-edit', { params: { id: 'node1' } }, result)
+                mockRED.editor.edit.calledWith(mockNode).should.be.true()
+                result.should.have.property('node').and.deepEqual(mockNode)
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should fail if no node found', () => {
+                mockRED.nodes.node.returns(null)
+                const result = {};
+                (() => expertAutomations.invokeAction('automation/open-node-edit', { params: { id: 'node1' } }, result)).should.throw('Node with id node1 not found')
+            })
+            it('should fail if non string params.id is used', () => {
+                mockRED.nodes.node.returns(null)
+                const result = {};
+                (() => expertAutomations.invokeAction('automation/open-node-edit', { params: { id: ['node1', 'node2'] } }, result)).should.throw()
             })
         })
     })

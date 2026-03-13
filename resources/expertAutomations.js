@@ -3,9 +3,10 @@ import { ExpertActionsInterface } from './expertActionsInterface.js'
 // Actions supported by this module (namespace/action-name):
 const SELECT_NODES = 'automation/select-nodes'
 const GET_NODES = 'automation/get-nodes'
+const EDIT_NODE = 'automation/open-node-edit'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -54,6 +55,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         enum: ['upstream', 'downstream', 'connected', null],
                         default: null, // single node
                         description: 'If `id` is provided, `include` can be used to specify whether to also select nodes upstream, downstream, or connected to the specified node. Not applicable if `ids` property is used.'
+                    }
+                }
+            }
+        },
+        [EDIT_NODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: {
+                        type: 'string',
+                        description: 'The ID of the node to edit'
                     }
                 }
             }
@@ -108,6 +120,26 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return nodes
     }
 
+    /**
+     * Select and edit a single node on the workspace, or clear selection if no nodeId is provided
+     * Also, support upstream, downstream, and connected
+     * @param {string} nodeId - the id of the node to select and edit, or null/undefined to clear selection
+     * @returns the node that was selected and edited
+     * @throws if the node cannot be found or if the view is not in a state that allows selecting and editing nodes
+     */
+    editNode (nodeId) {
+        if (this.RED.view.state() !== this.RED.state.DEFAULT) {
+            // only allow selecting and editing nodes when in default state (not editing another node, not in the middle of adding a connection, etc.)
+            throw new Error('Cannot select and edit node when not in default view state')
+        }
+        const selectedNodes = this.selectNodes([nodeId])
+        if (!selectedNodes || selectedNodes.length < 1) {
+            throw new Error(`Node with id ${nodeId} not found`)
+        }
+        this.RED.editor.edit(selectedNodes[0])
+        return selectedNodes[0]
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -150,6 +182,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 return
             }
             result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            result.success = true
+        }
+            break
+        case EDIT_NODE: {
+            const selectedNode = this.editNode(params.id || '')
+            result.node = this._formatNodes([selectedNode], false)[0] || null
             result.success = true
         }
             break
