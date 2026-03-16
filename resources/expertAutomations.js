@@ -222,6 +222,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (Array.isArray(newTab)) {
             newTab = newTab[0]
         }
+        if (newTab && newTab.type === 'tab') {
+            // select the new tab
+            RED.workspaces.show(newTab.id)
+        }
         return newTab
     }
 
