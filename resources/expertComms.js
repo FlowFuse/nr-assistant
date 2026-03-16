@@ -71,7 +71,7 @@ export class ExpertComms {
     MESSAGE_SCOPE = 'flowfuse-expert'
 
     /** @type {ExpertAutomations} */
-    nodeRedAutomationHelper = new ExpertAutomations() // will set RED instance later in init
+    nrAutomations = new ExpertAutomations() // will set RED instance later in init
 
     /**
      * targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
@@ -121,7 +121,7 @@ export class ExpertComms {
         'custom:close-search': { params: null },
         'custom:close-typeSearch': { params: null },
         'custom:close-actionList': { params: null },
-        ...this.nodeRedAutomationHelper.supportedActions
+        ...this.nrAutomations.supportedActions
     }
 
     /**
@@ -201,7 +201,7 @@ export class ExpertComms {
         this.RED = RED
         this.RED.nrAssistant = this
         this.assistantOptions = assistantOptions
-        this.nodeRedAutomationHelper.init(this, RED)
+        this.nrAutomations.init(this, RED)
 
         if (!window.parent?.postMessage || window.self === window.top) {
             console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
@@ -327,8 +327,18 @@ export class ExpertComms {
             }
 
             for (const eventName in this.commandMap) {
-                if (type === eventName && typeof this.commandMap[eventName] === 'function') {
+                const handler = this.commandMap[eventName]
+                // identify if the hander is a string, function or async function
+                let handlerType = typeof handler
+                if (handlerType === 'function' && handler.constructor.name === 'AsyncFunction') {
+                    handlerType = 'asyncfunction'
+                }
+                if (type === eventName && handlerType === 'function') {
                     return this.commandMap[eventName](payload)
+                }
+
+                if (type === eventName && handlerType === 'asyncfunction') {
+                    return await this.commandMap[eventName](payload)
                 }
 
                 if (
@@ -495,7 +505,7 @@ export class ExpertComms {
     /**
      * FlowFuse Expert message handlers
      */
-    handleActionInvocation ({ event, type, action, params } = {}) {
+    async handleActionInvocation ({ event, type, action, params } = {}) {
         this.debug(`Received request to invoke action "${action}" with params`, params)
         // handle action invocation requests (must be registered actions in supportedActions)
         if (typeof action !== 'string') {
@@ -548,7 +558,7 @@ export class ExpertComms {
             try {
                 if (actionNamespace === 'automation') {
                     // Handle supported automated actions
-                    this.nodeRedAutomationHelper.invokeAction(action, { event, params }, result)
+                    await this.nrAutomations.invokeAction(action, { event, params }, result)
                 } else {
                     // Handle supported native Node-RED actions
                     this.RED.actions.invoke(action, params)

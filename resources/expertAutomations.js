@@ -209,7 +209,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {{[key:string]: any, success:boolean, handled:boolean}} result - an optional object that, if provided, will be mutated to include the result of the action execution
      * @returns {void}
      */
-    invokeAction (actionName, { event, params } = {}, result = {}) {
+    async invokeAction (actionName, { event, params } = {}, result = {}) {
         if (!this.hasAction(actionName)) {
             throw new Error(`Action ${actionName} not found`)
         }
