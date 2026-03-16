@@ -5,9 +5,10 @@ const SELECT_NODES = 'automation/select-nodes'
 const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
+const ADD_FLOW_TAB = 'automation/add-flow-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -82,6 +83,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     interactive: {
                         type: 'boolean',
                         description: 'Whether the search is interactive (e.g. show the search box UI)'
+                    }
+                }
+            }
+        },
+        [ADD_FLOW_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    title: {
+                        type: 'string',
+                        description: 'Optional title for the new flow tab'
                     }
                 }
             }
@@ -191,6 +203,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify })
     }
 
+    async addFlowTab (title) {
+        const cmd = () => {
+            if (!title) {
+                // if no title is specified, we let the core action perform this (auto naming)
+                // NOTE: core action does not support setting the flow name.
+                this.redOps.invoke('core:add-flow')
+            } else {
+                // As a title is provided, we have take a different approach: import a new flow with the label prop set.
+                const importOptions = { generateIds: true, addFlow: false, notify: false }
+                this.importFlow([{ id: '', type: 'tab', label: title, disabled: false, info: '', env: [] }], importOptions)
+            }
+        }
+        let newTab = await this.redOps.commandAndWait(cmd, 'flows:add')
+        if (!newTab) {
+            return null
+        }
+        if (Array.isArray(newTab)) {
+            newTab = newTab[0]
+        }
+        return newTab
+    }
 
     get supportedActions () {
         return this.actions
@@ -253,6 +286,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     result.results.push(searchResult)
                 }
             }
+            result.success = true
+        }
+            break
+        case ADD_FLOW_TAB: {
+            const newFlowTab = await this.addFlowTab(params?.title || undefined)
+            result.tab = this._formatNodes([newFlowTab], false)[0] || null
             result.success = true
         }
             break
