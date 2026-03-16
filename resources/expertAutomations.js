@@ -165,6 +165,33 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     }
 
+    /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
+    /**
+     * Performs the import of nodes, handling any conflicts that may arise
+     * @param {string} nodesStr the nodes to import as a string
+     * @param {object} importOptions
+     * @param {boolean} importOptions.addFlow whether to add the nodes to a new flow or to the current flow
+     * @param {boolean} [importOptions.notify=true] whether to show notifications for import success/failure (default true)
+     */
+    importFlow (nodesStr, { addFlow = false, generateIds = true, notify = true } = { addFlow: false, generateIds: true, notify: true }) {
+        let newNodes = nodesStr
+        if (typeof nodesStr === 'string') {
+            try {
+                nodesStr = nodesStr.trim()
+                if (nodesStr.length === 0) {
+                    return
+                }
+                newNodes = this.redOps.validateFlowString(nodesStr)
+            } catch (err) {
+                const e = new Error(this.RED._('clipboard.invalidFlow', { message: err.message }))
+                e.code = 'NODE_RED'
+                throw e
+            }
+        }
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify })
+    }
+
+
     get supportedActions () {
         return this.actions
     }

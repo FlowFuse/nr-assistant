@@ -536,9 +536,10 @@ export class ExpertComms {
         case 'custom:import-flow':
             // import-flow is a custom action - handle it here directly
             try {
-                this.importNodes(params.flow, params.addFlow === true)
+                this.nrAutomations.importFlow(params.flow, { addFlow: params.addFlow })
                 this.postReply({ type, success: true }, event)
             } catch (err) {
+                this.RED.notify('Import failed:' + err.message, 'error')
                 this.postReply({ type, error: err?.message }, event)
             }
             return
@@ -706,62 +707,6 @@ export class ExpertComms {
             }
         }
         return { valid: true }
-    }
-
-    /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
-    /**
-     * Performs the import of nodes, handling any conflicts that may arise
-     * @param {string} nodesStr the nodes to import as a string
-     * @param {boolean} addFlow whether to add the nodes to a new flow or to the current flow
-     */
-    importNodes (nodesStr, addFlow) {
-        let newNodes = nodesStr
-        if (typeof nodesStr === 'string') {
-            try {
-                nodesStr = nodesStr.trim()
-                if (nodesStr.length === 0) {
-                    return
-                }
-                newNodes = this.validateFlowString(nodesStr)
-            } catch (err) {
-                const e = new Error(this.RED._('clipboard.invalidFlow', { message: 'test' }))
-                e.code = 'NODE_RED'
-                throw e
-            }
-        }
-        const importOptions = { generateIds: true, addFlow }
-        try {
-            this.RED.view.importNodes(newNodes, importOptions)
-        } catch (error) {
-            // Thrown for import_conflict
-            this.RED.notify('Import failed:' + error.message, 'error')
-            throw error
-        }
-    }
-
-    /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
-    /**
-     * Validates if the provided string looks like valid flow json
-     * @param {string} flowString the string to validate
-     * @returns If valid, returns the node array
-     */
-    validateFlowString (flowString) {
-        const res = JSON.parse(flowString)
-        if (!Array.isArray(res)) {
-            throw new Error(this.RED._('clipboard.import.errors.notArray'))
-        }
-        for (let i = 0; i < res.length; i++) {
-            if (typeof res[i] !== 'object') {
-                throw new Error(this.RED._('clipboard.import.errors.itemNotObject', { index: i }))
-            }
-            if (!Object.hasOwn(res[i], 'id')) {
-                throw new Error(this.RED._('clipboard.import.errors.missingId', { index: i }))
-            }
-            if (!Object.hasOwn(res[i], 'type')) {
-                throw new Error(this.RED._('clipboard.import.errors.missingType', { index: i }))
-            }
-        }
-        return res
     }
 
     debug (...args) {
