@@ -950,7 +950,8 @@ describeMain('expertComms', function () {
             mockRED.view.importNodes.firstCall.args[0].should.eql([{ id: 'n1', type: 'inject' }])
             mockRED.view.importNodes.firstCall.args[1].should.eql({
                 generateIds: true,
-                addFlow: false
+                addFlow: false,
+                notify: true
             })
 
             eventSource.postMessage.calledOnce.should.be.true()
