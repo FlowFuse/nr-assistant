@@ -25,6 +25,7 @@ describeMain('expertAutomations', () => {
     function createMockRed () {
         return {
             view: {
+                addFlowTab: sinon.stub(),
                 reveal: sinon.stub(),
                 select: sinon.stub(),
                 state: sinon.stub().returns(1) // default to default state
@@ -64,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -295,6 +296,31 @@ describeMain('expertAutomations', () => {
                 result.results[1].should.have.property('node').which.deepEqual({ id: 'nodeB' })
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
+            })
+        })
+        describe('addFlowTab action', async () => {
+            it('should use importNodes when addFlowTab is provided a title', async () => {
+                const result = {}
+                mockRED.view.importNodes = sinon.stub()
+                sinon.stub(expertAutomations.redOps, 'commandAndWait').callsFake((cmd, event, options) => {
+                    cmd() // execute the command immediately for testing
+                    return Promise.resolve()
+                })
+                await expertAutomations.invokeAction('automation/add-flow-tab', { params: { title: 'My New Flow' } }, result)
+                mockRED.view.importNodes.calledOnce.should.be.true()
+                const args = mockRED.view.importNodes.firstCall.args
+                args[0].should.deepEqual([{ id: '', type: 'tab', label: 'My New Flow', disabled: false, info: '', env: [] }])
+                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false })
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should invoke core add-flow when title is not required', async () => {
+                // remove addFlowTab API and add importNodes
+                sinon.stub(expertAutomations.redOps, 'commandAndWait').resolves()
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-flow-tab', { params: { } }, result)
+                expertAutomations.redOps.commandAndWait.called.should.be.true()
+                result.should.have.property('success', true)
             })
         })
     })
