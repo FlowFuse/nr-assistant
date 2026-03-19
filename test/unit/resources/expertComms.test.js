@@ -1,6 +1,6 @@
 /// <reference types="should" />
 'use strict'
-const should = require('should')
+require('should')
 const sinon = require('sinon')
 const EventEmitter = require('events')
 
@@ -950,7 +950,8 @@ describeMain('expertComms', function () {
             mockRED.view.importNodes.firstCall.args[0].should.eql([{ id: 'n1', type: 'inject' }])
             mockRED.view.importNodes.firstCall.args[1].should.eql({
                 generateIds: true,
-                addFlow: false
+                addFlow: false,
+                notify: true
             })
 
             eventSource.postMessage.calledOnce.should.be.true()
@@ -1459,128 +1460,6 @@ describeMain('expertComms', function () {
 
             result.valid.should.be.true()
             data.view.should.equal('install')
-        })
-    })
-
-    describe('validateFlowString', () => {
-        beforeEach(() => {
-            expertComms.RED = mockRED
-        })
-
-        it('should validate valid flow JSON string', () => {
-            const flowString = JSON.stringify([
-                { id: 'n1', type: 'inject' },
-                { id: 'n2', type: 'debug' }
-            ])
-
-            const result = expertComms.validateFlowString(flowString)
-
-            result.should.be.an.Array()
-            result.should.have.length(2)
-        })
-
-        it('should reject non-array JSON', () => {
-            const flowString = JSON.stringify({ id: 'n1', type: 'inject' })
-
-            should(() => {
-                expertComms.validateFlowString(flowString)
-            }).throw()
-        })
-
-        it('should reject array with non-object items', () => {
-            const flowString = JSON.stringify(['not an object'])
-
-            should(() => {
-                expertComms.validateFlowString(flowString)
-            }).throw()
-        })
-
-        it('should reject nodes without id', () => {
-            const flowString = JSON.stringify([{ type: 'inject' }])
-
-            should(() => {
-                expertComms.validateFlowString(flowString)
-            }).throw()
-        })
-
-        it('should reject nodes without type', () => {
-            const flowString = JSON.stringify([{ id: 'n1' }])
-
-            should(() => {
-                expertComms.validateFlowString(flowString)
-            }).throw()
-        })
-    })
-
-    describe('importNodes', () => {
-        beforeEach(() => {
-            expertComms.RED = mockRED
-        })
-
-        it('should import valid flow string', () => {
-            const flowString = JSON.stringify([{ id: 'n1', type: 'inject' }])
-            mockRED.view.importNodes.returns(true)
-
-            expertComms.importNodes(flowString, false)
-
-            mockRED.view.importNodes.calledOnce.should.be.true()
-            mockRED.view.importNodes.firstCall.args[0].should.eql([{ id: 'n1', type: 'inject' }])
-            mockRED.view.importNodes.firstCall.args[1].should.eql({
-                generateIds: true,
-                addFlow: false
-            })
-        })
-
-        it('should handle addFlow parameter', () => {
-            const flowString = JSON.stringify([{ id: 'n1', type: 'inject' }])
-            mockRED.view.importNodes.returns(true)
-
-            expertComms.importNodes(flowString, true)
-
-            mockRED.view.importNodes.firstCall.args[1].addFlow.should.be.true()
-        })
-
-        it('should handle empty string', () => {
-            expertComms.importNodes('', false)
-
-            mockRED.view.importNodes.called.should.be.false()
-        })
-
-        it('should handle whitespace-only string', () => {
-            expertComms.importNodes('   ', false)
-
-            mockRED.view.importNodes.called.should.be.false()
-        })
-
-        it('should throw error for invalid flow string', () => {
-            const flowString = 'invalid json'
-
-            should(() => {
-                expertComms.importNodes(flowString, false)
-            }).throw()
-        })
-
-        it('should handle import conflict errors', () => {
-            const flowString = JSON.stringify([{ id: 'n1', type: 'inject' }])
-            const error = new Error('import_conflict')
-            mockRED.view.importNodes.throws(error)
-
-            should(() => {
-                expertComms.importNodes(flowString, false)
-            }).throw()
-
-            mockRED.notify.calledOnce.should.be.true()
-            mockRED.notify.firstCall.args[0].should.containEql('Import failed')
-        })
-
-        it('should handle non-string input (already parsed)', () => {
-            const nodes = [{ id: 'n1', type: 'inject' }]
-            mockRED.view.importNodes.returns(true)
-
-            expertComms.importNodes(nodes, false)
-
-            mockRED.view.importNodes.calledOnce.should.be.true()
-            mockRED.view.importNodes.firstCall.args[0].should.equal(nodes)
         })
     })
 

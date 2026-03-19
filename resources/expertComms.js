@@ -71,7 +71,7 @@ export class ExpertComms {
     MESSAGE_SCOPE = 'flowfuse-expert'
 
     /** @type {ExpertAutomations} */
-    nodeRedAutomationHelper = new ExpertAutomations() // will set RED instance later in init
+    nrAutomations = new ExpertAutomations() // will set RED instance later in init
 
     /**
      * targetOrigin is set to '*' by default, which allows messages to be sent and received from any origin.
@@ -121,7 +121,7 @@ export class ExpertComms {
         'custom:close-search': { params: null },
         'custom:close-typeSearch': { params: null },
         'custom:close-actionList': { params: null },
-        ...this.nodeRedAutomationHelper.supportedActions
+        ...this.nrAutomations.supportedActions
     }
 
     /**
@@ -201,7 +201,7 @@ export class ExpertComms {
         this.RED = RED
         this.RED.nrAssistant = this
         this.assistantOptions = assistantOptions
-        this.nodeRedAutomationHelper.init(this, RED)
+        this.nrAutomations.init(this, RED)
 
         if (!window.parent?.postMessage || window.self === window.top) {
             console.warn('Parent window not detected - certain interactions with the FlowFuse Expert will not be available')
@@ -327,8 +327,18 @@ export class ExpertComms {
             }
 
             for (const eventName in this.commandMap) {
-                if (type === eventName && typeof this.commandMap[eventName] === 'function') {
+                const handler = this.commandMap[eventName]
+                // identify if the hander is a string, function or async function
+                let handlerType = typeof handler
+                if (handlerType === 'function' && handler.constructor.name === 'AsyncFunction') {
+                    handlerType = 'asyncfunction'
+                }
+                if (type === eventName && handlerType === 'function') {
                     return this.commandMap[eventName](payload)
+                }
+
+                if (type === eventName && handlerType === 'asyncfunction') {
+                    return await this.commandMap[eventName](payload)
                 }
 
                 if (
@@ -495,7 +505,7 @@ export class ExpertComms {
     /**
      * FlowFuse Expert message handlers
      */
-    handleActionInvocation ({ event, type, action, params } = {}) {
+    async handleActionInvocation ({ event, type, action, params } = {}) {
         this.debug(`Received request to invoke action "${action}" with params`, params)
         // handle action invocation requests (must be registered actions in supportedActions)
         if (typeof action !== 'string') {
@@ -536,9 +546,10 @@ export class ExpertComms {
         case 'custom:import-flow':
             // import-flow is a custom action - handle it here directly
             try {
-                this.importNodes(params.flow, params.addFlow === true)
+                this.nrAutomations.importFlow(params.flow, { addFlow: params.addFlow })
                 this.postReply({ type, success: true }, event)
             } catch (err) {
+                this.RED.notify('Import failed:' + err.message, 'error')
                 this.postReply({ type, error: err?.message }, event)
             }
             return
@@ -547,7 +558,7 @@ export class ExpertComms {
             try {
                 if (actionNamespace === 'automation') {
                     // Handle supported automated actions
-                    this.nodeRedAutomationHelper.invokeAction(action, { event, params }, result)
+                    await this.nrAutomations.invokeAction(action, { event, params }, result)
                 } else {
                     // Handle supported native Node-RED actions
                     this.RED.actions.invoke(action, params)
@@ -706,62 +717,6 @@ export class ExpertComms {
             }
         }
         return { valid: true }
-    }
-
-    /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
-    /**
-     * Performs the import of nodes, handling any conflicts that may arise
-     * @param {string} nodesStr the nodes to import as a string
-     * @param {boolean} addFlow whether to add the nodes to a new flow or to the current flow
-     */
-    importNodes (nodesStr, addFlow) {
-        let newNodes = nodesStr
-        if (typeof nodesStr === 'string') {
-            try {
-                nodesStr = nodesStr.trim()
-                if (nodesStr.length === 0) {
-                    return
-                }
-                newNodes = this.validateFlowString(nodesStr)
-            } catch (err) {
-                const e = new Error(this.RED._('clipboard.invalidFlow', { message: 'test' }))
-                e.code = 'NODE_RED'
-                throw e
-            }
-        }
-        const importOptions = { generateIds: true, addFlow }
-        try {
-            this.RED.view.importNodes(newNodes, importOptions)
-        } catch (error) {
-            // Thrown for import_conflict
-            this.RED.notify('Import failed:' + error.message, 'error')
-            throw error
-        }
-    }
-
-    /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
-    /**
-     * Validates if the provided string looks like valid flow json
-     * @param {string} flowString the string to validate
-     * @returns If valid, returns the node array
-     */
-    validateFlowString (flowString) {
-        const res = JSON.parse(flowString)
-        if (!Array.isArray(res)) {
-            throw new Error(this.RED._('clipboard.import.errors.notArray'))
-        }
-        for (let i = 0; i < res.length; i++) {
-            if (typeof res[i] !== 'object') {
-                throw new Error(this.RED._('clipboard.import.errors.itemNotObject', { index: i }))
-            }
-            if (!Object.hasOwn(res[i], 'id')) {
-                throw new Error(this.RED._('clipboard.import.errors.missingId', { index: i }))
-            }
-            if (!Object.hasOwn(res[i], 'type')) {
-                throw new Error(this.RED._('clipboard.import.errors.missingType', { index: i }))
-            }
-        }
-        return res
     }
 
     debug (...args) {
