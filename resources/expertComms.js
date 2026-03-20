@@ -102,25 +102,6 @@ export class ExpertComms {
                 required: ['filter']
             }
         },
-        'custom:import-flow': {
-            params: {
-                type: 'object',
-                properties: {
-                    flow: {
-                        type: 'string',
-                        description: 'The flow JSON to import'
-                    },
-                    addFlow: {
-                        type: 'boolean',
-                        description: 'Whether to add the flow to the current workspace tab (false) or create a new tab (true). Default: false'
-                    }
-                },
-                required: ['flow']
-            }
-        },
-        'custom:close-search': { params: null },
-        'custom:close-typeSearch': { params: null },
-        'custom:close-actionList': { params: null },
         ...this.nrAutomations.supportedActions
     }
 
@@ -531,28 +512,6 @@ export class ExpertComms {
 
         const actionNamespace = action.split('/')[0]
         switch (action) {
-        case 'custom:close-search':
-            this.RED.search.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
-            return
-        case 'custom:close-typeSearch':
-            this.RED.typeSearch.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
-            return
-        case 'custom:close-actionList':
-            this.RED.actionList.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
-            return
-        case 'custom:import-flow':
-            // import-flow is a custom action - handle it here directly
-            try {
-                this.nrAutomations.importFlow(params.flow, { addFlow: params.addFlow })
-                this.postReply({ type, success: true }, event)
-            } catch (err) {
-                this.RED.notify('Import failed:' + err.message, 'error')
-                this.postReply({ type, error: err?.message }, event)
-            }
-            return
         default: {
             const result = { handled: false, success: false, noReply: false }
             try {

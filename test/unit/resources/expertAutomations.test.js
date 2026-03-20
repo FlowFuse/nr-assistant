@@ -77,7 +77,11 @@ describeMain('expertAutomations', () => {
                 'automation/set-wires',
                 'automation/add-tab',
                 'automation/remove-tab',
-                'automation/get-flow'
+                'automation/get-flow',
+                'automation/import-flow',
+                'automation/close-search',
+                'automation/close-type-search',
+                'automation/close-action-list'
             )
         })
         it('should have hasAction method', () => {

@@ -13,9 +13,13 @@ const SET_WIRES = 'automation/set-wires'
 const ADD_TAB = 'automation/add-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 const GET_FLOW = 'automation/get-flow'
+const IMPORT_FLOW = 'automation/import-flow'
+const CLOSE_SEARCH = 'automation/close-search'
+const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
+const CLOSE_ACTION_LIST = 'automation/close-action-list'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_NODES|REMOVE_NODES|UPDATE_NODE|SET_WIRES|ADD_TAB|REMOVE_TAB|GET_FLOW} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_NODES|REMOVE_NODES|UPDATE_NODE|SET_WIRES|ADD_TAB|REMOVE_TAB|GET_FLOW|IMPORT_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -203,7 +207,26 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [GET_FLOW]: {
             params: null
-        }
+        },
+        [IMPORT_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    flow: {
+                        type: 'string',
+                        description: 'Flow JSON string to import onto the canvas'
+                    },
+                    addFlow: {
+                        type: 'boolean',
+                        description: 'Whether to create a new tab for the imported nodes (true) or import into the current tab (false). Default: false'
+                    }
+                },
+                required: ['flow']
+            }
+        },
+        [CLOSE_SEARCH]: { params: null },
+        [CLOSE_TYPE_SEARCH]: { params: null },
+        [CLOSE_ACTION_LIST]: { params: null }
     })
 
     /**
@@ -564,6 +587,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return flows
     }
 
+    closeSearch () { this.RED.search.hide() }
+
+    closeTypeSearch () { this.RED.typeSearch.hide() }
+
+    closeActionList () { this.RED.actionList.hide() }
+
     get supportedActions () {
         return this.actions
     }
@@ -660,6 +689,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case GET_FLOW:
             result.flows = this.getFlow()
+            result.success = true
+            break
+        case IMPORT_FLOW:
+            this.importFlow(params.flow, { addFlow: params.addFlow })
+            result.success = true
+            break
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+        case CLOSE_TYPE_SEARCH:
+            this.closeTypeSearch()
+            result.success = true
+            break
+        case CLOSE_ACTION_LIST:
+            this.closeActionList()
             result.success = true
             break
         default:
