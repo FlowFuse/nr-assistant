@@ -65,7 +65,20 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys(
+                'automation/get-nodes',
+                'automation/select-nodes',
+                'automation/open-node-edit',
+                'automation/search',
+                'automation/add-flow-tab',
+                'automation/add-nodes',
+                'automation/remove-nodes',
+                'automation/update-node',
+                'automation/set-wires',
+                'automation/add-tab',
+                'automation/remove-tab',
+                'automation/get-flow'
+            )
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
