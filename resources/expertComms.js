@@ -290,6 +290,7 @@ export class ExpertComms {
 
             // Ensure scope and source match expected values
             if (target !== this.MESSAGE_SOURCE || source !== this.MESSAGE_TARGET || scope !== this.MESSAGE_SCOPE) {
+                console.warn('[nr-assistant] message REJECTED — field mismatch')
                 return
             }
 
@@ -652,7 +653,8 @@ export class ExpertComms {
                     if (propSchema.type && propExists) {
                         const expectedType = propSchema.type
                         const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
-                        if (actualType !== expectedType) {
+                        const typeMatch = Array.isArray(expectedType) ? expectedType.includes(actualType) : actualType === expectedType
+                        if (!typeMatch) {
                             return {
                                 valid: false,
                                 error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${expectedType}"`

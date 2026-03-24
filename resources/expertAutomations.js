@@ -17,9 +17,10 @@ const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
+const SHOW_WORKSPACE = 'automation/show-workspace'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_NODES|REMOVE_NODES|UPDATE_NODE|SET_WIRES|ADD_TAB|REMOVE_TAB|GET_FLOW|IMPORT_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_NODES|REMOVE_NODES|UPDATE_NODE|SET_WIRES|ADD_TAB|REMOVE_TAB|GET_FLOW|IMPORT_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|SHOW_WORKSPACE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -213,12 +214,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     flow: {
-                        type: 'string',
-                        description: 'Flow JSON string to import onto the canvas'
+                        type: ['string', 'array'],
+                        description: 'Flow JSON string or array to import onto the canvas'
                     },
                     addFlow: {
                         type: 'boolean',
                         description: 'Whether to create a new tab for the imported nodes (true) or import into the current tab (false). Default: false'
+                    },
+                    generateIds: {
+                        type: 'boolean',
+                        description: 'Whether to regenerate node IDs during import. Default: true. Set false when IDs are pre-generated (e.g. from MCP tools). When false, reimport mode is used automatically to preserve workspace assignments.',
+                        default: true
                     }
                 },
                 required: ['flow']
@@ -226,7 +232,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [CLOSE_SEARCH]: { params: null },
         [CLOSE_TYPE_SEARCH]: { params: null },
-        [CLOSE_ACTION_LIST]: { params: null }
+        [CLOSE_ACTION_LIST]: { params: null },
+        [SHOW_WORKSPACE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the flow tab or subflow to navigate to' }
+                },
+                required: ['id']
+            }
+        }
     })
 
     /**
@@ -329,7 +344,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw e
             }
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify })
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true })
     }
 
     /**
@@ -527,6 +542,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         this.RED.nodes.addWorkspace(ws)
         this.RED.workspaces.add(ws)
+        this.RED.workspaces.show(ws.id)
     }
 
     /**
@@ -692,7 +708,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         case IMPORT_FLOW:
-            this.importFlow(params.flow, { addFlow: params.addFlow })
+            this.importFlow(params.flow, { addFlow: params.addFlow, generateIds: params.generateIds ?? true })
             result.success = true
             break
         case CLOSE_SEARCH:
@@ -705,6 +721,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case CLOSE_ACTION_LIST:
             this.closeActionList()
+            result.success = true
+            break
+        case SHOW_WORKSPACE:
+            this.RED.workspaces.show(params.id)
             result.success = true
             break
         default:
