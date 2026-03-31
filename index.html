@@ -1,7 +1,7 @@
-<script src="resources/@flowfuse/nr-assistant/expertComms.js"></script>
 <script src="resources/@flowfuse/nr-assistant/sharedUtils.js"></script>
-<script>
-    /* global FFExpertComms */ /* loaded from expertComms.js */
+<script type="module">
+    import { ExpertComms } from './resources/@flowfuse/nr-assistant/expertComms.js'
+
     /* global FFAssistantUtils */ /* loaded from sharedUtils.js */
     /* global RED, $ */ /* loaded from Node-RED core */
     (function (RED, n) {
@@ -53,6 +53,8 @@
         let initialisedInterlock = false
         let mcpReadyInterlock = false
         let assistantInitialised = false
+        /** @type {ExpertComms} */
+        let FFExpertComms = null
         debug('Loading Node-RED Assistant Plugin...')
         const plugin = {
             type: 'assistant',
@@ -203,6 +205,7 @@
             }
 
             if (!assistantInitialised) {
+                FFExpertComms = new ExpertComms()
                 FFExpertComms.init(RED, assistantOptions)
 
                 registerMonacoExtensions()
