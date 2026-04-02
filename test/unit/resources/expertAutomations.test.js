@@ -81,7 +81,8 @@ describeMain('expertAutomations', () => {
                 'automation/import-flow',
                 'automation/close-search',
                 'automation/close-type-search',
-                'automation/close-action-list'
+                'automation/close-action-list',
+                'automation/show-workspace'
             )
         })
         it('should have hasAction method', () => {
@@ -327,7 +328,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 const args = mockRED.view.importNodes.firstCall.args
                 args[0].should.deepEqual([{ id: '', type: 'tab', label: 'My New Flow', disabled: false, info: '', env: [] }])
-                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false })
+                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false, touchImport: true })
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
