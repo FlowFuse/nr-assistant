@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,28 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('updateNode action', () => {
+                it('should update node properties', async () => {
+                    const mockNode = { id: 'n1', name: 'old' }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.editor = { validateNode: sinon.stub() }
+                    mockRED.view.redraw = sinon.stub()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', properties: { name: 'new' } }
+                    }, result)
+                    mockNode.name.should.equal('new')
+                    mockNode.dirty.should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should throw if node not found', async () => {
+                    mockRED.nodes.node.returns(null)
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'missing', properties: {} }
+                    }, result)).rejectedWith(/Node missing not found/)
+                })
+            })
     })
 })
