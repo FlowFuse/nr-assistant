@@ -951,7 +951,8 @@ describeMain('expertComms', function () {
             mockRED.view.importNodes.firstCall.args[1].should.eql({
                 generateIds: true,
                 addFlow: false,
-                notify: true
+                notify: true,
+                touchImport: true
             })
 
             eventSource.postMessage.calledOnce.should.be.true()

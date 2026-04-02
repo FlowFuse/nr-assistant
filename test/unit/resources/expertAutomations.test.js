@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/import-flow')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -310,7 +310,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 const args = mockRED.view.importNodes.firstCall.args
                 args[0].should.deepEqual([{ id: '', type: 'tab', label: 'My New Flow', disabled: false, info: '', env: [] }])
-                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false })
+                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false, touchImport: true })
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
@@ -323,5 +323,20 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('importFlow action', () => {
+                it('should import flow JSON', async () => {
+                    mockRED.view.importNodes = sinon.stub()
+                    mockRED._ = sinon.stub().returns('error')
+                    const flowJson = JSON.stringify([{ id: 'n1', type: 'inject' }])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/import-flow', {
+                        params: { flow: flowJson }
+                    }, result)
+                    mockRED.view.importNodes.calledOnce.should.be.true()
+                    const args = mockRED.view.importNodes.firstCall.args
+                    args[1].should.have.property('touchImport', true)
+                    result.should.have.property('success', true)
+                })
+            })
     })
 })

@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const IMPORT_FLOW = 'automation/import-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|IMPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,28 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [IMPORT_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    flow: {
+                        type: ['string', 'array'],
+                        description: 'Flow JSON string or array to import onto the canvas'
+                    },
+                    addFlow: {
+                        type: 'boolean',
+                        description: 'Whether to create a new tab for the imported nodes (true) or import into the current tab (false). Default: false'
+                    },
+                    generateIds: {
+                        type: 'boolean',
+                        description: 'Whether to regenerate node IDs during import. Default: true.',
+                        default: true
+                    }
+                },
+                required: ['flow']
             }
         }
     })
@@ -200,7 +223,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw e
             }
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify })
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true })
     }
 
     async addFlowTab (title) {
@@ -300,6 +323,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case IMPORT_FLOW:
+            this.importFlow(params.flow, { addFlow: params.addFlow, generateIds: params.generateIds ?? true })
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false
