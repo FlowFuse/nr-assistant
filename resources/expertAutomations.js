@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const GET_FLOW = 'automation/get-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|GET_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -97,6 +98,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
+        }
+,
+        [GET_FLOW]: {
+            params: null
         }
     })
 
@@ -229,6 +234,42 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Read the live canvas state (including undeployed edits) and return it.
+     * @returns {Object[]} full flows array (tabs + nodes + config nodes)
+     */
+    getFlow () {
+        const flows = []
+        this.RED.nodes.eachWorkspace(ws => {
+            flows.push({ id: ws.id, type: 'tab', label: ws.label, disabled: ws.disabled || false })
+        })
+        this.RED.nodes.eachNode(node => {
+            const plain = { id: node.id, type: node.type, z: node.z, name: node.name }
+            if (node.x !== undefined) plain.x = node.x
+            if (node.y !== undefined) plain.y = node.y
+            if (node.outputs > 0) {
+                const wires = Array.from({ length: node.outputs }, () => [])
+                this.RED.nodes.getNodeLinks(node.id).forEach(link => {
+                    if (link.source?.id === node.id && wires[link.sourcePort]) {
+                        wires[link.sourcePort].push(link.target.id)
+                    }
+                })
+                plain.wires = wires
+            } else {
+                plain.wires = []
+            }
+            if (node._config) {
+                for (const k of Object.keys(node._config)) {
+                    if (k !== 'x' && k !== 'y' && plain[k] === undefined) {
+                        try { plain[k] = JSON.parse(node._config[k]) } catch { plain[k] = node._config[k] }
+                    }
+                }
+            }
+            flows.push(plain)
+        })
+        return flows
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +341,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case GET_FLOW:
+            result.flows = this.getFlow()
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

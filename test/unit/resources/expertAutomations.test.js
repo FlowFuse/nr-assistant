@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/get-flow')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,22 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('getFlow action', () => {
+                it('should return flows with tabs and nodes', async () => {
+                    mockRED.nodes.eachWorkspace = sinon.stub().callsFake(cb => {
+                        cb({ id: 'tab1', label: 'Flow 1', disabled: false })
+                    })
+                    mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                        cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', x: 100, y: 200, outputs: 1, _config: {} })
+                    })
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/get-flow', { params: {} }, result)
+                    result.should.have.property('success', true)
+                    result.should.have.property('flows').which.is.an.Array()
+                    result.flows.should.have.length(2)
+                    result.flows[0].should.have.property('type', 'tab')
+                })
+            })
     })
 })
