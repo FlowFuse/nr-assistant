@@ -168,20 +168,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
             params: {
                 type: 'object',
                 properties: {
-                    id: {
+                    mode: {
                         type: 'string',
-                        description: 'ID of the source node'
+                        enum: ['add', 'remove'],
+                        description: 'Whether to add or remove a wire'
                     },
-                    wires: {
-                        type: 'array',
-                        items: {
-                            type: 'array',
-                            items: { type: 'string' }
-                        },
-                        description: 'Wires indexed by output port — wires[portIndex] is an array of target node IDs'
+                    from: {
+                        type: 'string',
+                        description: 'Source node ID'
+                    },
+                    output: {
+                        type: 'number',
+                        description: 'Source output port index (0-based)'
+                    },
+                    to: {
+                        type: 'string',
+                        description: 'Target node ID'
                     }
                 },
-                required: ['id', 'wires']
+                required: ['mode', 'from', 'to']
             }
         },
         [ADD_TAB]: {
@@ -491,32 +496,40 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Replace all outbound wires from a node.
+     * Add or remove a single wire between two nodes.
      *
      * NR4 stores wires as link objects {source, sourcePort, target}, not as node.wires
      * arrays. Setting node.wires directly has no effect on the canvas.
-     * @param {string} id - source node ID
-     * @param {string[][]} wires - wires[portIndex] = array of target node IDs
+     *
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode
+     * @param {string} params.from - Source node ID
+     * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
+     * @param {string} params.to - Target node ID
      */
-    setWires (id, wires) {
-        const node = this.RED.nodes.node(id)
-        if (!node) throw new Error(`Node ${id} not found`)
+    setWires ({ mode, from, output, to }) {
+        const sourceNode = this.RED.nodes.node(from)
+        if (!sourceNode) throw new Error(`Source node ${from} not found`)
+        const port = output ?? 0
 
-        // Remove all existing outbound links then add new ones
-        const existingLinks = this.RED.nodes.getNodeLinks(id)
-        existingLinks.forEach(link => this.RED.nodes.removeLink(link))
-        ;(wires || []).forEach((targets, outputPort) => {
-            ;(targets || []).forEach(targetId => {
-                const targetNode = this.RED.nodes.node(targetId)
-                if (targetNode) {
-                    this.RED.nodes.addLink({ source: node, sourcePort: outputPort, target: targetNode })
-                }
-            })
-        })
+        if (mode === 'add') {
+            const targetNode = this.RED.nodes.node(to)
+            if (!targetNode) throw new Error(`Target node ${to} not found`)
+            this.RED.nodes.addLink({ source: sourceNode, sourcePort: port, target: targetNode })
+        } else {
+            const existingLinks = this.RED.nodes.getNodeLinks(from)
+            const link = existingLinks.find(l =>
+                l.source?.id === from &&
+                l.sourcePort === port &&
+                l.target?.id === to
+            )
+            if (link) {
+                this.RED.nodes.removeLink(link)
+            }
+        }
 
-        node.dirty = true
+        sourceNode.dirty = true
         this.RED.nodes.dirty(true)
-        // activeLinks is refreshed by workspace:change — emit it to redraw wires
         const currentTab = this.RED.workspaces.active()
         this.RED.events.emit('workspace:change', { old: currentTab, workspace: currentTab })
     }
@@ -692,7 +705,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         case SET_WIRES:
-            this.setWires(params.id, params.wires)
+            this.setWires(params)
             result.success = true
             break
         case ADD_TAB:
