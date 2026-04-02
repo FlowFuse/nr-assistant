@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/show-workspace')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,16 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('showWorkspace action', () => {
+                it('should navigate to the specified workspace', async () => {
+                    mockRED.workspaces = { show: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/show-workspace', {
+                        params: { id: 'tab1' }
+                    }, result)
+                    mockRED.workspaces.show.calledWith('tab1').should.be.true()
+                    result.should.have.property('success', true)
+                })
+            })
     })
 })
