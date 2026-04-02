@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const REMOVE_NODES = 'automation/remove-nodes'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|REMOVE_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [REMOVE_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    ids: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'IDs of nodes to remove from the canvas'
+                    }
+                },
+                required: ['ids']
             }
         }
     })
@@ -229,6 +244,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Remove one or more nodes from the live NR4 canvas by ID.
+     * @param {string[]} ids - node IDs to remove
+     */
+    removeNodes (ids) {
+        for (const id of ids) {
+            const node = this.RED.nodes.node(id)
+            if (node) {
+                this.RED.nodes.remove(node)
+            }
+        }
+        this.RED.nodes.dirty(true)
+        const currentTab = this.RED.workspaces.active()
+        this.RED.events.emit('workspace:change', { old: currentTab, workspace: currentTab })
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +331,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case REMOVE_NODES:
+            this.removeNodes(params.ids)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

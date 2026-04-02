@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/remove-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,22 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('removeNodes action', () => {
+                it('should remove nodes by ID', async () => {
+                    const mockNode = { id: 'n1' }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.remove = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.workspaces = { active: sinon.stub().returns('tab1') }
+                    mockRED.events = { emit: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/remove-nodes', {
+                        params: { ids: ['n1'] }
+                    }, result)
+                    mockRED.nodes.remove.calledWith(mockNode).should.be.true()
+                    result.should.have.property('success', true)
+                    result.should.have.property('handled', true)
+                })
+            })
     })
 })
