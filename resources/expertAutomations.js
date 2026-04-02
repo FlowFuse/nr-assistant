@@ -6,9 +6,12 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const CLOSE_SEARCH = 'automation/close-search'
+const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
+const CLOSE_ACTION_LIST = 'automation/close-action-list'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -98,6 +101,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         }
+,
+        [CLOSE_SEARCH]: { params: null },
+        [CLOSE_TYPE_SEARCH]: { params: null },
+        [CLOSE_ACTION_LIST]: { params: null }
     })
 
     /**
@@ -229,6 +236,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    closeSearch () { this.RED.search.hide() }
+
+    closeTypeSearch () { this.RED.typeSearch.hide() }
+
+    closeActionList () { this.RED.actionList.hide() }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +313,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+        case CLOSE_TYPE_SEARCH:
+            this.closeTypeSearch()
+            result.success = true
+            break
+        case CLOSE_ACTION_LIST:
+            this.closeActionList()
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

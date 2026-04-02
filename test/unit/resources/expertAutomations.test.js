@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,28 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('close UI panel actions', () => {
+                it('should close search', async () => {
+                    mockRED.search = { show: sinon.stub(), search: sinon.stub(), hide: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-search', { params: {} }, result)
+                    mockRED.search.hide.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should close type search', async () => {
+                    mockRED.typeSearch = { hide: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                    mockRED.typeSearch.hide.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should close action list', async () => {
+                    mockRED.actionList = { hide: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-action-list', { params: {} }, result)
+                    mockRED.actionList.hide.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                })
+            })
     })
 })
