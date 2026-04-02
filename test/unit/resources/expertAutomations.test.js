@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/set-wires')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,31 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('setWires action', () => {
+                it('should add a wire between two nodes', async () => {
+                    const source = { id: 'n1', dirty: false }
+                    const target = { id: 'n2' }
+                    mockRED.nodes.node.withArgs('n1').returns(source)
+                    mockRED.nodes.node.withArgs('n2').returns(target)
+                    mockRED.nodes.addLink = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.workspaces = { active: sinon.stub().returns('tab1') }
+                    mockRED.events = { emit: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/set-wires', {
+                        params: { mode: 'add', from: 'n1', to: 'n2' }
+                    }, result)
+                    mockRED.nodes.addLink.calledOnce.should.be.true()
+                    source.dirty.should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should throw if source node not found', async () => {
+                    mockRED.nodes.node.returns(null)
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/set-wires', {
+                        params: { mode: 'add', from: 'missing', to: 'n2' }
+                    }, result)).rejectedWith(/Source node missing not found/)
+                })
+            })
     })
 })

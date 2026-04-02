@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const SET_WIRES = 'automation/set-wires'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|SET_WIRES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [SET_WIRES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a wire' },
+                    from: { type: 'string', description: 'Source node ID' },
+                    output: { type: 'number', description: 'Source output port index (0-based)' },
+                    to: { type: 'string', description: 'Target node ID' }
+                },
+                required: ['mode', 'from', 'to']
             }
         }
     })
@@ -229,6 +243,35 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Add or remove a single wire between two nodes.
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode
+     * @param {string} params.from - Source node ID
+     * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
+     * @param {string} params.to - Target node ID
+     */
+    setWires ({ mode, from, output, to }) {
+        const sourceNode = this.RED.nodes.node(from)
+        if (!sourceNode) throw new Error(`Source node ${from} not found`)
+        const port = output ?? 0
+        if (mode === 'add') {
+            const targetNode = this.RED.nodes.node(to)
+            if (!targetNode) throw new Error(`Target node ${to} not found`)
+            this.RED.nodes.addLink({ source: sourceNode, sourcePort: port, target: targetNode })
+        } else {
+            const existingLinks = this.RED.nodes.getNodeLinks(from)
+            const link = existingLinks.find(l =>
+                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+            )
+            if (link) { this.RED.nodes.removeLink(link) }
+        }
+        sourceNode.dirty = true
+        this.RED.nodes.dirty(true)
+        const currentTab = this.RED.workspaces.active()
+        this.RED.events.emit('workspace:change', { old: currentTab, workspace: currentTab })
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +343,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case SET_WIRES:
+            this.setWires(params)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false
