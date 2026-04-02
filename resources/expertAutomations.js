@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const ADD_TAB = 'automation/add-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [ADD_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Tab ID — auto-generated if omitted' },
+                    label: { type: 'string', description: 'Tab label' },
+                    disabled: { type: 'boolean', description: 'Create as disabled' },
+                    info: { type: 'string', description: 'Tab notes' },
+                    env: { type: 'array', description: 'Environment variables' }
+                },
+                required: ['label']
             }
         }
     })
@@ -229,6 +244,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Add a new flow tab with an explicit ID and configuration.
+     * @param {Object} tab - tab definition with id, label, disabled, info, env
+     */
+    addTab (tab) {
+        const ws = {
+            type: 'tab',
+            id: tab.id || this.RED.nodes.id(),
+            label: tab.label,
+            disabled: tab.disabled || false,
+            info: tab.info || '',
+            env: tab.env || []
+        }
+        this.RED.nodes.addWorkspace(ws)
+        this.RED.workspaces.add(ws)
+        this.RED.workspaces.show(ws.id)
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +333,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case ADD_TAB:
+            this.addTab(params)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

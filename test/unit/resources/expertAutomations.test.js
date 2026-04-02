@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/add-tab')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,21 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('addTab action', () => {
+                it('should create a new tab', async () => {
+                    mockRED.nodes.addWorkspace = sinon.stub()
+                    mockRED.nodes.id = sinon.stub().returns('gen-id')
+                    mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/add-tab', {
+                        params: { label: 'My Tab' }
+                    }, result)
+                    mockRED.nodes.addWorkspace.calledOnce.should.be.true()
+                    const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                    ws.should.have.property('label', 'My Tab')
+                    ws.should.have.property('type', 'tab')
+                    result.should.have.property('success', true)
+                })
+            })
     })
 })
