@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const ADD_NODES = 'automation/add-nodes'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|ADD_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,30 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [ADD_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string', description: 'Unique node ID' },
+                                type: { type: 'string', description: 'Node type identifier' },
+                                x: { type: 'number', description: 'Canvas x position' },
+                                y: { type: 'number', description: 'Canvas y position' },
+                                z: { type: 'string', description: 'Tab (workspace) ID' }
+                            },
+                            required: ['id', 'type', 'z']
+                        },
+                        description: 'Array of node objects to add to the canvas'
+                    }
+                },
+                required: ['nodes']
             }
         }
     })
@@ -229,6 +254,54 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Add one or more nodes to the live NR4 canvas.
+     * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
+     */
+    addNodes (nodes) {
+        for (const rawNode of nodes) {
+            const def = this.RED.nodes.getType(rawNode.type)
+            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            const node = {
+                id: rawNode.id, type: rawNode.type,
+                x: parseFloat(rawNode.x || 0), y: parseFloat(rawNode.y || 0),
+                z: rawNode.z, name: rawNode.name || '', changed: true,
+                wires: [], _config: {}, _def: def,
+                inputs: def.inputs || 0, outputs: def.outputs || 0
+            }
+            for (const d in def.defaults) {
+                if (Object.prototype.hasOwnProperty.call(def.defaults, d) && d !== 'inputs' && d !== 'outputs') {
+                    node[d] = rawNode[d]
+                    node._config[d] = JSON.stringify(rawNode[d])
+                }
+            }
+            node._config.x = node.x
+            node._config.y = node.y
+            if (Object.prototype.hasOwnProperty.call(rawNode, 'outputs') && def.defaults && Object.prototype.hasOwnProperty.call(def.defaults, 'outputs')) {
+                node.outputs = parseInt(rawNode.outputs, 10) || def.outputs || 0
+                node._config.outputs = JSON.stringify(rawNode.outputs)
+            }
+            if (Object.prototype.hasOwnProperty.call(rawNode, 'inputs') && def.defaults && Object.prototype.hasOwnProperty.call(def.defaults, 'inputs')) {
+                node.inputs = parseInt(rawNode.inputs, 10) || def.inputs || 0
+                node._config.inputs = JSON.stringify(rawNode.inputs)
+            }
+            node._ = def._
+            this.RED.nodes.add(node)
+            if (this.RED.editor?.validateNode) {
+                this.RED.editor.validateNode(node)
+            }
+        }
+        this.RED.nodes.dirty(true)
+        const targetTabId = nodes[0]?.z
+        const currentTab = this.RED.workspaces.active()
+        if (targetTabId && targetTabId !== currentTab) {
+            this.RED.workspaces.show(targetTabId)
+        } else {
+            const tab = targetTabId || currentTab
+            this.RED.events.emit('workspace:change', { old: tab, workspace: tab })
+        }
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +373,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case ADD_NODES:
+            this.addNodes(params.nodes)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

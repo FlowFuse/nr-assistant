@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/add-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,30 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('addNodes action', () => {
+                it('should add nodes to the canvas', async () => {
+                    mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' } } })
+                    mockRED.nodes.add = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.editor = { validateNode: sinon.stub() }
+                    mockRED.workspaces = { active: sinon.stub().returns('tab1'), show: sinon.stub() }
+                    mockRED.events = { emit: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }] }
+                    }, result)
+                    mockRED.nodes.add.calledOnce.should.be.true()
+                    mockRED.nodes.dirty.calledWith(true).should.be.true()
+                    result.should.have.property('success', true)
+                    result.should.have.property('handled', true)
+                })
+                it('should throw if node type is unknown', async () => {
+                    mockRED.nodes.getType = sinon.stub().returns(null)
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ id: 'n1', type: 'unknown', z: 'tab1' }] }
+                    }, result)).rejectedWith(/Unknown node type/)
+                })
+            })
     })
 })
