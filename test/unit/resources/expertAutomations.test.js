@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/remove-tab')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,5 +323,18 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+            describe('removeTab action', () => {
+                it('should remove an existing tab', async () => {
+                    const mockWs = { id: 'tab1', type: 'tab' }
+                    mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
+                    mockRED.workspaces = { delete: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/remove-tab', {
+                        params: { id: 'tab1' }
+                    }, result)
+                    mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
+                    result.should.have.property('success', true)
+                })
+            })
     })
 })

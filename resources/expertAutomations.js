@@ -6,9 +6,10 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const REMOVE_TAB = 'automation/remove-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|REMOVE_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -96,6 +97,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        }
+,
+        [REMOVE_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the tab to remove' }
+                },
+                required: ['id']
             }
         }
     })
@@ -229,6 +240,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Remove an existing flow tab from the NR4 editor.
+     * @param {string} id - tab ID to remove
+     */
+    removeTab (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (ws) {
+            this.RED.workspaces.delete(ws)
+        }
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -300,6 +322,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case REMOVE_TAB:
+            this.removeTab(params.id)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false
