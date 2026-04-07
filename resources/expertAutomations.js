@@ -292,13 +292,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
         }
         this.RED.nodes.dirty(true)
+
+        // Switch to the target tab if nodes belong to a different workspace
         const targetTabId = nodes[0]?.z
         const currentTab = this.RED.workspaces.active()
         if (targetTabId && targetTabId !== currentTab) {
+            // show() triggers workspace:change internally which rebuilds activeNodes
             this.RED.workspaces.show(targetTabId)
         } else {
-            const tab = targetTabId || currentTab
-            this.RED.events.emit('workspace:change', { old: tab, workspace: tab })
+            // Rebuild activeNodes and redraw — avoids emitting workspace:change
+            // which would fire notifyWorkspaceChange when no tab actually changed
+            this.RED.view.updateActive()
+            this.RED.view.redraw()
         }
     }
 
