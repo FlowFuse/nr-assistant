@@ -272,8 +272,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             for (const d in def.defaults) {
                 if (Object.prototype.hasOwnProperty.call(def.defaults, d) && d !== 'inputs' && d !== 'outputs') {
-                    node[d] = rawNode[d]
-                    node._config[d] = JSON.stringify(rawNode[d])
+                    node[d] = Object.prototype.hasOwnProperty.call(rawNode, d) ? rawNode[d] : def.defaults[d].value
+                    node._config[d] = JSON.stringify(node[d])
                 }
             }
             node._config.x = node.x
