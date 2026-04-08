@@ -249,7 +249,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
     updateNode (id, properties) {
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
+        const changes = {}
+        for (const key in properties) {
+            if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                changes[key] = node[key]
+            }
+        }
+        const wasChanged = node.changed
         Object.assign(node, properties)
+        this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
+        node.changed = true
         node.dirty = true
         this.RED.nodes.dirty(true)
         if (this.RED.editor?.validateNode) {
