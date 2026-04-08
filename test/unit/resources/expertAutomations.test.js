@@ -328,7 +328,7 @@ describeMain('expertAutomations', () => {
             })
         })
             describe('addNodes action', () => {
-                it('should validate types, fill defaults, and delegate to importNodes', async () => {
+                it('should validate types and delegate to importNodes with applyNodeDefaults', async () => {
                     mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' }, repeat: { value: '' } } })
                     mockRED.view.importNodes = sinon.stub()
                     mockRED.nodes.dirty = sinon.stub()
@@ -340,13 +340,11 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.getType.calledWith('inject').should.be.true()
                     mockRED.view.importNodes.calledOnce.should.be.true()
                     const importArgs = mockRED.view.importNodes.firstCall.args
-                    // Should include defaults filled in
                     importArgs[0][0].should.have.property('id', 'n1')
-                    importArgs[0][0].should.have.property('name', '')
-                    importArgs[0][0].should.have.property('repeat', '')
                     importArgs[1].should.have.property('generateIds', false)
                     importArgs[1].should.have.property('addFlow', false)
                     importArgs[1].should.have.property('notify', false)
+                    importArgs[1].should.have.property('applyNodeDefaults', true)
                     result.should.have.property('success', true)
                     result.should.have.property('handled', true)
                 })

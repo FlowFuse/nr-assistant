@@ -261,22 +261,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
      */
     addNodes (nodes) {
-        // Validate required fields and types, then fill in default values for omitted properties
+        // Validate required fields and types
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
             if (!rawNode.z) throw new Error('Node is missing required property: z')
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
-            const node = { ...rawNode }
-            if (def.defaults) {
-                for (const d in def.defaults) {
-                    if (Object.prototype.hasOwnProperty.call(def.defaults, d) && !Object.prototype.hasOwnProperty.call(node, d)) {
-                        node[d] = def.defaults[d].value
-                    }
-                }
-            }
-            return node
+            return { ...rawNode }
         })
         // importNodes places nodes on the active workspace when addFlow=false,
         // so switch to the target tab first if nodes target a different one
@@ -285,7 +277,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (targetZ && targetZ !== activeZ) {
             this.RED.workspaces.show(targetZ)
         }
-        this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true })
+        this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         this.RED.nodes.dirty(true)
     }
 
