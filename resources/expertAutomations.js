@@ -278,6 +278,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             return node
         })
+        // importNodes places nodes on the active workspace when addFlow=false,
+        // so switch to the target tab first if nodes target a different one
+        const targetZ = prepared[0]?.z
+        const activeZ = this.RED.workspaces.active()
+        if (targetZ && targetZ !== activeZ) {
+            this.RED.workspaces.show(targetZ)
+        }
         this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true })
         this.RED.nodes.dirty(true)
     }

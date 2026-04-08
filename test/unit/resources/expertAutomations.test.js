@@ -38,7 +38,11 @@ describeMain('expertAutomations', () => {
             settings: {
                 version: '4.1.4'
             },
-            state: { DEFAULT: 1 }
+            state: { DEFAULT: 1 },
+            workspaces: {
+                active: sinon.stub().returns('active-tab'),
+                show: sinon.stub()
+            }
         }
     }
 
@@ -352,6 +356,32 @@ describeMain('expertAutomations', () => {
                     await should(expertAutomations.invokeAction('automation/add-nodes', {
                         params: { nodes: [{ id: 'n1', type: 'unknown', z: 'tab1' }] }
                     }, result)).rejectedWith(/Unknown node type/)
+                })
+                it('should switch to target tab when nodes target a different workspace', async () => {
+                    mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                    mockRED.view.importNodes = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.workspaces.active.returns('active-tab')
+                    const nodes = [{ id: 'n1', type: 'inject', z: 'other-tab', x: 100, y: 200 }]
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes }
+                    }, result)
+                    mockRED.workspaces.show.calledWith('other-tab').should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should not switch tabs when nodes target the active workspace', async () => {
+                    mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                    mockRED.view.importNodes = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.workspaces.active.returns('active-tab')
+                    const nodes = [{ id: 'n1', type: 'inject', z: 'active-tab', x: 100, y: 200 }]
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes }
+                    }, result)
+                    mockRED.workspaces.show.called.should.be.false()
+                    result.should.have.property('success', true)
                 })
                 it('should throw if node is missing required property z', async () => {
                     const result = {}
