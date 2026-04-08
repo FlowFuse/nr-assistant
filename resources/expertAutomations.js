@@ -249,15 +249,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      */
     removeNodes (ids) {
+        const allRemovedNodes = []
+        const allRemovedLinks = []
         for (const id of ids) {
             const node = this.RED.nodes.node(id)
             if (node) {
-                this.RED.nodes.remove(node)
+                allRemovedNodes.push(node)
+                const removed = this.RED.nodes.remove(id)
+                allRemovedLinks.push(...(removed.links || []))
             }
         }
-        this.RED.nodes.dirty(true)
-        const currentTab = this.RED.workspaces.active()
-        this.RED.events.emit('workspace:change', { old: currentTab, workspace: currentTab })
+        if (allRemovedNodes.length > 0) {
+            this.RED.history.push({ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
+            this.RED.nodes.dirty(true)
+            this.RED.view.updateActive()
+            this.RED.view.redraw()
+        }
     }
 
     get supportedActions () {
