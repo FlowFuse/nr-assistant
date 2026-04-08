@@ -260,6 +260,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object} tab - tab definition with id, label, disabled, info, env
      */
     addTab (tab) {
+        if (tab.label == null) throw new Error('Tab label is required')
         const ws = {
             type: 'tab',
             id: tab.id || this.RED.nodes.id(),

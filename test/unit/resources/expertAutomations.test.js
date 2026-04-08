@@ -360,6 +360,12 @@ describeMain('expertAutomations', () => {
                     ws.should.have.property('env').which.deepEqual([])
                     result.should.have.property('success', true)
                 })
+                it('should throw if label is missing', async () => {
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/add-tab', {
+                        params: {}
+                    }, result)).rejectedWith(/Tab label is required/)
+                })
             })
     })
 })
