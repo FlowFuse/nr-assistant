@@ -115,6 +115,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                                 y: { type: 'number', description: 'Canvas y position' },
                                 z: { type: 'string', description: 'Tab (workspace) ID' }
                             },
+                            additionalProperties: true,
                             required: ['id', 'type', 'z']
                         },
                         description: 'Array of node objects to add to the canvas'
