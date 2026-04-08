@@ -108,7 +108,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     label: { type: 'string', description: 'Tab label' },
                     disabled: { type: 'boolean', description: 'Create as disabled' },
                     info: { type: 'string', description: 'Tab notes' },
-                    env: { type: 'array', description: 'Environment variables' }
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: { type: 'string' }
+                            }
+                        },
+                        description: 'Environment variables'
+                    }
                 },
                 required: ['label']
             }
@@ -259,6 +270,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         this.RED.nodes.addWorkspace(ws)
         this.RED.workspaces.add(ws)
+        this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
         this.RED.workspaces.show(ws.id)
     }
 
