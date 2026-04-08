@@ -324,21 +324,63 @@ describeMain('expertAutomations', () => {
             })
         })
             describe('setWires action', () => {
-                it('should add a wire between two nodes', async () => {
-                    const source = { id: 'n1', dirty: false }
+                beforeEach(() => {
+                    mockRED.nodes.addLink = sinon.stub()
+                    mockRED.nodes.removeLink = sinon.stub()
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    mockRED.history = { push: sinon.stub() }
+                    mockRED.view.updateActive = sinon.stub()
+                    mockRED.view.redraw = sinon.stub()
+                })
+                it('should add a wire between two nodes with history', async () => {
+                    const source = { id: 'n1', dirty: false, changed: false }
                     const target = { id: 'n2' }
                     mockRED.nodes.node.withArgs('n1').returns(source)
                     mockRED.nodes.node.withArgs('n2').returns(target)
-                    mockRED.nodes.addLink = sinon.stub()
-                    mockRED.nodes.dirty = sinon.stub()
-                    mockRED.workspaces = { active: sinon.stub().returns('tab1') }
-                    mockRED.events = { emit: sinon.stub() }
                     const result = {}
                     await expertAutomations.invokeAction('automation/set-wires', {
                         params: { mode: 'add', from: 'n1', to: 'n2' }
                     }, result)
                     mockRED.nodes.addLink.calledOnce.should.be.true()
+                    mockRED.history.push.calledOnce.should.be.true()
+                    const historyArg = mockRED.history.push.firstCall.args[0]
+                    historyArg.should.have.property('t', 'add')
+                    historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    source.changed.should.be.true()
                     source.dirty.should.be.true()
+                    mockRED.nodes.dirty.calledWith(true).should.be.true()
+                    mockRED.view.updateActive.calledOnce.should.be.true()
+                    mockRED.view.redraw.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                })
+                it('should remove a wire with history', async () => {
+                    const source = { id: 'n1', dirty: false, changed: false }
+                    const existingLink = { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                    mockRED.nodes.node.withArgs('n1').returns(source)
+                    mockRED.nodes.getNodeLinks.returns([existingLink])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/set-wires', {
+                        params: { mode: 'remove', from: 'n1', to: 'n2' }
+                    }, result)
+                    mockRED.nodes.removeLink.calledWith(existingLink).should.be.true()
+                    mockRED.history.push.calledOnce.should.be.true()
+                    const historyArg = mockRED.history.push.firstCall.args[0]
+                    historyArg.should.have.property('t', 'delete')
+                    historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    result.should.have.property('success', true)
+                })
+                it('should use non-zero output port', async () => {
+                    const source = { id: 'n1', dirty: false, changed: false }
+                    const target = { id: 'n2' }
+                    mockRED.nodes.node.withArgs('n1').returns(source)
+                    mockRED.nodes.node.withArgs('n2').returns(target)
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/set-wires', {
+                        params: { mode: 'add', from: 'n1', output: 2, to: 'n2' }
+                    }, result)
+                    const linkArg = mockRED.nodes.addLink.firstCall.args[0]
+                    linkArg.should.have.property('sourcePort', 2)
                     result.should.have.property('success', true)
                 })
                 it('should throw if source node not found', async () => {

@@ -258,18 +258,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (mode === 'add') {
             const targetNode = this.RED.nodes.node(to)
             if (!targetNode) throw new Error(`Target node ${to} not found`)
-            this.RED.nodes.addLink({ source: sourceNode, sourcePort: port, target: targetNode })
+            const link = { source: sourceNode, sourcePort: port, target: targetNode }
+            this.RED.nodes.addLink(link)
+            this.RED.history.push({ t: 'add', links: [link], dirty: this.RED.nodes.dirty() })
         } else {
             const existingLinks = this.RED.nodes.getNodeLinks(from)
             const link = existingLinks.find(l =>
                 l.source?.id === from && l.sourcePort === port && l.target?.id === to
             )
-            if (link) { this.RED.nodes.removeLink(link) }
+            if (link) {
+                this.RED.nodes.removeLink(link)
+                this.RED.history.push({ t: 'delete', links: [link], dirty: this.RED.nodes.dirty() })
+            }
         }
+        sourceNode.changed = true
         sourceNode.dirty = true
         this.RED.nodes.dirty(true)
-        const currentTab = this.RED.workspaces.active()
-        this.RED.events.emit('workspace:change', { old: currentTab, workspace: currentTab })
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
     }
 
     get supportedActions () {
