@@ -238,7 +238,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     closeSearch () { this.RED.search.hide() }
 
-    closeTypeSearch () { this.RED.typeSearch.hide() }
+    closeTypeSearch () {
+        // RED.typeSearch.hide() alone does NOT invoke the cancelCallback set by
+        // RED.view, which cleans up ghost nodes, drag lines, and resets mouse state.
+        // Dispatching ESC on the type-search input triggers NR4's keyboard handler
+        // (scope "red-ui-type-search") which calls both hide() and cancelCallback().
+        try {
+            const input = document.getElementById('red-ui-type-search-input')
+            if (input) {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }))
+                return
+            }
+        } catch (_) { /* Node.js test env or missing DOM */ }
+        this.RED.typeSearch.hide()
+    }
 
     closeActionList () { this.RED.actionList.hide() }
 

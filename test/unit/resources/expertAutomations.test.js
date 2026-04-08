@@ -331,12 +331,42 @@ describeMain('expertAutomations', () => {
                     mockRED.search.hide.calledOnce.should.be.true()
                     result.should.have.property('success', true)
                 })
-                it('should close type search', async () => {
+                it('should close type search via ESC dispatch when input element exists', async () => {
                     mockRED.typeSearch = { hide: sinon.stub() }
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
-                    mockRED.typeSearch.hide.calledOnce.should.be.true()
-                    result.should.have.property('success', true)
+                    const mockInput = { dispatchEvent: sinon.stub() }
+                    const origDocument = globalThis.document
+                    const origKeyboardEvent = globalThis.KeyboardEvent
+                    globalThis.document = { getElementById: sinon.stub().withArgs('red-ui-type-search-input').returns(mockInput) }
+                    globalThis.KeyboardEvent = class KeyboardEvent {
+                        constructor (type, opts) { this.type = type; this.key = opts.key; this.keyCode = opts.keyCode; this.bubbles = opts.bubbles }
+                    }
+                    try {
+                        const result = {}
+                        await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                        mockInput.dispatchEvent.calledOnce.should.be.true()
+                        const event = mockInput.dispatchEvent.firstCall.args[0]
+                        event.key.should.equal('Escape')
+                        event.keyCode.should.equal(27)
+                        event.bubbles.should.be.true()
+                        mockRED.typeSearch.hide.called.should.be.false()
+                        result.should.have.property('success', true)
+                    } finally {
+                        if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                        if (origKeyboardEvent) { globalThis.KeyboardEvent = origKeyboardEvent } else { delete globalThis.KeyboardEvent }
+                    }
+                })
+                it('should fall back to RED.typeSearch.hide() when input element not found', async () => {
+                    mockRED.typeSearch = { hide: sinon.stub() }
+                    const origDocument = globalThis.document
+                    globalThis.document = { getElementById: sinon.stub().returns(null) }
+                    try {
+                        const result = {}
+                        await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                        mockRED.typeSearch.hide.calledOnce.should.be.true()
+                        result.should.have.property('success', true)
+                    } finally {
+                        if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                    }
                 })
                 it('should close action list', async () => {
                     mockRED.actionList = { hide: sinon.stub() }
