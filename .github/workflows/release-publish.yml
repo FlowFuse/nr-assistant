@@ -13,7 +13,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --omit=dev
-      - uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+      - uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4
         with:
           token: ${{ secrets.NPM_PUBLISH_TOKEN }}
           access: public
@@ -21,8 +21,9 @@ jobs:
         id: getVersion
         shell: bash
         run: |
-          VERSION=$(npm info . --json version | sed -e 's/"//g')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # VERSION=$(npm info . --json version | sed -e 's/"//g')
+          # echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
       - uses: flowfuse/github-actions-workflows/actions/update-nr-flows@v0.52.0
         with:
           package: '@flowfuse/nr-assistant'
