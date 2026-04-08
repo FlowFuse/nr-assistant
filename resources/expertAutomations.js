@@ -246,9 +246,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     removeTab (id) {
         const ws = this.RED.nodes.workspace(id)
-        if (ws) {
-            this.RED.workspaces.delete(ws)
+        if (!ws) {
+            throw new Error(`Tab with id ${id} not found`)
         }
+        this.RED.workspaces.delete(ws)
     }
 
     get supportedActions () {

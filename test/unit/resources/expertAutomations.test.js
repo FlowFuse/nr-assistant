@@ -335,6 +335,20 @@ describeMain('expertAutomations', () => {
                     mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
                     result.should.have.property('success', true)
                 })
+                it('should throw if tab not found', async () => {
+                    mockRED.nodes.workspace = sinon.stub().returns(null)
+                    mockRED.workspaces = { delete: sinon.stub() }
+                    await should(expertAutomations.invokeAction('automation/remove-tab', {
+                        params: { id: 'does-not-exist' }
+                    }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+                })
+                it('should throw if id is empty', async () => {
+                    mockRED.nodes.workspace = sinon.stub().returns(null)
+                    mockRED.workspaces = { delete: sinon.stub() }
+                    await should(expertAutomations.invokeAction('automation/remove-tab', {
+                        params: { id: '' }
+                    }, {})).rejectedWith(/Tab with id .* not found/)
+                })
             })
     })
 })
