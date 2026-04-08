@@ -353,6 +353,24 @@ describeMain('expertAutomations', () => {
                         params: { nodes: [{ id: 'n1', type: 'unknown', z: 'tab1' }] }
                     }, result)).rejectedWith(/Unknown node type/)
                 })
+                it('should throw if node is missing required property z', async () => {
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ id: 'n1', type: 'inject' }] }
+                    }, result)).rejectedWith(/missing required property: z/)
+                })
+                it('should throw if node is missing required property id', async () => {
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ type: 'inject', z: 'tab1' }] }
+                    }, result)).rejectedWith(/missing required property: id/)
+                })
+                it('should throw if node is missing required property type', async () => {
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ id: 'n1', z: 'tab1' }] }
+                    }, result)).rejectedWith(/missing required property: type/)
+                })
             })
     })
 })

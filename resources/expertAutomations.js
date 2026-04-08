@@ -261,8 +261,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
      */
     addNodes (nodes) {
-        // Validate types and fill in default values for omitted properties
+        // Validate required fields and types, then fill in default values for omitted properties
         const prepared = nodes.map(rawNode => {
+            if (!rawNode.id) throw new Error('Node is missing required property: id')
+            if (!rawNode.type) throw new Error('Node is missing required property: type')
+            if (!rawNode.z) throw new Error('Node is missing required property: z')
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             const node = { ...rawNode }
