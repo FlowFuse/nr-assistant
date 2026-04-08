@@ -223,7 +223,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw e
             }
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true })
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true, applyNodeDefaults: true })
         this.RED.nodes.dirty(true)
     }
 

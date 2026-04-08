@@ -953,7 +953,8 @@ describeMain('expertComms', function () {
                 generateIds: true,
                 addFlow: false,
                 notify: true,
-                touchImport: true
+                touchImport: true,
+                applyNodeDefaults: true
             })
 
             eventSource.postMessage.calledOnce.should.be.true()
