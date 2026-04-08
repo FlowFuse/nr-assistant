@@ -203,7 +203,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
     /**
      * Performs the import of nodes, handling any conflicts that may arise
-     * @param {string} nodesStr the nodes to import as a string
+     * @param {string|Object[]} nodesStr the nodes to import — either a JSON string or an array of node objects
      * @param {object} importOptions
      * @param {boolean} importOptions.addFlow whether to add the nodes to a new flow or to the current flow
      * @param {boolean} [importOptions.notify=true] whether to show notifications for import success/failure (default true)
@@ -222,6 +222,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 e.code = 'NODE_RED'
                 throw e
             }
+        } else if (!Array.isArray(nodesStr)) {
+            throw new Error('importFlow expects a JSON string or an array of node objects')
         }
         this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true, applyNodeDefaults: true })
         this.RED.nodes.dirty(true)

@@ -351,6 +351,14 @@ describeMain('expertAutomations', () => {
                     args[1].should.have.property('touchImport', true)
                     result.should.have.property('success', true)
                 })
+                it('should throw when flow param is neither string nor array', async () => {
+                    mockRED.view.importNodes = sinon.stub()
+                    mockRED._ = sinon.stub().returns('error')
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/import-flow', {
+                        params: { flow: 12345 }
+                    }, result)).rejectedWith('importFlow expects a JSON string or an array of node objects')
+                })
                 it('should pass addFlowTab: true to importNodes as addFlow: true', async () => {
                     mockRED.view.importNodes = sinon.stub()
                     const flowArray = [{ id: 'n1', type: 'inject' }]
