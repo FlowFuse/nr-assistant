@@ -6,7 +6,7 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
-const GET_FLOW = 'automation/get-flow'
+const GET_FLOW = 'automation/get-workspace-nodes'
 
 /**
  * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|GET_FLOW} ExpertAutomationsActionsEnum

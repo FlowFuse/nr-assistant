@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/get-flow')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/get-workspace-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,7 +323,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
-            describe('getFlow action', () => {
+            describe('getWorkspaceNodes action', () => {
                 it('should return flows with tabs and nodes', async () => {
                     mockRED.nodes.eachWorkspace = sinon.stub().callsFake(cb => {
                         cb({ id: 'tab1', label: 'Flow 1', disabled: false })
@@ -333,11 +333,57 @@ describeMain('expertAutomations', () => {
                     })
                     mockRED.nodes.getNodeLinks = sinon.stub().returns([])
                     const result = {}
-                    await expertAutomations.invokeAction('automation/get-flow', { params: {} }, result)
+                    await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
                     result.should.have.property('success', true)
                     result.should.have.property('flows').which.is.an.Array()
                     result.flows.should.have.length(2)
                     result.flows[0].should.have.property('type', 'tab')
+                })
+                it('should include _config properties in node output', async () => {
+                    mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                    mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                        cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', outputs: 0, _config: { topic: '"hello"' } })
+                    })
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                    result.flows[0].should.have.property('topic', 'hello')
+                })
+                it('should populate wires from links', async () => {
+                    mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                    mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                        cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', outputs: 1, _config: {} })
+                    })
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([
+                        { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                    ])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                    result.flows[0].should.have.property('wires').which.deepEqual([['n2']])
+                })
+                it('should return empty wires for nodes with zero outputs', async () => {
+                    mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                    mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                        cb({ id: 'n1', type: 'debug', z: 'tab1', name: 'dbg', outputs: 0, _config: {} })
+                    })
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                    result.flows[0].should.have.property('wires').which.deepEqual([])
+                })
+                it('should handle multiple tabs', async () => {
+                    mockRED.nodes.eachWorkspace = sinon.stub().callsFake(cb => {
+                        cb({ id: 'tab1', label: 'Flow 1', disabled: false })
+                        cb({ id: 'tab2', label: 'Flow 2', disabled: true })
+                    })
+                    mockRED.nodes.eachNode = sinon.stub().callsFake(() => {})
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                    result.flows.should.have.length(2)
+                    result.flows[0].should.have.property('label', 'Flow 1')
+                    result.flows[1].should.have.property('label', 'Flow 2')
+                    result.flows[1].should.have.property('disabled', true)
                 })
             })
     })
