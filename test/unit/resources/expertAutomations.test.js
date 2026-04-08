@@ -324,27 +324,25 @@ describeMain('expertAutomations', () => {
             })
         })
             describe('addNodes action', () => {
-                it('should add nodes to the canvas and push history', async () => {
-                    mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' } } })
-                    mockRED.nodes.add = sinon.stub()
+                it('should validate types, fill defaults, and delegate to importNodes', async () => {
+                    mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' }, repeat: { value: '' } } })
+                    mockRED.view.importNodes = sinon.stub()
                     mockRED.nodes.dirty = sinon.stub()
-                    mockRED.history = { push: sinon.stub() }
-                    mockRED.editor = { validateNode: sinon.stub() }
-                    mockRED.workspaces = { active: sinon.stub().returns('tab1'), show: sinon.stub() }
-                    mockRED.view.updateActive = sinon.stub()
-                    mockRED.view.redraw = sinon.stub()
+                    const nodes = [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }]
                     const result = {}
                     await expertAutomations.invokeAction('automation/add-nodes', {
-                        params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }] }
+                        params: { nodes }
                     }, result)
-                    mockRED.nodes.add.calledOnce.should.be.true()
-                    mockRED.history.push.calledOnce.should.be.true()
-                    const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('t', 'add')
-                    historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
-                    mockRED.nodes.dirty.calledWith(true).should.be.true()
-                    mockRED.view.updateActive.calledOnce.should.be.true()
-                    mockRED.view.redraw.calledOnce.should.be.true()
+                    mockRED.nodes.getType.calledWith('inject').should.be.true()
+                    mockRED.view.importNodes.calledOnce.should.be.true()
+                    const importArgs = mockRED.view.importNodes.firstCall.args
+                    // Should include defaults filled in
+                    importArgs[0][0].should.have.property('id', 'n1')
+                    importArgs[0][0].should.have.property('name', '')
+                    importArgs[0][0].should.have.property('repeat', '')
+                    importArgs[1].should.have.property('generateIds', false)
+                    importArgs[1].should.have.property('addFlow', false)
+                    importArgs[1].should.have.property('notify', false)
                     result.should.have.property('success', true)
                     result.should.have.property('handled', true)
                 })

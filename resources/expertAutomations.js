@@ -256,58 +256,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Add one or more nodes to the live NR4 canvas.
+     * Delegates to RED.view.importNodes which handles node initialisation,
+     * history (undo/redo) and view updates internally.
      * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
      */
     addNodes (nodes) {
-        const addedNodes = []
-        for (const rawNode of nodes) {
+        // Validate types and fill in default values for omitted properties
+        const prepared = nodes.map(rawNode => {
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
-            const node = {
-                id: rawNode.id, type: rawNode.type,
-                x: parseFloat(rawNode.x || 0), y: parseFloat(rawNode.y || 0),
-                z: rawNode.z, name: rawNode.name || '', changed: true,
-                wires: [], _config: {}, _def: def,
-                inputs: def.inputs || 0, outputs: def.outputs || 0
-            }
-            for (const d in def.defaults) {
-                if (Object.prototype.hasOwnProperty.call(def.defaults, d) && d !== 'inputs' && d !== 'outputs') {
-                    node[d] = Object.prototype.hasOwnProperty.call(rawNode, d) ? rawNode[d] : def.defaults[d].value
-                    node._config[d] = JSON.stringify(node[d])
+            const node = { ...rawNode }
+            if (def.defaults) {
+                for (const d in def.defaults) {
+                    if (Object.prototype.hasOwnProperty.call(def.defaults, d) && !Object.prototype.hasOwnProperty.call(node, d)) {
+                        node[d] = def.defaults[d].value
+                    }
                 }
             }
-            node._config.x = node.x
-            node._config.y = node.y
-            if (Object.prototype.hasOwnProperty.call(rawNode, 'outputs') && def.defaults && Object.prototype.hasOwnProperty.call(def.defaults, 'outputs')) {
-                node.outputs = parseInt(rawNode.outputs, 10) || def.outputs || 0
-                node._config.outputs = JSON.stringify(rawNode.outputs)
-            }
-            if (Object.prototype.hasOwnProperty.call(rawNode, 'inputs') && def.defaults && Object.prototype.hasOwnProperty.call(def.defaults, 'inputs')) {
-                node.inputs = parseInt(rawNode.inputs, 10) || def.inputs || 0
-                node._config.inputs = JSON.stringify(rawNode.inputs)
-            }
-            node._ = def._
-            this.RED.nodes.add(node)
-            addedNodes.push(node)
-            if (this.RED.editor?.validateNode) {
-                this.RED.editor.validateNode(node)
-            }
-        }
-        this.RED.history.push({ t: 'add', nodes: addedNodes, dirty: this.RED.nodes.dirty() })
+            return node
+        })
+        this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true })
         this.RED.nodes.dirty(true)
-
-        // Switch to the target tab if nodes belong to a different workspace
-        const targetTabId = nodes[0]?.z
-        const currentTab = this.RED.workspaces.active()
-        if (targetTabId && targetTabId !== currentTab) {
-            // show() triggers workspace:change internally which rebuilds activeNodes
-            this.RED.workspaces.show(targetTabId)
-        } else {
-            // Rebuild activeNodes and redraw — avoids emitting workspace:change
-            // which would fire notifyWorkspaceChange when no tab actually changed
-            this.RED.view.updateActive()
-            this.RED.view.redraw()
-        }
     }
 
     get supportedActions () {
