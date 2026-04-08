@@ -324,10 +324,11 @@ describeMain('expertAutomations', () => {
             })
         })
             describe('addNodes action', () => {
-                it('should add nodes to the canvas', async () => {
+                it('should add nodes to the canvas and push history', async () => {
                     mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' } } })
                     mockRED.nodes.add = sinon.stub()
                     mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
                     mockRED.editor = { validateNode: sinon.stub() }
                     mockRED.workspaces = { active: sinon.stub().returns('tab1'), show: sinon.stub() }
                     mockRED.view.updateActive = sinon.stub()
@@ -337,6 +338,10 @@ describeMain('expertAutomations', () => {
                         params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }] }
                     }, result)
                     mockRED.nodes.add.calledOnce.should.be.true()
+                    mockRED.history.push.calledOnce.should.be.true()
+                    const historyArg = mockRED.history.push.firstCall.args[0]
+                    historyArg.should.have.property('t', 'add')
+                    historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
                     mockRED.nodes.dirty.calledWith(true).should.be.true()
                     mockRED.view.updateActive.calledOnce.should.be.true()
                     mockRED.view.redraw.calledOnce.should.be.true()

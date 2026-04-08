@@ -259,6 +259,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
      */
     addNodes (nodes) {
+        const addedNodes = []
         for (const rawNode of nodes) {
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
@@ -287,10 +288,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             node._ = def._
             this.RED.nodes.add(node)
+            addedNodes.push(node)
             if (this.RED.editor?.validateNode) {
                 this.RED.editor.validateNode(node)
             }
         }
+        this.RED.history.push({ t: 'add', nodes: addedNodes, dirty: this.RED.nodes.dirty() })
         this.RED.nodes.dirty(true)
 
         // Switch to the target tab if nodes belong to a different workspace
