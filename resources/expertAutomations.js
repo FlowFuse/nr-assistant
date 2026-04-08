@@ -266,10 +266,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const link = existingLinks.find(l =>
                 l.source?.id === from && l.sourcePort === port && l.target?.id === to
             )
-            if (link) {
-                this.RED.nodes.removeLink(link)
-                this.RED.history.push({ t: 'delete', links: [link], dirty: this.RED.nodes.dirty() })
+            if (!link) {
+                throw new Error(`Wire not found from ${from} port ${port} to ${to}`)
             }
+            this.RED.nodes.removeLink(link)
+            this.RED.history.push({ t: 'delete', links: [link], dirty: this.RED.nodes.dirty() })
         }
         sourceNode.changed = true
         sourceNode.dirty = true

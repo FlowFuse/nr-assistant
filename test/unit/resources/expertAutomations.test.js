@@ -390,6 +390,15 @@ describeMain('expertAutomations', () => {
                         params: { mode: 'add', from: 'missing', to: 'n2' }
                     }, result)).rejectedWith(/Source node missing not found/)
                 })
+                it('should throw if removing a wire that does not exist', async () => {
+                    const source = { id: 'n1', dirty: false, changed: false }
+                    mockRED.nodes.node.withArgs('n1').returns(source)
+                    mockRED.nodes.getNodeLinks.returns([])
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/set-wires', {
+                        params: { mode: 'remove', from: 'n1', output: 0, to: 'n2' }
+                    }, result)).rejectedWith(/Wire not found from n1 port 0 to n2/)
+                })
             })
     })
 })
