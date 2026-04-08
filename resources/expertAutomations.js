@@ -108,7 +108,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: ['string', 'array'],
                         description: 'Flow JSON string or array to import onto the canvas'
                     },
-                    addFlow: {
+                    addFlowTab: {
                         type: 'boolean',
                         description: 'Whether to create a new tab for the imported nodes (true) or import into the current tab (false). Default: false'
                     },
@@ -324,7 +324,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case IMPORT_FLOW:
-            this.importFlow(params.flow, { addFlow: params.addFlow, generateIds: params.generateIds ?? true })
+            this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
             result.success = true
             break
         default:
