@@ -84,7 +84,8 @@ describeMain('expertComms', function () {
                 selection: sinon.stub()
             },
             nodes: {
-                createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || [])
+                createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
+                dirty: sinon.stub()
             },
             notify: sinon.stub(),
             _: sinon.stub().callsFake((key, params) => {

@@ -224,6 +224,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
         }
         this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true })
+        this.RED.nodes.dirty(true)
     }
 
     async addFlowTab (title) {
