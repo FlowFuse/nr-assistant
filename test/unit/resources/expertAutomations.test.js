@@ -363,15 +363,22 @@ describeMain('expertAutomations', () => {
                     historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
                     historyArg.links[0].should.equal(mockLink)
                 })
-                it('should skip nodes that do not exist', async () => {
+                it('should throw if any node ID does not exist', async () => {
                     mockRED.nodes.node.returns(null)
                     const result = {}
-                    await expertAutomations.invokeAction('automation/remove-nodes', {
+                    await should(expertAutomations.invokeAction('automation/remove-nodes', {
                         params: { ids: ['nonexistent'] }
-                    }, result)
+                    }, result)).rejectedWith(/Node\(s\) not found: nonexistent/)
                     mockRED.nodes.remove.called.should.be.false()
-                    mockRED.history.push.called.should.be.false()
-                    result.should.have.property('success', true)
+                })
+                it('should throw without removing anything if mix of valid and invalid IDs', async () => {
+                    mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
+                    mockRED.nodes.node.withArgs('bad').returns(null)
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                        params: { ids: ['n1', 'bad'] }
+                    }, result)).rejectedWith(/Node\(s\) not found: bad/)
+                    mockRED.nodes.remove.called.should.be.false()
                 })
             })
     })

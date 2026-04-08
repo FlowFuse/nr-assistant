@@ -249,15 +249,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      */
     removeNodes (ids) {
+        // Validate all IDs exist before removing anything to avoid partial operations
+        const notFound = ids.filter(id => !this.RED.nodes.node(id))
+        if (notFound.length > 0) {
+            throw new Error(`Node(s) not found: ${notFound.join(', ')}`)
+        }
         const allRemovedNodes = []
         const allRemovedLinks = []
         for (const id of ids) {
             const node = this.RED.nodes.node(id)
-            if (node) {
-                allRemovedNodes.push(node)
-                const removed = this.RED.nodes.remove(id)
-                allRemovedLinks.push(...(removed.links || []))
-            }
+            allRemovedNodes.push(node)
+            const removed = this.RED.nodes.remove(id)
+            allRemovedLinks.push(...(removed.links || []))
         }
         if (allRemovedNodes.length > 0) {
             this.RED.history.push({ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
