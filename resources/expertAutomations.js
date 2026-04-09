@@ -255,12 +255,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const sourceNode = this.RED.nodes.node(from)
         if (!sourceNode) throw new Error(`Source node ${from} not found`)
         const port = output ?? 0
+        const wasChanged = sourceNode.changed
+        const wasDirty = this.RED.nodes.dirty()
+        let linkEvent
         if (mode === 'add') {
             const targetNode = this.RED.nodes.node(to)
             if (!targetNode) throw new Error(`Target node ${to} not found`)
             const link = { source: sourceNode, sourcePort: port, target: targetNode }
             this.RED.nodes.addLink(link)
-            this.RED.history.push({ t: 'add', links: [link], dirty: this.RED.nodes.dirty() })
+            linkEvent = { t: 'add', links: [link] }
         } else {
             const existingLinks = this.RED.nodes.getNodeLinks(from)
             const link = existingLinks.find(l =>
@@ -270,11 +273,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw new Error(`Wire not found from ${from} port ${port} to ${to}`)
             }
             this.RED.nodes.removeLink(link)
-            this.RED.history.push({ t: 'delete', links: [link], dirty: this.RED.nodes.dirty() })
+            linkEvent = { t: 'delete', links: [link] }
         }
         sourceNode.changed = true
         sourceNode.dirty = true
         this.RED.nodes.dirty(true)
+        // Use a multi event so undo restores both the link and the node's changed state
+        this.RED.history.push({
+            t: 'multi',
+            events: [
+                linkEvent,
+                { t: 'edit', node: sourceNode, changes: {}, changed: wasChanged }
+            ],
+            dirty: wasDirty
+        })
         this.RED.view.updateActive()
         this.RED.view.redraw()
     }

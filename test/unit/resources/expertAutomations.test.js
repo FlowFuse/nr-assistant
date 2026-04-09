@@ -345,8 +345,12 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.addLink.calledOnce.should.be.true()
                     mockRED.history.push.calledOnce.should.be.true()
                     const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('t', 'add')
-                    historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    historyArg.should.have.property('t', 'multi')
+                    historyArg.should.have.property('events').which.is.an.Array().with.lengthOf(2)
+                    historyArg.events[0].should.have.property('t', 'add')
+                    historyArg.events[0].should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    historyArg.events[1].should.have.property('t', 'edit')
+                    historyArg.events[1].should.have.property('changed', false)
                     source.changed.should.be.true()
                     source.dirty.should.be.true()
                     mockRED.nodes.dirty.calledWith(true).should.be.true()
@@ -366,8 +370,11 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.removeLink.calledWith(existingLink).should.be.true()
                     mockRED.history.push.calledOnce.should.be.true()
                     const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('t', 'delete')
-                    historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    historyArg.should.have.property('t', 'multi')
+                    historyArg.events[0].should.have.property('t', 'delete')
+                    historyArg.events[0].should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                    historyArg.events[1].should.have.property('t', 'edit')
+                    historyArg.events[1].should.have.property('changed', false)
                     result.should.have.property('success', true)
                 })
                 it('should use non-zero output port', async () => {
