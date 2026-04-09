@@ -693,10 +693,11 @@ export class ExpertComms {
                     if (propSchema.type && propExists) {
                         const expectedType = propSchema.type
                         const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
-                        if (actualType !== expectedType) {
+                        const allowedTypes = Array.isArray(expectedType) ? expectedType : [expectedType]
+                        if (!allowedTypes.includes(actualType)) {
                             return {
                                 valid: false,
-                                error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${expectedType}"`
+                                error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${allowedTypes.join(' or ')}"`
                             }
                         }
                     }
