@@ -374,6 +374,7 @@ describeMain('expertAutomations', () => {
         })
         describe('showWorkspace action', () => {
             it('should navigate to the specified workspace', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
                 mockRED.workspaces = { show: sinon.stub() }
                 const result = {}
                 await expertAutomations.invokeAction('automation/show-workspace', {
@@ -381,6 +382,14 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.workspaces.show.calledWith('tab1').should.be.true()
                 result.should.have.property('success', true)
+            })
+            it('should throw if workspace does not exist', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'nonexistent' }
+                }, result)).rejectedWith(/Workspace nonexistent not found/)
             })
         })
     })

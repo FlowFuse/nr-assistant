@@ -276,6 +276,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
     }
 
+    /**
+     * Navigate to a workspace tab, validating it exists first.
+     * @param {string} id - workspace ID to show
+     */
+    showWorkspace (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this.RED.workspaces.show(id)
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -353,7 +363,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case SHOW_WORKSPACE:
-            this.RED.workspaces.show(params.id)
+            this.showWorkspace(params.id)
             result.success = true
             break
         default:
