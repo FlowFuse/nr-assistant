@@ -69,7 +69,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/add-nodes')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -398,6 +398,323 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', z: 'tab1' }] }
                 }, result)).rejectedWith(/missing required property: type/)
+            })
+        })
+        describe('removeTab action', () => {
+            it('should remove an existing tab', async () => {
+                const mockWs = { id: 'tab1', type: 'tab' }
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
+                mockRED.workspaces = { delete: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should throw if tab not found', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'does-not-exist' }
+                }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+            })
+            it('should throw if id is empty', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: '' }
+                }, {})).rejectedWith(/Tab with id .* not found/)
+            })
+        })
+        describe('addTab action', () => {
+            beforeEach(() => {
+                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.id = sinon.stub().returns('gen-id')
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
+            })
+            it('should create a new tab with history and dirty', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'My Tab' }
+                }, result)
+                mockRED.nodes.addWorkspace.calledOnce.should.be.true()
+                mockRED.workspaces.add.calledOnce.should.be.true()
+                mockRED.workspaces.show.calledOnce.should.be.true()
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('label', 'My Tab')
+                ws.should.have.property('type', 'tab')
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'add')
+                historyArg.should.have.property('workspaces').which.is.an.Array().with.lengthOf(1)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should use defaults when optional fields omitted', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'Minimal Tab' }
+                }, result)
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('disabled', false)
+                ws.should.have.property('info', '')
+                ws.should.have.property('env').which.deepEqual([])
+                result.should.have.property('success', true)
+            })
+            it('should throw if label is missing', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: {}
+                }, result)).rejectedWith(/Tab label is required/)
+            })
+        })
+        describe('close UI panel actions', () => {
+            it('should close search', async () => {
+                mockRED.search = { show: sinon.stub(), search: sinon.stub(), hide: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-search', { params: {} }, result)
+                mockRED.search.hide.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should close type search via ESC dispatch when input element exists', async () => {
+                mockRED.typeSearch = { hide: sinon.stub() }
+                const mockInput = { dispatchEvent: sinon.stub() }
+                const origDocument = globalThis.document
+                const origKeyboardEvent = globalThis.KeyboardEvent
+                globalThis.document = { getElementById: sinon.stub().withArgs('red-ui-type-search-input').returns(mockInput) }
+                globalThis.KeyboardEvent = class KeyboardEvent {
+                    constructor (type, opts) { this.type = type; this.key = opts.key; this.keyCode = opts.keyCode; this.bubbles = opts.bubbles }
+                }
+                try {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                    mockInput.dispatchEvent.calledOnce.should.be.true()
+                    const event = mockInput.dispatchEvent.firstCall.args[0]
+                    event.key.should.equal('Escape')
+                    event.keyCode.should.equal(27)
+                    event.bubbles.should.be.true()
+                    mockRED.typeSearch.hide.called.should.be.false()
+                    result.should.have.property('success', true)
+                } finally {
+                    if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                    if (origKeyboardEvent) { globalThis.KeyboardEvent = origKeyboardEvent } else { delete globalThis.KeyboardEvent }
+                }
+            })
+            it('should fall back to RED.typeSearch.hide() when input element not found', async () => {
+                mockRED.typeSearch = { hide: sinon.stub() }
+                const origDocument = globalThis.document
+                globalThis.document = { getElementById: sinon.stub().returns(null) }
+                try {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                    mockRED.typeSearch.hide.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                } finally {
+                    if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                }
+            })
+            it('should close action list', async () => {
+                mockRED.actionList = { hide: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-action-list', { params: {} }, result)
+                mockRED.actionList.hide.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+        })
+        describe('getWorkspaceNodes action', () => {
+            it('should return flows with tabs and nodes', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(cb => {
+                    cb({ id: 'tab1', label: 'Flow 1', disabled: false })
+                })
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', x: 100, y: 200, outputs: 1, _config: {} })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('flows').which.is.an.Array()
+                result.flows.should.have.length(2)
+                result.flows[0].should.have.property('type', 'tab')
+            })
+            it('should include _config properties in node output', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', outputs: 0, _config: { topic: '"hello"' } })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('topic', 'hello')
+            })
+            it('should populate wires from links', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', outputs: 1, _config: {} })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([
+                    { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                ])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('wires').which.deepEqual([['n2']])
+            })
+            it('should return empty wires for nodes with zero outputs', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'debug', z: 'tab1', name: 'dbg', outputs: 0, _config: {} })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('wires').which.deepEqual([])
+            })
+            it('should handle multiple tabs', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(cb => {
+                    cb({ id: 'tab1', label: 'Flow 1', disabled: false })
+                    cb({ id: 'tab2', label: 'Flow 2', disabled: true })
+                })
+                mockRED.nodes.eachNode = sinon.stub().callsFake(() => {})
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows.should.have.length(2)
+                result.flows[0].should.have.property('label', 'Flow 1')
+                result.flows[1].should.have.property('label', 'Flow 2')
+                result.flows[1].should.have.property('disabled', true)
+            })
+            it('should omit x and y when node has no coordinates', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'no-coords', outputs: 0, _config: {} })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.not.have.property('x')
+                result.flows[0].should.not.have.property('y')
+            })
+            it('should populate wires on multiple output ports', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'switch', z: 'tab1', name: 'sw', outputs: 2, _config: {} })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([
+                    { source: { id: 'n1' }, sourcePort: 0, target: { id: 'a1' } },
+                    { source: { id: 'n1' }, sourcePort: 1, target: { id: 'b1' } },
+                    { source: { id: 'n1' }, sourcePort: 0, target: { id: 'a2' } }
+                ])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('wires').which.deepEqual([['a1', 'a2'], ['b1']])
+            })
+            it('should exclude x and y keys from _config', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', x: 10, y: 20, outputs: 0, _config: { x: '999', y: '888', topic: '"hi"' } })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('x', 10)
+                result.flows[0].should.have.property('y', 20)
+                result.flows[0].should.have.property('topic', 'hi')
+            })
+            it('should not overwrite existing plain properties from _config', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'original', outputs: 0, _config: { name: '"overwritten"' } })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('name', 'original')
+            })
+            it('should fall back to raw string when _config value is not valid JSON', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'test', outputs: 0, _config: { payload: 'not-valid-json{' } })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.flows[0].should.have.property('payload', 'not-valid-json{')
+            })
+            it('should handle node without _config property', async () => {
+                mockRED.nodes.eachWorkspace = sinon.stub().callsFake(() => {})
+                mockRED.nodes.eachNode = sinon.stub().callsFake(cb => {
+                    cb({ id: 'n1', type: 'inject', z: 'tab1', name: 'no-config', x: 50, y: 60, outputs: 0 })
+                })
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.flows[0].should.have.property('id', 'n1')
+                result.flows[0].should.have.property('name', 'no-config')
+                result.flows[0].should.have.property('wires').which.deepEqual([])
+            })
+        })
+        describe('updateNode action', () => {
+            it('should update node properties with history and changed flag', async () => {
+                const mockNode = { id: 'n1', name: 'old', changed: false }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub() }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { name: 'new' } }
+                }, result)
+                mockNode.name.should.equal('new')
+                mockNode.changed.should.be.true()
+                mockNode.dirty.should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'edit')
+                historyArg.should.have.property('node', mockNode)
+                historyArg.should.have.property('changes').which.deepEqual({ name: 'old' })
+                historyArg.should.have.property('changed', false)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should capture old values correctly before applying changes', async () => {
+                const mockNode = { id: 'n1', name: 'original', x: 100, changed: true }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { name: 'updated', x: 200 } }
+                }, result)
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.changes.should.deepEqual({ name: 'original', x: 100 })
+                historyArg.changed.should.be.true()
+                mockNode.name.should.equal('updated')
+                mockNode.x.should.equal(200)
+            })
+            it('should throw if node not found', async () => {
+                mockRED.nodes.node.returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'missing', properties: {} }
+                }, result)).rejectedWith(/Node missing not found/)
+            })
+        })
+        describe('showWorkspace action', () => {
+            it('should navigate to the specified workspace', async () => {
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.show.calledWith('tab1').should.be.true()
+                result.should.have.property('success', true)
             })
         })
     })
