@@ -98,8 +98,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-        }
-,
+        },
         [REMOVE_TAB]: {
             params: {
                 type: 'object',

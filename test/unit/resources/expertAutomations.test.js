@@ -323,32 +323,32 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
-            describe('removeTab action', () => {
-                it('should remove an existing tab', async () => {
-                    const mockWs = { id: 'tab1', type: 'tab' }
-                    mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
-                    mockRED.workspaces = { delete: sinon.stub() }
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/remove-tab', {
-                        params: { id: 'tab1' }
-                    }, result)
-                    mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
-                    result.should.have.property('success', true)
-                })
-                it('should throw if tab not found', async () => {
-                    mockRED.nodes.workspace = sinon.stub().returns(null)
-                    mockRED.workspaces = { delete: sinon.stub() }
-                    await should(expertAutomations.invokeAction('automation/remove-tab', {
-                        params: { id: 'does-not-exist' }
-                    }, {})).rejectedWith(/Tab with id does-not-exist not found/)
-                })
-                it('should throw if id is empty', async () => {
-                    mockRED.nodes.workspace = sinon.stub().returns(null)
-                    mockRED.workspaces = { delete: sinon.stub() }
-                    await should(expertAutomations.invokeAction('automation/remove-tab', {
-                        params: { id: '' }
-                    }, {})).rejectedWith(/Tab with id .* not found/)
-                })
+        describe('removeTab action', () => {
+            it('should remove an existing tab', async () => {
+                const mockWs = { id: 'tab1', type: 'tab' }
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
+                mockRED.workspaces = { delete: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
+                result.should.have.property('success', true)
             })
+            it('should throw if tab not found', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'does-not-exist' }
+                }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+            })
+            it('should throw if id is empty', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: '' }
+                }, {})).rejectedWith(/Tab with id .* not found/)
+            })
+        })
     })
 })
