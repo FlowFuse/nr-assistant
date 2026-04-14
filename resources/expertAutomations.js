@@ -6,10 +6,17 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const UPDATE_NODE = 'automation/update-node'
+const SHOW_WORKSPACE = 'automation/show-workspace'
+const GET_FLOW = 'automation/get-workspace-nodes'
+const CLOSE_SEARCH = 'automation/close-search'
+const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
+const CLOSE_ACTION_LIST = 'automation/close-action-list'
+const ADD_TAB = 'automation/add-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|REMOVE_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -97,6 +104,55 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        },
+        [UPDATE_NODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the node to update' },
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                },
+                required: ['id', 'properties']
+            }
+        },
+        [SHOW_WORKSPACE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the flow tab or subflow to navigate to' }
+                },
+                required: ['id']
+            }
+        },
+        [GET_FLOW]: {
+            params: null
+        },
+        [CLOSE_SEARCH]: { params: null },
+        [CLOSE_TYPE_SEARCH]: { params: null },
+        [CLOSE_ACTION_LIST]: { params: null },
+        [ADD_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Tab ID — auto-generated if omitted' },
+                    label: { type: 'string', description: 'Tab label' },
+                    disabled: { type: 'boolean', description: 'Create as disabled' },
+                    info: { type: 'string', description: 'Tab notes' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: { type: 'string' }
+                            }
+                        },
+                        description: 'Environment variables'
+                    }
+                },
+                required: ['label']
             }
         },
         [REMOVE_TAB]: {
@@ -240,6 +296,108 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Update properties of an existing node in place.
+     * @param {string} id - node ID
+     * @param {Object} properties - key-value pairs to merge into the node
+     */
+    updateNode (id, properties) {
+        const node = this.RED.nodes.node(id)
+        if (!node) throw new Error(`Node ${id} not found`)
+        const changes = {}
+        for (const key in properties) {
+            if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                changes[key] = node[key]
+            }
+        }
+        const wasChanged = node.changed
+        Object.assign(node, properties)
+        this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
+        node.changed = true
+        node.dirty = true
+        this.RED.nodes.dirty(true)
+        if (this.RED.editor?.validateNode) {
+            this.RED.editor.validateNode(node)
+        }
+        this.RED.view.redraw()
+    }
+
+    /**
+     * Read the live canvas state (including undeployed edits) and return it.
+     * @returns {Object[]} full flows array (tabs + nodes + config nodes)
+     */
+    getFlow () {
+        const flows = []
+        this.RED.nodes.eachWorkspace(ws => {
+            flows.push({ id: ws.id, type: 'tab', label: ws.label, disabled: ws.disabled || false })
+        })
+        this.RED.nodes.eachNode(node => {
+            const plain = { id: node.id, type: node.type, z: node.z, name: node.name }
+            if (node.x !== undefined) plain.x = node.x
+            if (node.y !== undefined) plain.y = node.y
+            if (node.outputs > 0) {
+                const wires = Array.from({ length: node.outputs }, () => [])
+                this.RED.nodes.getNodeLinks(node.id).forEach(link => {
+                    if (link.source?.id === node.id && wires[link.sourcePort]) {
+                        wires[link.sourcePort].push(link.target.id)
+                    }
+                })
+                plain.wires = wires
+            } else {
+                plain.wires = []
+            }
+            if (node._config) {
+                for (const k of Object.keys(node._config)) {
+                    if (k !== 'x' && k !== 'y' && plain[k] === undefined) {
+                        try { plain[k] = JSON.parse(node._config[k]) } catch { plain[k] = node._config[k] }
+                    }
+                }
+            }
+            flows.push(plain)
+        })
+        return flows
+    }
+
+    closeSearch () { this.RED.search.hide() }
+
+    closeTypeSearch () {
+        // RED.typeSearch.hide() alone does NOT invoke the cancelCallback set by
+        // RED.view, which cleans up ghost nodes, drag lines, and resets mouse state.
+        // Dispatching ESC on the type-search input triggers NR4's keyboard handler
+        // (scope "red-ui-type-search") which calls both hide() and cancelCallback().
+        try {
+            const input = document.getElementById('red-ui-type-search-input')
+            if (input) {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }))
+                return
+            }
+        } catch (_) { /* Node.js test env or missing DOM */ }
+        this.RED.typeSearch.hide()
+    }
+
+    closeActionList () { this.RED.actionList.hide() }
+
+    /**
+     * Add a new flow tab with an explicit ID and configuration.
+     * @param {Object} tab - tab definition with id, label, disabled, info, env
+     */
+    addTab (tab) {
+        if (tab.label == null) throw new Error('Tab label is required')
+        const ws = {
+            type: 'tab',
+            id: tab.id || this.RED.nodes.id(),
+            label: tab.label,
+            disabled: tab.disabled || false,
+            info: tab.info || '',
+            env: tab.env || []
+        }
+        this.RED.nodes.addWorkspace(ws)
+        this.RED.workspaces.add(ws)
+        this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.workspaces.show(ws.id)
+    }
+
+    /**
      * Remove an existing flow tab from the NR4 editor.
      * @param {string} id - tab ID to remove
      */
@@ -320,6 +478,39 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.tab = this._formatNodes([newFlowTab], false)[0] || null
             result.success = true
         }
+            break
+
+        case UPDATE_NODE:
+            this.updateNode(params.id, params.properties)
+            result.success = true
+            break
+
+        case SHOW_WORKSPACE:
+            this.RED.workspaces.show(params.id)
+            result.success = true
+            break
+
+        case GET_FLOW:
+            result.flows = this.getFlow()
+            result.success = true
+            break
+
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+        case CLOSE_TYPE_SEARCH:
+            this.closeTypeSearch()
+            result.success = true
+            break
+        case CLOSE_ACTION_LIST:
+            this.closeActionList()
+            result.success = true
+            break
+
+        case ADD_TAB:
+            this.addTab(params)
+            result.success = true
             break
 
         case REMOVE_TAB:
