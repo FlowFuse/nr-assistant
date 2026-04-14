@@ -187,7 +187,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
                             required: ['id', 'type', 'z']
                         },
                         description: 'Array of node objects to add to the canvas'
-                    }
+                    },
+                    generateIds: { type: 'boolean', description: 'Regenerate node IDs during import (use if IDs may conflict). Default: false', default: false }
                 },
                 required: ['nodes']
             }
@@ -491,8 +492,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Delegates to RED.view.importNodes which handles node initialisation,
      * history (undo/redo) and view updates internally.
      * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
+     * @param {Object} [options]
+     * @param {boolean} [options.generateIds=false] - regenerate node IDs during import
      */
-    addNodes (nodes) {
+    addNodes (nodes, { generateIds = false } = {}) {
         // Validate required fields and types
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
@@ -502,14 +505,26 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             return { ...rawNode }
         })
+        // Validate target tab exists before switching
+        const targetZ = prepared[0]?.z
+        if (targetZ) {
+            const targetWs = this.RED.nodes.workspace(targetZ)
+            if (!targetWs) throw new Error(`Target tab ${targetZ} not found`)
+        }
         // importNodes places nodes on the active workspace when addFlow=false,
         // so switch to the target tab first if nodes target a different one
-        const targetZ = prepared[0]?.z
         const activeZ = this.RED.workspaces.active()
         if (targetZ && targetZ !== activeZ) {
             this.RED.workspaces.show(targetZ)
         }
-        this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        // Validate import actually succeeded (only when IDs are known)
+        if (!generateIds) {
+            const missing = prepared.filter(n => !this.RED.nodes.node(n.id))
+            if (missing.length > 0) {
+                throw new Error(`Failed to add node(s): ${missing.map(n => n.id).join(', ')} — IDs may already exist. Retry with generateIds: true`)
+            }
+        }
         this.RED.nodes.dirty(true)
     }
 
@@ -685,7 +700,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case ADD_NODES:
-            this.addNodes(params.nodes)
+            this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             result.success = true
             break
 
