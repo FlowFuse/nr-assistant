@@ -6,10 +6,21 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const UPDATE_NODE = 'automation/update-node'
+const SHOW_WORKSPACE = 'automation/show-workspace'
+const GET_FLOW = 'automation/get-workspace-nodes'
+const CLOSE_SEARCH = 'automation/close-search'
+const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
+const CLOSE_ACTION_LIST = 'automation/close-action-list'
+const ADD_TAB = 'automation/add-tab'
+const REMOVE_TAB = 'automation/remove-tab'
+const ADD_NODES = 'automation/add-nodes'
+const REMOVE_NODES = 'automation/remove-nodes'
+const SET_WIRES = 'automation/set-wires'
 const IMPORT_FLOW = 'automation/import-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|IMPORT_FLOW} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES|IMPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -97,6 +108,113 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        },
+        [UPDATE_NODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the node to update' },
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                },
+                required: ['id', 'properties']
+            }
+        },
+        [SHOW_WORKSPACE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the flow tab or subflow to navigate to' }
+                },
+                required: ['id']
+            }
+        },
+        [GET_FLOW]: {
+            params: null
+        },
+        [CLOSE_SEARCH]: { params: null },
+        [CLOSE_TYPE_SEARCH]: { params: null },
+        [CLOSE_ACTION_LIST]: { params: null },
+        [ADD_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Tab ID — auto-generated if omitted' },
+                    label: { type: 'string', description: 'Tab label' },
+                    disabled: { type: 'boolean', description: 'Create as disabled' },
+                    info: { type: 'string', description: 'Tab notes' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: { type: 'string' }
+                            }
+                        },
+                        description: 'Environment variables'
+                    }
+                },
+                required: ['label']
+            }
+        },
+        [REMOVE_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the tab to remove' }
+                },
+                required: ['id']
+            }
+        },
+        [ADD_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string', description: 'Unique node ID' },
+                                type: { type: 'string', description: 'Node type identifier' },
+                                x: { type: 'number', description: 'Canvas x position' },
+                                y: { type: 'number', description: 'Canvas y position' },
+                                z: { type: 'string', description: 'Tab (workspace) ID' }
+                            },
+                            additionalProperties: true,
+                            required: ['id', 'type', 'z']
+                        },
+                        description: 'Array of node objects to add to the canvas'
+                    }
+                },
+                required: ['nodes']
+            }
+        },
+        [REMOVE_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    ids: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'IDs of nodes to remove from the canvas'
+                    }
+                },
+                required: ['ids']
+            }
+        },
+        [SET_WIRES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a wire' },
+                    from: { type: 'string', description: 'Source node ID' },
+                    output: { type: 'number', description: 'Source output port index (0-based)' },
+                    to: { type: 'string', description: 'Target node ID' }
+                },
+                required: ['mode', 'from', 'to']
             }
         },
         [IMPORT_FLOW]: {
@@ -254,6 +372,209 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Update properties of an existing node in place.
+     * @param {string} id - node ID
+     * @param {Object} properties - key-value pairs to merge into the node
+     */
+    updateNode (id, properties) {
+        const node = this.RED.nodes.node(id)
+        if (!node) throw new Error(`Node ${id} not found`)
+        const changes = {}
+        for (const key in properties) {
+            if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                changes[key] = node[key]
+            }
+        }
+        const wasChanged = node.changed
+        Object.assign(node, properties)
+        this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
+        node.changed = true
+        node.dirty = true
+        this.RED.nodes.dirty(true)
+        if (this.RED.editor?.validateNode) {
+            this.RED.editor.validateNode(node)
+        }
+        this.RED.view.redraw()
+    }
+
+    /**
+     * Read the live canvas state (including undeployed edits) and return it.
+     * @returns {Object[]} full flows array (tabs + nodes + config nodes)
+     */
+    getFlow () {
+        const flows = []
+        this.RED.nodes.eachWorkspace(ws => {
+            flows.push({ id: ws.id, type: 'tab', label: ws.label, disabled: ws.disabled || false })
+        })
+        this.RED.nodes.eachNode(node => {
+            const plain = { id: node.id, type: node.type, z: node.z, name: node.name }
+            if (node.x !== undefined) plain.x = node.x
+            if (node.y !== undefined) plain.y = node.y
+            if (node.outputs > 0) {
+                const wires = Array.from({ length: node.outputs }, () => [])
+                this.RED.nodes.getNodeLinks(node.id).forEach(link => {
+                    if (link.source?.id === node.id && wires[link.sourcePort]) {
+                        wires[link.sourcePort].push(link.target.id)
+                    }
+                })
+                plain.wires = wires
+            } else {
+                plain.wires = []
+            }
+            if (node._config) {
+                for (const k of Object.keys(node._config)) {
+                    if (k !== 'x' && k !== 'y' && plain[k] === undefined) {
+                        try { plain[k] = JSON.parse(node._config[k]) } catch { plain[k] = node._config[k] }
+                    }
+                }
+            }
+            flows.push(plain)
+        })
+        return flows
+    }
+
+    closeSearch () { this.RED.search.hide() }
+
+    closeTypeSearch () {
+        // RED.typeSearch.hide() alone does NOT invoke the cancelCallback set by
+        // RED.view, which cleans up ghost nodes, drag lines, and resets mouse state.
+        // Dispatching ESC on the type-search input triggers NR4's keyboard handler
+        // (scope "red-ui-type-search") which calls both hide() and cancelCallback().
+        try {
+            const input = document.getElementById('red-ui-type-search-input')
+            if (input) {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }))
+                return
+            }
+        } catch (_) { /* Node.js test env or missing DOM */ }
+        this.RED.typeSearch.hide()
+    }
+
+    closeActionList () { this.RED.actionList.hide() }
+
+    /**
+     * Add a new flow tab with an explicit ID and configuration.
+     * @param {Object} tab - tab definition with id, label, disabled, info, env
+     */
+    addTab (tab) {
+        if (tab.label == null) throw new Error('Tab label is required')
+        const ws = {
+            type: 'tab',
+            id: tab.id || this.RED.nodes.id(),
+            label: tab.label,
+            disabled: tab.disabled || false,
+            info: tab.info || '',
+            env: tab.env || []
+        }
+        this.RED.nodes.addWorkspace(ws)
+        this.RED.workspaces.add(ws)
+        this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.workspaces.show(ws.id)
+    }
+
+    /**
+     * Remove an existing flow tab from the NR4 editor.
+     * @param {string} id - tab ID to remove
+     */
+    removeTab (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) {
+            throw new Error(`Tab with id ${id} not found`)
+        }
+        this.RED.workspaces.delete(ws)
+    }
+
+    /**
+     * Add one or more nodes to the live NR4 canvas.
+     * Delegates to RED.view.importNodes which handles node initialisation,
+     * history (undo/redo) and view updates internally.
+     * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
+     */
+    addNodes (nodes) {
+        // Validate required fields and types
+        const prepared = nodes.map(rawNode => {
+            if (!rawNode.id) throw new Error('Node is missing required property: id')
+            if (!rawNode.type) throw new Error('Node is missing required property: type')
+            if (!rawNode.z) throw new Error('Node is missing required property: z')
+            const def = this.RED.nodes.getType(rawNode.type)
+            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            return { ...rawNode }
+        })
+        // importNodes places nodes on the active workspace when addFlow=false,
+        // so switch to the target tab first if nodes target a different one
+        const targetZ = prepared[0]?.z
+        const activeZ = this.RED.workspaces.active()
+        if (targetZ && targetZ !== activeZ) {
+            this.RED.workspaces.show(targetZ)
+        }
+        this.RED.view.importNodes(prepared, { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        this.RED.nodes.dirty(true)
+    }
+
+    /**
+     * Remove one or more nodes from the live NR4 canvas by ID.
+     * @param {string[]} ids - node IDs to remove
+     */
+    removeNodes (ids) {
+        // Validate all IDs exist before removing anything to avoid partial operations
+        const notFound = ids.filter(id => !this.RED.nodes.node(id))
+        if (notFound.length > 0) {
+            throw new Error(`Node(s) not found: ${notFound.join(', ')}`)
+        }
+        const allRemovedNodes = []
+        const allRemovedLinks = []
+        for (const id of ids) {
+            const node = this.RED.nodes.node(id)
+            allRemovedNodes.push(node)
+            const removed = this.RED.nodes.remove(id)
+            allRemovedLinks.push(...(removed.links || []))
+        }
+        if (allRemovedNodes.length > 0) {
+            this.RED.history.push({ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
+            this.RED.nodes.dirty(true)
+            this.RED.view.updateActive()
+            this.RED.view.redraw()
+        }
+    }
+
+    /**
+     * Add or remove a single wire between two nodes.
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode
+     * @param {string} params.from - Source node ID
+     * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
+     * @param {string} params.to - Target node ID
+     */
+    setWires ({ mode, from, output, to }) {
+        const sourceNode = this.RED.nodes.node(from)
+        if (!sourceNode) throw new Error(`Source node ${from} not found`)
+        const port = output ?? 0
+        const wasDirty = this.RED.nodes.dirty()
+        if (mode === 'add') {
+            const targetNode = this.RED.nodes.node(to)
+            if (!targetNode) throw new Error(`Target node ${to} not found`)
+            const link = { source: sourceNode, sourcePort: port, target: targetNode }
+            this.RED.nodes.addLink(link)
+            this.RED.history.push({ t: 'add', links: [link], dirty: wasDirty })
+        } else {
+            const existingLinks = this.RED.nodes.getNodeLinks(from)
+            const link = existingLinks.find(l =>
+                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+            )
+            if (!link) {
+                throw new Error(`Wire not found from ${from} port ${port} to ${to}`)
+            }
+            this.RED.nodes.removeLink(link)
+            this.RED.history.push({ t: 'delete', links: [link], dirty: wasDirty })
+        }
+        sourceNode.dirty = true
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -323,6 +644,59 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.tab = this._formatNodes([newFlowTab], false)[0] || null
             result.success = true
         }
+            break
+
+        case UPDATE_NODE:
+            this.updateNode(params.id, params.properties)
+            result.success = true
+            break
+
+        case SHOW_WORKSPACE:
+            this.RED.workspaces.show(params.id)
+            result.success = true
+            break
+
+        case GET_FLOW:
+            result.flows = this.getFlow()
+            result.success = true
+            break
+
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+        case CLOSE_TYPE_SEARCH:
+            this.closeTypeSearch()
+            result.success = true
+            break
+        case CLOSE_ACTION_LIST:
+            this.closeActionList()
+            result.success = true
+            break
+
+        case ADD_TAB:
+            this.addTab(params)
+            result.success = true
+            break
+
+        case REMOVE_TAB:
+            this.removeTab(params.id)
+            result.success = true
+            break
+
+        case ADD_NODES:
+            this.addNodes(params.nodes)
+            result.success = true
+            break
+
+        case REMOVE_NODES:
+            this.removeNodes(params.ids)
+            result.success = true
+            break
+
+        case SET_WIRES:
+            this.setWires(params)
+            result.success = true
             break
 
         case IMPORT_FLOW:
