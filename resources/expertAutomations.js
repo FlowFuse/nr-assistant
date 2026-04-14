@@ -98,8 +98,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-        }
-,
+        },
         [SET_WIRES]: {
             params: {
                 type: 'object',
