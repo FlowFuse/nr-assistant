@@ -141,7 +141,10 @@ export class ExpertComms {
         'registry:node-set-disabled': 'notifyPaletteChange',
         'registry:node-set-enabled': 'notifyPaletteChange',
         // selection changes
-        'view:selection-changed': 'notifySelectionChanged'
+        'view:selection-changed': 'notifySelectionChanged',
+        // workspace changes
+        'workspace:change': 'notifyWorkspaceChange',
+        'flows:loaded': 'notifyWorkspaceChange'
     }
 
     /**
@@ -211,6 +214,8 @@ export class ExpertComms {
         this.setNodeRedEventListeners()
 
         this.setupMessageListeners()
+
+        this.notifyWorkspaceChange()
 
         // Notify the parent window that the assistant is ready
         this.postParent({
@@ -500,6 +505,17 @@ export class ExpertComms {
                 selection: []
             })
         }
+    }
+
+    notifyWorkspaceChange () {
+        const activeTab = this.RED.workspaces?.active?.()
+        const tab = activeTab ? (this.RED.nodes?.workspace(activeTab) || this.RED.nodes?.subflow(activeTab)) : null
+        const label = tab?.label || tab?.name
+        if (!label) { return }
+        this.postParent({
+            type: 'nr-assistant/workspace:change',
+            tab: { id: tab.id, label }
+        })
     }
 
     /**
