@@ -98,8 +98,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-        }
-,
+        },
         [GET_FLOW]: {
             params: null
         }
