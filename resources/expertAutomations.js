@@ -6,10 +6,11 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
+const UPDATE_NODE = 'automation/update-node'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|SHOW_WORKSPACE} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -97,6 +98,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional title for the new flow tab'
                     }
                 }
+            }
+        },
+        [UPDATE_NODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the node to update' },
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                },
+                required: ['id', 'properties']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -239,6 +250,32 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return newTab
     }
 
+    /**
+     * Update properties of an existing node in place.
+     * @param {string} id - node ID
+     * @param {Object} properties - key-value pairs to merge into the node
+     */
+    updateNode (id, properties) {
+        const node = this.RED.nodes.node(id)
+        if (!node) throw new Error(`Node ${id} not found`)
+        const changes = {}
+        for (const key in properties) {
+            if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                changes[key] = node[key]
+            }
+        }
+        const wasChanged = node.changed
+        Object.assign(node, properties)
+        this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
+        node.changed = true
+        node.dirty = true
+        this.RED.nodes.dirty(true)
+        if (this.RED.editor?.validateNode) {
+            this.RED.editor.validateNode(node)
+        }
+        this.RED.view.redraw()
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -308,6 +345,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.tab = this._formatNodes([newFlowTab], false)[0] || null
             result.success = true
         }
+            break
+
+        case UPDATE_NODE:
+            this.updateNode(params.id, params.properties)
+            result.success = true
             break
 
         case SHOW_WORKSPACE:
