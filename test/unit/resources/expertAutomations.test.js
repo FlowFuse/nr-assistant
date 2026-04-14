@@ -323,16 +323,16 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
-            describe('showWorkspace action', () => {
-                it('should navigate to the specified workspace', async () => {
-                    mockRED.workspaces = { show: sinon.stub() }
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/show-workspace', {
-                        params: { id: 'tab1' }
-                    }, result)
-                    mockRED.workspaces.show.calledWith('tab1').should.be.true()
-                    result.should.have.property('success', true)
-                })
+        describe('showWorkspace action', () => {
+            it('should navigate to the specified workspace', async () => {
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.show.calledWith('tab1').should.be.true()
+                result.should.have.property('success', true)
             })
+        })
     })
 })
