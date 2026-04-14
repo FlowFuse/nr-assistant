@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/get-workspace-nodes')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -454,6 +454,66 @@ describeMain('expertAutomations', () => {
                 result.flows[0].should.have.property('id', 'n1')
                 result.flows[0].should.have.property('name', 'no-config')
                 result.flows[0].should.have.property('wires').which.deepEqual([])
+            })
+        })
+        describe('updateNode action', () => {
+            it('should update node properties with history and changed flag', async () => {
+                const mockNode = { id: 'n1', name: 'old', changed: false }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub() }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { name: 'new' } }
+                }, result)
+                mockNode.name.should.equal('new')
+                mockNode.changed.should.be.true()
+                mockNode.dirty.should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'edit')
+                historyArg.should.have.property('node', mockNode)
+                historyArg.should.have.property('changes').which.deepEqual({ name: 'old' })
+                historyArg.should.have.property('changed', false)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should capture old values correctly before applying changes', async () => {
+                const mockNode = { id: 'n1', name: 'original', x: 100, changed: true }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { name: 'updated', x: 200 } }
+                }, result)
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.changes.should.deepEqual({ name: 'original', x: 100 })
+                historyArg.changed.should.be.true()
+                mockNode.name.should.equal('updated')
+                mockNode.x.should.equal(200)
+            })
+            it('should throw if node not found', async () => {
+                mockRED.nodes.node.returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'missing', properties: {} }
+                }, result)).rejectedWith(/Node missing not found/)
+            })
+        })
+        describe('showWorkspace action', () => {
+            it('should navigate to the specified workspace', async () => {
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.show.calledWith('tab1').should.be.true()
+                result.should.have.property('success', true)
             })
         })
     })
