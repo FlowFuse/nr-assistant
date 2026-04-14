@@ -100,8 +100,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-        }
-,
+        },
         [CLOSE_SEARCH]: { params: null },
         [CLOSE_TYPE_SEARCH]: { params: null },
         [CLOSE_ACTION_LIST]: { params: null }
