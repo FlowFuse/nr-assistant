@@ -1,3 +1,35 @@
+### 0.12.0
+
+ - Bump actions/create-github-app-token from 2.2.1 to 3.0.0 (#191)
+ - Bump actions/setup-node from 6.2.0 to 6.3.0 (#177)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/sast_scan.yaml (#179)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#178)
+ - Bump flowfuse/github-actions-workflows from 0.51.0 to 0.52.0 (#181)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#180)
+ - Bump benc-uk/workflow-dispatch from 1.2.4 to 1.3.1 (#154)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/sast_scan.yaml (#164)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#165)
+ - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#163)
+ - Bump flowfuse/github-actions-workflows from 0.49.0 to 0.51.0 (#162)
+ - Bump hono from 4.12.7 to 4.12.12 (#250) @app/dependabot
+ - Bump @hono/node-server from 1.19.10 to 1.19.13 (#249) @app/dependabot
+ - [7000] Emit active tab info on workspace change (#231) @n-lark
+ - Bump path-to-regexp from 8.3.0 to 8.4.0 (#225) @app/dependabot
+ - Bump flatted from 3.3.1 to 3.4.2 (#195) @app/dependabot
+ - ci: Use NodeJS v24 to build package (#220) @ppawlowski
+ - ci: Use NodeJS v24 as a default GitHub Actions runtime (#219) @ppawlowski
+ - Support add flow action (#192) @Steve-Mcl
+ - ci: replace `tibdex/github-app-token` with `actions/create-github-app-token` (#187) @ppawlowski
+ - Add search action support (#186) @Steve-Mcl
+ - Add edit node action (#185) @Steve-Mcl
+ - ci: add concurrency to publish workflow (#183) @ppawlowski
+ - Add select nodes action (#184) @Steve-Mcl
+ - Bump hono from 4.12.5 to 4.12.7 (#182) @app/dependabot
+ - Bump express-rate-limit from 8.2.1 to 8.3.0 (#176) @app/dependabot
+ - Bump @hono/node-server from 1.19.9 to 1.19.10 (#167) @app/dependabot
+ - Bump hono from 4.12.3 to 4.12.5 (#166) @app/dependabot
+ - Bump minimatch from 3.1.2 to 3.1.5 (#161) @app/dependabot
+
 ### 0.11.0
 
  - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#149)
