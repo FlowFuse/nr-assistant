@@ -323,63 +323,63 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
-            describe('removeNodes action', () => {
-                beforeEach(() => {
-                    mockRED.nodes.remove = sinon.stub().returns({ nodes: [], links: [] })
-                    mockRED.nodes.dirty = sinon.stub()
-                    mockRED.history = { push: sinon.stub() }
-                    mockRED.view.updateActive = sinon.stub()
-                    mockRED.view.redraw = sinon.stub()
-                })
-                it('should remove nodes by ID string and push history', async () => {
-                    const mockNode = { id: 'n1' }
-                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/remove-nodes', {
-                        params: { ids: ['n1'] }
-                    }, result)
-                    mockRED.nodes.remove.calledWith('n1').should.be.true()
-                    mockRED.history.push.calledOnce.should.be.true()
-                    const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('t', 'delete')
-                    historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
-                    historyArg.nodes[0].should.equal(mockNode)
-                    mockRED.nodes.dirty.calledWith(true).should.be.true()
-                    mockRED.view.updateActive.calledOnce.should.be.true()
-                    mockRED.view.redraw.calledOnce.should.be.true()
-                    result.should.have.property('success', true)
-                    result.should.have.property('handled', true)
-                })
-                it('should collect removed links for history', async () => {
-                    const mockNode = { id: 'n1' }
-                    const mockLink = { source: { id: 'n1' }, target: { id: 'n2' } }
-                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
-                    mockRED.nodes.remove.returns({ nodes: [], links: [mockLink] })
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/remove-nodes', {
-                        params: { ids: ['n1'] }
-                    }, result)
-                    const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
-                    historyArg.links[0].should.equal(mockLink)
-                })
-                it('should throw if any node ID does not exist', async () => {
-                    mockRED.nodes.node.returns(null)
-                    const result = {}
-                    await should(expertAutomations.invokeAction('automation/remove-nodes', {
-                        params: { ids: ['nonexistent'] }
-                    }, result)).rejectedWith(/Node\(s\) not found: nonexistent/)
-                    mockRED.nodes.remove.called.should.be.false()
-                })
-                it('should throw without removing anything if mix of valid and invalid IDs', async () => {
-                    mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
-                    mockRED.nodes.node.withArgs('bad').returns(null)
-                    const result = {}
-                    await should(expertAutomations.invokeAction('automation/remove-nodes', {
-                        params: { ids: ['n1', 'bad'] }
-                    }, result)).rejectedWith(/Node\(s\) not found: bad/)
-                    mockRED.nodes.remove.called.should.be.false()
-                })
+        describe('removeNodes action', () => {
+            beforeEach(() => {
+                mockRED.nodes.remove = sinon.stub().returns({ nodes: [], links: [] })
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.updateActive = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
             })
+            it('should remove nodes by ID string and push history', async () => {
+                const mockNode = { id: 'n1' }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                mockRED.nodes.remove.calledWith('n1').should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'delete')
+                historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
+                historyArg.nodes[0].should.equal(mockNode)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.updateActive.calledOnce.should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should collect removed links for history', async () => {
+                const mockNode = { id: 'n1' }
+                const mockLink = { source: { id: 'n1' }, target: { id: 'n2' } }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.remove.returns({ nodes: [], links: [mockLink] })
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                historyArg.links[0].should.equal(mockLink)
+            })
+            it('should throw if any node ID does not exist', async () => {
+                mockRED.nodes.node.returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['nonexistent'] }
+                }, result)).rejectedWith(/Node\(s\) not found: nonexistent/)
+                mockRED.nodes.remove.called.should.be.false()
+            })
+            it('should throw without removing anything if mix of valid and invalid IDs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
+                mockRED.nodes.node.withArgs('bad').returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1', 'bad'] }
+                }, result)).rejectedWith(/Node\(s\) not found: bad/)
+                mockRED.nodes.remove.called.should.be.false()
+            })
+        })
     })
 })
