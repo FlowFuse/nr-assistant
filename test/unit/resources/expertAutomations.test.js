@@ -323,49 +323,49 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
-            describe('addTab action', () => {
-                beforeEach(() => {
-                    mockRED.nodes.addWorkspace = sinon.stub()
-                    mockRED.nodes.id = sinon.stub().returns('gen-id')
-                    mockRED.nodes.dirty = sinon.stub()
-                    mockRED.history = { push: sinon.stub() }
-                    mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
-                })
-                it('should create a new tab with history and dirty', async () => {
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/add-tab', {
-                        params: { label: 'My Tab' }
-                    }, result)
-                    mockRED.nodes.addWorkspace.calledOnce.should.be.true()
-                    mockRED.workspaces.add.calledOnce.should.be.true()
-                    mockRED.workspaces.show.calledOnce.should.be.true()
-                    const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
-                    ws.should.have.property('label', 'My Tab')
-                    ws.should.have.property('type', 'tab')
-                    mockRED.history.push.calledOnce.should.be.true()
-                    const historyArg = mockRED.history.push.firstCall.args[0]
-                    historyArg.should.have.property('t', 'add')
-                    historyArg.should.have.property('workspaces').which.is.an.Array().with.lengthOf(1)
-                    mockRED.nodes.dirty.calledWith(true).should.be.true()
-                    result.should.have.property('success', true)
-                })
-                it('should use defaults when optional fields omitted', async () => {
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/add-tab', {
-                        params: { label: 'Minimal Tab' }
-                    }, result)
-                    const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
-                    ws.should.have.property('disabled', false)
-                    ws.should.have.property('info', '')
-                    ws.should.have.property('env').which.deepEqual([])
-                    result.should.have.property('success', true)
-                })
-                it('should throw if label is missing', async () => {
-                    const result = {}
-                    await should(expertAutomations.invokeAction('automation/add-tab', {
-                        params: {}
-                    }, result)).rejectedWith(/Tab label is required/)
-                })
+        describe('addTab action', () => {
+            beforeEach(() => {
+                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.id = sinon.stub().returns('gen-id')
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
             })
+            it('should create a new tab with history and dirty', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'My Tab' }
+                }, result)
+                mockRED.nodes.addWorkspace.calledOnce.should.be.true()
+                mockRED.workspaces.add.calledOnce.should.be.true()
+                mockRED.workspaces.show.calledOnce.should.be.true()
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('label', 'My Tab')
+                ws.should.have.property('type', 'tab')
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'add')
+                historyArg.should.have.property('workspaces').which.is.an.Array().with.lengthOf(1)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should use defaults when optional fields omitted', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'Minimal Tab' }
+                }, result)
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('disabled', false)
+                ws.should.have.property('info', '')
+                ws.should.have.property('env').which.deepEqual([])
+                result.should.have.property('success', true)
+            })
+            it('should throw if label is missing', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: {}
+                }, result)).rejectedWith(/Tab label is required/)
+            })
+        })
     })
 })
