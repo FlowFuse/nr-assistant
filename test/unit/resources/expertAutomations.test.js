@@ -328,6 +328,8 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.addWorkspace = sinon.stub()
                 mockRED.nodes.id = sinon.stub().returns('gen-id')
                 mockRED.nodes.dirty = sinon.stub()
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.subflow = sinon.stub().returns(null)
                 mockRED.history = { push: sinon.stub() }
                 mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
             })
@@ -365,6 +367,27 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/add-tab', {
                     params: {}
                 }, result)).rejectedWith(/Tab label is required/)
+            })
+            it('should throw if tab ID already exists as a node', async () => {
+                mockRED.nodes.node.withArgs('existing-id').returns({ id: 'existing-id' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-id', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-id already exists/)
+            })
+            it('should throw if tab ID already exists as a workspace', async () => {
+                mockRED.nodes.workspace.withArgs('existing-ws').returns({ id: 'existing-ws' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-ws', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-ws already exists/)
+            })
+            it('should throw if tab ID already exists as a subflow', async () => {
+                mockRED.nodes.subflow.withArgs('existing-sf').returns({ id: 'existing-sf' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-sf', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-sf already exists/)
             })
         })
         describe('close UI panel actions', () => {

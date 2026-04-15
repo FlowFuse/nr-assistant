@@ -355,6 +355,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     addTab (tab) {
         if (tab.label == null) throw new Error('Tab label is required')
+        if (tab.id && (this.RED.nodes.node(tab.id) || this.RED.nodes.workspace(tab.id) || this.RED.nodes.subflow(tab.id))) {
+            throw new Error(`ID ${tab.id} already exists — provide a unique ID or omit to auto-generate`)
+        }
         const ws = {
             type: 'tab',
             id: tab.id || this.RED.nodes.id(),
