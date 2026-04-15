@@ -442,17 +442,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             return { ...rawNode }
         })
-        // Validate target tab exists before switching
-        const targetZ = prepared[0]?.z
-        if (targetZ) {
-            const targetWs = this.RED.nodes.workspace(targetZ)
-            if (!targetWs) throw new Error(`Target tab ${targetZ} not found`)
-        }
-        // importNodes places nodes on the active workspace when addFlow=false,
-        // so switch to the target tab first if nodes target a different one
-        const activeZ = this.RED.workspaces.active()
-        if (targetZ && targetZ !== activeZ) {
-            this.showWorkspace(targetZ)
+        // Validate all target tabs exist and are not locked
+        const uniqueZs = [...new Set(prepared.map(n => n.z))]
+        for (const z of uniqueZs) {
+            this.showWorkspace(z) // validates workspace exists (throws if not)
+            const ws = this.RED.nodes.workspace(z)
+            if (ws.locked) throw new Error(`Target tab ${z} is locked`)
         }
         this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         // Validate import actually succeeded (only when IDs are known)
