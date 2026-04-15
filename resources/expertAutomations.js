@@ -484,25 +484,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      */
     removeNodes (ids) {
-        // Validate all IDs exist before removing anything to avoid partial operations
-        const notFound = ids.filter(id => !this.RED.nodes.node(id))
-        if (notFound.length > 0) {
-            throw new Error(`Node(s) not found: ${notFound.join(', ')}`)
-        }
-        const allRemovedNodes = []
-        const allRemovedLinks = []
-        for (const id of ids) {
+        // Resolve all nodes once and check for missing
+        const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
-            allRemovedNodes.push(node)
-            const removed = this.RED.nodes.remove(id)
+            if (!node) throw new Error(`Node ${id} not found`)
+            return node
+        })
+        // Check if any node's workspace is locked
+        for (const node of nodes) {
+            if (node.z && this.RED.workspaces.isLocked(node.z)) {
+                throw new Error(`Cannot remove node ${node.id} — workspace ${node.z} is locked`)
+            }
+        }
+        const allRemovedLinks = []
+        for (const node of nodes) {
+            const removed = this.RED.nodes.remove(node.id)
             allRemovedLinks.push(...(removed.links || []))
         }
-        if (allRemovedNodes.length > 0) {
-            this.RED.history.push({ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
-            this.RED.nodes.dirty(true)
-            this.RED.view.updateActive()
-            this.RED.view.redraw()
-        }
+        this.RED.history.push({ t: 'delete', nodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
     }
 
     get supportedActions () {

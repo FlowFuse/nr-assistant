@@ -334,6 +334,7 @@ describeMain('expertAutomations', () => {
                 mockRED.history = { push: sinon.stub() }
                 mockRED.view.updateActive = sinon.stub()
                 mockRED.view.redraw = sinon.stub()
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
             })
             it('should remove nodes by ID string and push history', async () => {
                 const mockNode = { id: 'n1' }
@@ -372,7 +373,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['nonexistent'] }
-                }, result)).rejectedWith(/Node\(s\) not found: nonexistent/)
+                }, result)).rejectedWith(/Node nonexistent not found/)
                 mockRED.nodes.remove.called.should.be.false()
             })
             it('should throw without removing anything if mix of valid and invalid IDs', async () => {
@@ -381,7 +382,16 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1', 'bad'] }
-                }, result)).rejectedWith(/Node\(s\) not found: bad/)
+                }, result)).rejectedWith(/Node bad not found/)
+                mockRED.nodes.remove.called.should.be.false()
+            })
+            it('should throw if node workspace is locked', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'locked-tab' })
+                mockRED.workspaces.isLocked = sinon.stub().withArgs('locked-tab').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)).rejectedWith(/workspace locked-tab is locked/)
                 mockRED.nodes.remove.called.should.be.false()
             })
         })
