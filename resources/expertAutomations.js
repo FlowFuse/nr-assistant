@@ -13,9 +13,10 @@ const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
 const ADD_TAB = 'automation/add-tab'
+const REMOVE_TAB = 'automation/remove-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -152,6 +153,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['label']
+            }
+        },
+        [REMOVE_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the tab to remove' }
+                },
+                required: ['id']
             }
         }
     })
@@ -373,6 +383,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.show(ws.id)
     }
 
+    /**
+     * Remove an existing flow tab from the NR4 editor.
+     * @param {string} id - tab ID to remove
+     */
+    removeTab (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) {
+            throw new Error(`Tab with id ${id} not found`)
+        }
+        if (ws.locked) {
+            throw new Error(`Tab ${id} is locked and cannot be removed`)
+        }
+        this.RED.workspaces.delete(ws)
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -474,6 +499,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case ADD_TAB:
             this.addTab(params)
+            result.success = true
+            break
+
+        case REMOVE_TAB:
+            this.removeTab(params.id)
             result.success = true
             break
         default:

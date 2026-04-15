@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -321,6 +321,41 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/add-flow-tab', { params: { } }, result)
                 expertAutomations.redOps.commandAndWait.called.should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+        describe('removeTab action', () => {
+            it('should remove an existing tab', async () => {
+                const mockWs = { id: 'tab1', type: 'tab' }
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
+                mockRED.workspaces = { delete: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should throw if tab not found', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'does-not-exist' }
+                }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+            })
+            it('should throw if id is empty', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: '' }
+                }, {})).rejectedWith(/Tab with id .* not found/)
+            })
+            it('should throw if tab is locked', async () => {
+                mockRED.nodes.workspace = sinon.stub().withArgs('locked-tab').returns({ id: 'locked-tab', type: 'tab', locked: true })
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'locked-tab' }
+                }, {})).rejectedWith(/Tab locked-tab is locked/)
+                mockRED.workspaces.delete.called.should.be.false()
             })
         })
         describe('addTab action', () => {
