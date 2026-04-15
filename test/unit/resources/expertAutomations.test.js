@@ -476,7 +476,10 @@ describeMain('expertAutomations', () => {
         })
         describe('addTab action', () => {
             beforeEach(() => {
-                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.addWorkspace = sinon.stub().callsFake(ws => {
+                    // After adding, workspace lookup should find it
+                    mockRED.nodes.workspace.withArgs(ws.id).returns(ws)
+                })
                 mockRED.nodes.id = sinon.stub().returns('gen-id')
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED.nodes.workspace = sinon.stub().returns(null)

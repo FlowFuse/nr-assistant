@@ -406,7 +406,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.add(ws)
         this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
         this.RED.nodes.dirty(true)
-        this.RED.workspaces.show(ws.id)
+        this.showWorkspace(ws.id)
     }
 
     /**
@@ -452,7 +452,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // so switch to the target tab first if nodes target a different one
         const activeZ = this.RED.workspaces.active()
         if (targetZ && targetZ !== activeZ) {
-            this.RED.workspaces.show(targetZ)
+            this.showWorkspace(targetZ)
         }
         this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         // Validate import actually succeeded (only when IDs are known)
