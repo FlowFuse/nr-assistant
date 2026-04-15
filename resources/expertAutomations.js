@@ -656,6 +656,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         this.RED.history.push({ t: 'multi', events: editHistories, dirty: wasDirty })
         this.RED.nodes.dirty(true)
+        if (this.RED.editor?.validateNode) {
+            this.RED.editor.validateNode(sourceNode)
+            this.RED.editor.validateNode(targetNode)
+        }
         this.RED.view.redraw()
     }
 
