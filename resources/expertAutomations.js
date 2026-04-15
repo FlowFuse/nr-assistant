@@ -323,38 +323,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Read the live canvas state (including undeployed edits) and return it.
+     * Uses Node-RED's built-in export to get the complete node set.
      * @returns {Object[]} full flows array (tabs + nodes + config nodes)
      */
     getFlow () {
-        const flows = []
-        this.RED.nodes.eachWorkspace(ws => {
-            flows.push({ id: ws.id, type: 'tab', label: ws.label, disabled: ws.disabled || false })
-        })
-        this.RED.nodes.eachNode(node => {
-            const plain = { id: node.id, type: node.type, z: node.z, name: node.name }
-            if (node.x !== undefined) plain.x = node.x
-            if (node.y !== undefined) plain.y = node.y
-            if (node.outputs > 0) {
-                const wires = Array.from({ length: node.outputs }, () => [])
-                this.RED.nodes.getNodeLinks(node.id).forEach(link => {
-                    if (link.source?.id === node.id && wires[link.sourcePort]) {
-                        wires[link.sourcePort].push(link.target.id)
-                    }
-                })
-                plain.wires = wires
-            } else {
-                plain.wires = []
-            }
-            if (node._config) {
-                for (const k of Object.keys(node._config)) {
-                    if (k !== 'x' && k !== 'y' && plain[k] === undefined) {
-                        try { plain[k] = JSON.parse(node._config[k]) } catch { plain[k] = node._config[k] }
-                    }
-                }
-            }
-            flows.push(plain)
-        })
-        return flows
+        return this.RED.nodes.createCompleteNodeSet({ credentials: false })
+    }
+
+    /**
+     * Navigate to a workspace tab, validating it exists first.
+     * @param {string} id - workspace ID to show
+     */
+    showWorkspace (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this.RED.workspaces.show(id)
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -382,6 +365,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     addTab (tab) {
         if (tab.label == null) throw new Error('Tab label is required')
+        if (tab.id && (this.RED.nodes.node(tab.id) || this.RED.nodes.workspace(tab.id) || this.RED.nodes.subflow(tab.id))) {
+            throw new Error(`ID ${tab.id} already exists — provide a unique ID or omit to auto-generate`)
+        }
         const ws = {
             type: 'tab',
             id: tab.id || this.RED.nodes.id(),
@@ -486,7 +472,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case SHOW_WORKSPACE:
-            this.RED.workspaces.show(params.id)
+            this.showWorkspace(params.id)
             result.success = true
             break
 
