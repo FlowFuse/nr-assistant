@@ -21,7 +21,24 @@ const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES|SET_LINKS|IMPORT_FLOW} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES
+ *   |GET_NODES
+ *   |EDIT_NODE
+ *   |SEARCH
+ *   |ADD_FLOW_TAB
+ *   |UPDATE_NODE
+ *   |SHOW_WORKSPACE
+ *   |GET_FLOW
+ *   |CLOSE_SEARCH
+ *   |CLOSE_TYPE_SEARCH
+ *   |CLOSE_ACTION_LIST
+ *   |ADD_TAB
+ *   |REMOVE_TAB
+ *   |ADD_NODES
+ *   |REMOVE_NODES
+ *   |SET_WIRES
+ *   |SET_LINKS
+ *   |IMPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
