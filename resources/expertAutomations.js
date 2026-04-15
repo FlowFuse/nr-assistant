@@ -14,9 +14,10 @@ const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
 const ADD_TAB = 'automation/add-tab'
 const REMOVE_TAB = 'automation/remove-tab'
+const ADD_NODES = 'automation/add-nodes'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -162,6 +163,31 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     id: { type: 'string', description: 'ID of the tab to remove' }
                 },
                 required: ['id']
+            }
+        },
+        [ADD_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string', description: 'Unique node ID' },
+                                type: { type: 'string', description: 'Node type identifier' },
+                                x: { type: 'number', description: 'Canvas x position' },
+                                y: { type: 'number', description: 'Canvas y position' },
+                                z: { type: 'string', description: 'Tab (workspace) ID' }
+                            },
+                            additionalProperties: true,
+                            required: ['id', 'type', 'z']
+                        },
+                        description: 'Array of node objects to add to the canvas'
+                    },
+                    generateIds: { type: 'boolean', description: 'Regenerate node IDs during import (use if IDs may conflict). Default: false', default: false }
+                },
+                required: ['nodes']
             }
         }
     })
@@ -380,7 +406,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.add(ws)
         this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
         this.RED.nodes.dirty(true)
-        this.RED.workspaces.show(ws.id)
+        this.showWorkspace(ws.id)
     }
 
     /**
@@ -396,6 +422,42 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error(`Tab ${id} is locked and cannot be removed`)
         }
         this.RED.workspaces.delete(ws)
+    }
+
+    /**
+     * Add one or more nodes to the live NR4 canvas.
+     * Delegates to RED.view.importNodes which handles node initialisation,
+     * history (undo/redo) and view updates internally.
+     * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
+     * @param {Object} [options]
+     * @param {boolean} [options.generateIds=false] - regenerate node IDs during import
+     */
+    addNodes (nodes, { generateIds = false } = {}) {
+        // Validate required fields and types
+        const prepared = nodes.map(rawNode => {
+            if (!rawNode.id) throw new Error('Node is missing required property: id')
+            if (!rawNode.type) throw new Error('Node is missing required property: type')
+            if (!rawNode.z) throw new Error('Node is missing required property: z')
+            const def = this.RED.nodes.getType(rawNode.type)
+            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            return { ...rawNode }
+        })
+        // Validate all target tabs exist and are not locked
+        const uniqueZs = [...new Set(prepared.map(n => n.z))]
+        for (const z of uniqueZs) {
+            this.showWorkspace(z) // validates workspace exists (throws if not)
+            const ws = this.RED.nodes.workspace(z)
+            if (ws.locked) throw new Error(`Target tab ${z} is locked`)
+        }
+        this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        // Validate import actually succeeded (only when IDs are known)
+        if (!generateIds) {
+            const missing = prepared.filter(n => !this.RED.nodes.node(n.id))
+            if (missing.length > 0) {
+                throw new Error(`Failed to add node(s): ${missing.map(n => n.id).join(', ')} — IDs may already exist. Retry with generateIds: true`)
+            }
+        }
+        this.RED.nodes.dirty(true)
     }
 
     get supportedActions () {
@@ -504,6 +566,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case REMOVE_TAB:
             this.removeTab(params.id)
+            result.success = true
+            break
+
+        case ADD_NODES:
+            this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             result.success = true
             break
         default:

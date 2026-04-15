@@ -38,7 +38,11 @@ describeMain('expertAutomations', () => {
             settings: {
                 version: '4.1.4'
             },
-            state: { DEFAULT: 1 }
+            state: { DEFAULT: 1 },
+            workspaces: {
+                active: sinon.stub().returns('active-tab'),
+                show: sinon.stub()
+            }
         }
     }
 
@@ -65,7 +69,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -323,6 +327,139 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
         })
+        describe('addNodes action', () => {
+            it('should validate types and delegate to importNodes with applyNodeDefaults', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { name: { value: '' }, repeat: { value: '' } } })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.node = sinon.stub().returns({ id: 'n1' })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                const nodes = [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)
+                mockRED.nodes.getType.calledWith('inject').should.be.true()
+                mockRED.view.importNodes.calledOnce.should.be.true()
+                const importArgs = mockRED.view.importNodes.firstCall.args
+                importArgs[0][0].should.have.property('id', 'n1')
+                importArgs[1].should.have.property('generateIds', false)
+                importArgs[1].should.have.property('addFlow', false)
+                importArgs[1].should.have.property('notify', false)
+                importArgs[1].should.have.property('applyNodeDefaults', true)
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should throw if node type is unknown', async () => {
+                mockRED.nodes.getType = sinon.stub().returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'unknown', z: 'tab1' }] }
+                }, result)).rejectedWith(/Unknown node type/)
+            })
+            it('should switch to target tab when nodes target a different workspace', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'other-tab', type: 'tab' })
+                mockRED.nodes.node = sinon.stub().returns({ id: 'n1' })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.workspaces.active.returns('active-tab')
+                const nodes = [{ id: 'n1', type: 'inject', z: 'other-tab', x: 100, y: 200 }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)
+                mockRED.workspaces.show.calledWith('other-tab').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should validate workspace via showWorkspace even when targeting the active tab', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'active-tab', type: 'tab' })
+                mockRED.nodes.node = sinon.stub().returns({ id: 'n1' })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.workspaces.active.returns('active-tab')
+                const nodes = [{ id: 'n1', type: 'inject', z: 'active-tab', x: 100, y: 200 }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)
+                mockRED.workspaces.show.calledWith('active-tab').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should throw if target tab does not exist', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'nonexistent' }] }
+                }, result)).rejectedWith(/Workspace nonexistent not found/)
+            })
+            it('should throw if any target tab does not exist (mixed z)', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.workspace.withArgs('tab1').returns({ id: 'tab1', type: 'tab' })
+                const result = {}
+                const nodes = [
+                    { id: 'n1', type: 'inject', z: 'tab1' },
+                    { id: 'n2', type: 'debug', z: 'tab2' }
+                ]
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)).rejectedWith(/Workspace tab2 not found/)
+            })
+            it('should throw if target tab is locked', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab', locked: true })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }] }
+                }, result)).rejectedWith(/Target tab tab1 is locked/)
+            })
+            it('should throw if import silently fails (node IDs already exist)', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.node = sinon.stub().returns(null)
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }] }
+                }, result)).rejectedWith(/Failed to add node/)
+            })
+            it('should pass generateIds option to importNodes', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }], generateIds: true }
+                }, result)
+                mockRED.view.importNodes.calledOnce.should.be.true()
+                const opts = mockRED.view.importNodes.firstCall.args[1]
+                opts.generateIds.should.equal(true)
+                result.should.have.property('success', true)
+            })
+            it('should throw if node is missing required property z', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject' }] }
+                }, result)).rejectedWith(/missing required property: z/)
+            })
+            it('should throw if node is missing required property id', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ type: 'inject', z: 'tab1' }] }
+                }, result)).rejectedWith(/missing required property: id/)
+            })
+            it('should throw if node is missing required property type', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', z: 'tab1' }] }
+                }, result)).rejectedWith(/missing required property: type/)
+            })
+        })
         describe('removeTab action', () => {
             it('should remove an existing tab', async () => {
                 const mockWs = { id: 'tab1', type: 'tab' }
@@ -360,7 +497,10 @@ describeMain('expertAutomations', () => {
         })
         describe('addTab action', () => {
             beforeEach(() => {
-                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.addWorkspace = sinon.stub().callsFake(ws => {
+                    // After adding, workspace lookup should find it
+                    mockRED.nodes.workspace.withArgs(ws.id).returns(ws)
+                })
                 mockRED.nodes.id = sinon.stub().returns('gen-id')
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED.nodes.workspace = sinon.stub().returns(null)
