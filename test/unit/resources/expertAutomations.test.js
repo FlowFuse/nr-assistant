@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -320,6 +320,59 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/add-flow-tab', { params: { } }, result)
                 expertAutomations.redOps.commandAndWait.called.should.be.true()
+                result.should.have.property('success', true)
+            })
+        })
+        describe('close UI panel actions', () => {
+            it('should close search', async () => {
+                mockRED.search = { show: sinon.stub(), search: sinon.stub(), hide: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-search', { params: {} }, result)
+                mockRED.search.hide.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should close type search via ESC dispatch when input element exists', async () => {
+                mockRED.typeSearch = { hide: sinon.stub() }
+                const mockInput = { dispatchEvent: sinon.stub() }
+                const origDocument = globalThis.document
+                const origKeyboardEvent = globalThis.KeyboardEvent
+                globalThis.document = { getElementById: sinon.stub().withArgs('red-ui-type-search-input').returns(mockInput) }
+                globalThis.KeyboardEvent = class KeyboardEvent {
+                    constructor (type, opts) { this.type = type; this.key = opts.key; this.keyCode = opts.keyCode; this.bubbles = opts.bubbles }
+                }
+                try {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                    mockInput.dispatchEvent.calledOnce.should.be.true()
+                    const event = mockInput.dispatchEvent.firstCall.args[0]
+                    event.key.should.equal('Escape')
+                    event.keyCode.should.equal(27)
+                    event.bubbles.should.be.true()
+                    mockRED.typeSearch.hide.called.should.be.false()
+                    result.should.have.property('success', true)
+                } finally {
+                    if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                    if (origKeyboardEvent) { globalThis.KeyboardEvent = origKeyboardEvent } else { delete globalThis.KeyboardEvent }
+                }
+            })
+            it('should fall back to RED.typeSearch.hide() when input element not found', async () => {
+                mockRED.typeSearch = { hide: sinon.stub() }
+                const origDocument = globalThis.document
+                globalThis.document = { getElementById: sinon.stub().returns(null) }
+                try {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/close-type-search', { params: {} }, result)
+                    mockRED.typeSearch.hide.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                } finally {
+                    if (origDocument) { globalThis.document = origDocument } else { delete globalThis.document }
+                }
+            })
+            it('should close action list', async () => {
+                mockRED.actionList = { hide: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-action-list', { params: {} }, result)
+                mockRED.actionList.hide.calledOnce.should.be.true()
                 result.should.have.property('success', true)
             })
         })

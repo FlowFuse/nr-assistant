@@ -9,9 +9,12 @@ const ADD_FLOW_TAB = 'automation/add-flow-tab'
 const UPDATE_NODE = 'automation/update-node'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 const GET_FLOW = 'automation/get-workspace-nodes'
+const CLOSE_SEARCH = 'automation/close-search'
+const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
+const CLOSE_ACTION_LIST = 'automation/close-action-list'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -122,7 +125,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [GET_FLOW]: {
             params: null
-        }
+        },
+        [CLOSE_SEARCH]: { params: null },
+        [CLOSE_TYPE_SEARCH]: { params: null },
+        [CLOSE_ACTION_LIST]: { params: null }
     })
 
     /**
@@ -299,6 +305,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.show(id)
     }
 
+    closeSearch () { this.RED.search.hide() }
+
+    closeTypeSearch () {
+        // RED.typeSearch.hide() alone does NOT invoke the cancelCallback set by
+        // RED.view, which cleans up ghost nodes, drag lines, and resets mouse state.
+        // Dispatching ESC on the type-search input triggers NR4's keyboard handler
+        // (scope "red-ui-type-search") which calls both hide() and cancelCallback().
+        try {
+            const input = document.getElementById('red-ui-type-search-input')
+            if (input) {
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }))
+                return
+            }
+        } catch (_) { /* Node.js test env or missing DOM */ }
+        this.RED.typeSearch.hide()
+    }
+
+    closeActionList () { this.RED.actionList.hide() }
+
     get supportedActions () {
         return this.actions
     }
@@ -382,6 +407,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case GET_FLOW:
             result.flows = this.getFlow()
+            result.success = true
+            break
+
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+        case CLOSE_TYPE_SEARCH:
+            this.closeTypeSearch()
+            result.success = true
+            break
+        case CLOSE_ACTION_LIST:
+            this.closeActionList()
             result.success = true
             break
         default:
