@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -321,6 +321,73 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/add-flow-tab', { params: { } }, result)
                 expertAutomations.redOps.commandAndWait.called.should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+        describe('addTab action', () => {
+            beforeEach(() => {
+                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.id = sinon.stub().returns('gen-id')
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.subflow = sinon.stub().returns(null)
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { add: sinon.stub(), show: sinon.stub() }
+            })
+            it('should create a new tab with history and dirty', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'My Tab' }
+                }, result)
+                mockRED.nodes.addWorkspace.calledOnce.should.be.true()
+                mockRED.workspaces.add.calledOnce.should.be.true()
+                mockRED.workspaces.show.calledOnce.should.be.true()
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('label', 'My Tab')
+                ws.should.have.property('type', 'tab')
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'add')
+                historyArg.should.have.property('workspaces').which.is.an.Array().with.lengthOf(1)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should use defaults when optional fields omitted', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'Minimal Tab' }
+                }, result)
+                const ws = mockRED.nodes.addWorkspace.firstCall.args[0]
+                ws.should.have.property('disabled', false)
+                ws.should.have.property('info', '')
+                ws.should.have.property('env').which.deepEqual([])
+                result.should.have.property('success', true)
+            })
+            it('should throw if label is missing', async () => {
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: {}
+                }, result)).rejectedWith(/Tab label is required/)
+            })
+            it('should throw if tab ID already exists as a node', async () => {
+                mockRED.nodes.node.withArgs('existing-id').returns({ id: 'existing-id' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-id', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-id already exists/)
+            })
+            it('should throw if tab ID already exists as a workspace', async () => {
+                mockRED.nodes.workspace.withArgs('existing-ws').returns({ id: 'existing-ws' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-ws', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-ws already exists/)
+            })
+            it('should throw if tab ID already exists as a subflow', async () => {
+                mockRED.nodes.subflow.withArgs('existing-sf').returns({ id: 'existing-sf' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { id: 'existing-sf', label: 'Dupe Tab' }
+                }, result)).rejectedWith(/ID existing-sf already exists/)
             })
         })
         describe('close UI panel actions', () => {

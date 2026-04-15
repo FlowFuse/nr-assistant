@@ -12,9 +12,10 @@ const GET_FLOW = 'automation/get-workspace-nodes'
 const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
+const ADD_TAB = 'automation/add-tab'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -128,7 +129,31 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [CLOSE_SEARCH]: { params: null },
         [CLOSE_TYPE_SEARCH]: { params: null },
-        [CLOSE_ACTION_LIST]: { params: null }
+        [CLOSE_ACTION_LIST]: { params: null },
+        [ADD_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Tab ID — auto-generated if omitted' },
+                    label: { type: 'string', description: 'Tab label' },
+                    disabled: { type: 'boolean', description: 'Create as disabled' },
+                    info: { type: 'string', description: 'Tab notes' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: { type: 'string' }
+                            }
+                        },
+                        description: 'Environment variables'
+                    }
+                },
+                required: ['label']
+            }
+        }
     })
 
     /**
@@ -324,6 +349,30 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     closeActionList () { this.RED.actionList.hide() }
 
+    /**
+     * Add a new flow tab with an explicit ID and configuration.
+     * @param {Object} tab - tab definition with id, label, disabled, info, env
+     */
+    addTab (tab) {
+        if (tab.label == null) throw new Error('Tab label is required')
+        if (tab.id && (this.RED.nodes.node(tab.id) || this.RED.nodes.workspace(tab.id) || this.RED.nodes.subflow(tab.id))) {
+            throw new Error(`ID ${tab.id} already exists — provide a unique ID or omit to auto-generate`)
+        }
+        const ws = {
+            type: 'tab',
+            id: tab.id || this.RED.nodes.id(),
+            label: tab.label,
+            disabled: tab.disabled || false,
+            info: tab.info || '',
+            env: tab.env || []
+        }
+        this.RED.nodes.addWorkspace(ws)
+        this.RED.workspaces.add(ws)
+        this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.workspaces.show(ws.id)
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -420,6 +469,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case CLOSE_ACTION_LIST:
             this.closeActionList()
+            result.success = true
+            break
+
+        case ADD_TAB:
+            this.addTab(params)
             result.success = true
             break
         default:
