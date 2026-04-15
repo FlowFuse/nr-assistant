@@ -119,6 +119,9 @@ describeMain('expertComms', function () {
             actionList: {
                 hide: sinon.stub()
             },
+            workspaces: {
+                isLocked: sinon.stub().returns(false)
+            },
             nrAssistant: {
                 DEBUG: false
             },
@@ -952,7 +955,6 @@ describeMain('expertComms', function () {
             mockRED.view.importNodes.firstCall.args[1].should.eql({
                 generateIds: true,
                 addFlow: false,
-                notify: true,
                 touchImport: true,
                 applyNodeDefaults: true
             })

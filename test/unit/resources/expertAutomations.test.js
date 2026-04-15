@@ -307,6 +307,8 @@ describeMain('expertAutomations', () => {
             it('should use importNodes when addFlowTab is provided a title', async () => {
                 const result = {}
                 mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
                 sinon.stub(expertAutomations.redOps, 'commandAndWait').callsFake((cmd, event, options) => {
                     cmd() // execute the command immediately for testing
                     return Promise.resolve()
@@ -315,7 +317,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 const args = mockRED.view.importNodes.firstCall.args
                 args[0].should.deepEqual([{ id: '', type: 'tab', label: 'My New Flow', disabled: false, info: '', env: [] }])
-                args[1].should.deepEqual({ generateIds: true, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+                args[1].should.deepEqual({ generateIds: true, addFlow: false, touchImport: true, applyNodeDefaults: true })
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
@@ -836,9 +838,13 @@ describeMain('expertAutomations', () => {
             })
         })
         describe('importFlow action', () => {
-            it('should import flow JSON string', async () => {
+            beforeEach(() => {
                 mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
                 mockRED._ = sinon.stub().returns('error')
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
+            })
+            it('should import flow JSON string', async () => {
                 const flowJson = JSON.stringify([{ id: 'n1', type: 'inject' }])
                 const result = {}
                 await expertAutomations.invokeAction('automation/import-flow', {
@@ -849,29 +855,28 @@ describeMain('expertAutomations', () => {
                 args[1].should.have.property('touchImport', true)
                 result.should.have.property('success', true)
             })
-            it('should import flow array directly without JSON.parse', async () => {
-                mockRED.view.importNodes = sinon.stub()
+            it('should import flow array and validate via redOps.validateFlow', async () => {
+                sinon.stub(expertAutomations.redOps, 'validateFlow').returns([{ id: 'n1', type: 'inject' }])
                 const flowArray = [{ id: 'n1', type: 'inject' }]
                 const result = {}
                 await expertAutomations.invokeAction('automation/import-flow', {
                     params: { flow: flowArray }
                 }, result)
+                expertAutomations.redOps.validateFlow.calledWith(flowArray).should.be.true()
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 const args = mockRED.view.importNodes.firstCall.args
                 args[0].should.deepEqual(flowArray)
                 args[1].should.have.property('touchImport', true)
                 result.should.have.property('success', true)
+                expertAutomations.redOps.validateFlow.restore()
             })
             it('should throw when flow param is neither string nor array', async () => {
-                mockRED.view.importNodes = sinon.stub()
-                mockRED._ = sinon.stub().returns('error')
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/import-flow', {
                     params: { flow: 12345 }
                 }, result)).rejectedWith('importFlow expects a JSON string or an array of node objects')
             })
             it('should pass addFlowTab: true to importNodes as addFlow: true', async () => {
-                mockRED.view.importNodes = sinon.stub()
                 const flowArray = [{ id: 'n1', type: 'inject' }]
                 const result = {}
                 await expertAutomations.invokeAction('automation/import-flow', {
@@ -880,6 +885,25 @@ describeMain('expertAutomations', () => {
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 const args = mockRED.view.importNodes.firstCall.args
                 args[1].should.have.property('addFlow', true)
+                result.should.have.property('success', true)
+            })
+            it('should throw if importing into a locked workspace', async () => {
+                mockRED.workspaces.isLocked = sinon.stub().returns(true)
+                const flowArray = [{ id: 'n1', type: 'inject' }]
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/import-flow', {
+                    params: { flow: flowArray }
+                }, result)).rejectedWith(/Cannot import into a locked workspace/)
+                mockRED.view.importNodes.called.should.be.false()
+            })
+            it('should allow import into locked workspace when addFlowTab is true', async () => {
+                mockRED.workspaces.isLocked = sinon.stub().returns(true)
+                const flowArray = [{ id: 'n1', type: 'inject' }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/import-flow', {
+                    params: { flow: flowArray, addFlowTab: true }
+                }, result)
+                mockRED.view.importNodes.calledOnce.should.be.true()
                 result.should.have.property('success', true)
             })
         })

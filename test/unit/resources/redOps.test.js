@@ -66,6 +66,23 @@ describeMain('redOps', () => {
         })
     })
 
+    describe('validateFlow', () => {
+        it('should validate a valid flow array', () => {
+            const flow = [{ id: 'n1', type: 'inject' }, { id: 'n2', type: 'debug' }]
+            const result = redOps.validateFlow(flow)
+            result.should.be.an.Array()
+            result.should.have.length(2)
+        })
+        it('should reject non-array input', () => {
+            should(() => redOps.validateFlow({ id: 'n1' })).throw()
+        })
+        it('should reject nodes missing id', () => {
+            should(() => redOps.validateFlow([{ type: 'inject' }])).throw()
+        })
+        it('should reject nodes missing type', () => {
+            should(() => redOps.validateFlow([{ id: 'n1' }])).throw()
+        })
+    })
     describe('validateFlowString', () => {
         it('should validate valid flow JSON string', () => {
             const flowString = JSON.stringify([

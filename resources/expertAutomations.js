@@ -326,7 +326,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {boolean} importOptions.addFlow whether to add the nodes to a new flow or to the current flow
      * @param {boolean} [importOptions.notify=true] whether to show notifications for import success/failure (default true)
      */
-    importFlow (nodesStr, { addFlow = false, generateIds = true, notify = true } = { addFlow: false, generateIds: true, notify: true }) {
+    importFlow (nodesStr, { addFlow = false, generateIds = true } = { addFlow: false, generateIds: true }) {
         let newNodes = nodesStr
         if (typeof nodesStr === 'string') {
             try {
@@ -340,10 +340,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 e.code = 'NODE_RED'
                 throw e
             }
-        } else if (!Array.isArray(nodesStr)) {
+        } else if (Array.isArray(nodesStr)) {
+            this.redOps.validateFlow(nodesStr)
+        } else {
             throw new Error('importFlow expects a JSON string or an array of node objects')
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify, touchImport: true, applyNodeDefaults: true })
+        // If importing onto the current tab (not creating a new one), check it's not locked
+        if (!addFlow && this.RED.workspaces.isLocked()) {
+            throw new Error('Cannot import into a locked workspace')
+        }
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
         this.RED.nodes.dirty(true)
     }
 
