@@ -404,13 +404,18 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.removeLink = sinon.stub()
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1 })
                 mockRED.history = { push: sinon.stub() }
                 mockRED.view.updateActive = sinon.stub()
                 mockRED.view.redraw = sinon.stub()
+                mockRED.workspaces = {
+                    ...mockRED.workspaces,
+                    isLocked: sinon.stub().returns(false)
+                }
             })
             it('should add a wire between two nodes with history', async () => {
-                const source = { id: 'n1', dirty: false, changed: false }
-                const target = { id: 'n2' }
+                const source = { id: 'n1', z: 'tab1', outputs: 1, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
                 mockRED.nodes.node.withArgs('n1').returns(source)
                 mockRED.nodes.node.withArgs('n2').returns(target)
                 const result = {}
@@ -430,9 +435,11 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
             it('should remove a wire with history', async () => {
-                const source = { id: 'n1', dirty: false, changed: false }
+                const source = { id: 'n1', z: 'tab1', outputs: 1, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
                 const existingLink = { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
                 mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
                 mockRED.nodes.getNodeLinks.returns([existingLink])
                 const result = {}
                 await expertAutomations.invokeAction('automation/set-wires', {
@@ -447,8 +454,8 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
             })
             it('should use non-zero output port', async () => {
-                const source = { id: 'n1', dirty: false, changed: false }
-                const target = { id: 'n2' }
+                const source = { id: 'n1', z: 'tab1', outputs: 3, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
                 mockRED.nodes.node.withArgs('n1').returns(source)
                 mockRED.nodes.node.withArgs('n2').returns(target)
                 const result = {}
@@ -466,9 +473,81 @@ describeMain('expertAutomations', () => {
                     params: { mode: 'add', from: 'missing', to: 'n2' }
                 }, result)).rejectedWith(/Source node missing not found/)
             })
-            it('should throw if removing a wire that does not exist', async () => {
-                const source = { id: 'n1', dirty: false, changed: false }
+            it('should throw if target node not found', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Target node n2 not found/)
+            })
+            it('should throw if wiring a node to itself', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n1' }
+                }, result)).rejectedWith(/Cannot wire a node to itself/)
+            })
+            it('should throw if source and target are on different tabs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab2', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Source and target nodes must be on the same tab/)
+            })
+            it('should throw if workspace is locked', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/workspace tab1 is locked/)
+            })
+            it('should throw if source output port does not exist', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', output: 5, to: 'n2' }
+                }, result)).rejectedWith(/does not have output port 5/)
+            })
+            it('should throw if source node has no outputs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 0 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/does not have output port 0/)
+            })
+            it('should throw if target node does not accept inputs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'inject' })
+                mockRED.nodes.getType.withArgs('inject').returns({ inputs: 0, outputs: 1 })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/does not accept inputs/)
+            })
+            it('should throw if adding a wire that already exists', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1 }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
                 mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                mockRED.nodes.getNodeLinks.returns([
+                    { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                ])
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Wire already exists from n1 port 0 to n2/)
+            })
+            it('should throw if removing a wire that does not exist', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1 }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
                 mockRED.nodes.getNodeLinks.returns([])
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/set-wires', {
@@ -521,7 +600,7 @@ describeMain('expertAutomations', () => {
                 mockRED.workspaces.show.calledWith('other-tab').should.be.true()
                 result.should.have.property('success', true)
             })
-            it('should not switch tabs when nodes target the active workspace', async () => {
+            it('should validate workspace via showWorkspace even when targeting the active tab', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
                 mockRED.nodes.workspace = sinon.stub().returns({ id: 'active-tab', type: 'tab' })
                 mockRED.nodes.node = sinon.stub().returns({ id: 'n1' })
@@ -533,7 +612,7 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes }
                 }, result)
-                mockRED.workspaces.show.called.should.be.false()
+                mockRED.workspaces.show.calledWith('active-tab').should.be.true()
                 result.should.have.property('success', true)
             })
             it('should throw if target tab does not exist', async () => {
@@ -542,7 +621,28 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'nonexistent' }] }
-                }, result)).rejectedWith(/Target tab nonexistent not found/)
+                }, result)).rejectedWith(/Workspace nonexistent not found/)
+            })
+            it('should throw if any target tab does not exist (mixed z)', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.workspace.withArgs('tab1').returns({ id: 'tab1', type: 'tab' })
+                const result = {}
+                const nodes = [
+                    { id: 'n1', type: 'inject', z: 'tab1' },
+                    { id: 'n2', type: 'debug', z: 'tab2' }
+                ]
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)).rejectedWith(/Workspace tab2 not found/)
+            })
+            it('should throw if target tab is locked', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab', locked: true })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }] }
+                }, result)).rejectedWith(/Target tab tab1 is locked/)
             })
             it('should throw if import silently fails (node IDs already exist)', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })

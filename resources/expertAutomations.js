@@ -500,17 +500,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             return { ...rawNode }
         })
-        // Validate target tab exists before switching
-        const targetZ = prepared[0]?.z
-        if (targetZ) {
-            const targetWs = this.RED.nodes.workspace(targetZ)
-            if (!targetWs) throw new Error(`Target tab ${targetZ} not found`)
-        }
-        // importNodes places nodes on the active workspace when addFlow=false,
-        // so switch to the target tab first if nodes target a different one
-        const activeZ = this.RED.workspaces.active()
-        if (targetZ && targetZ !== activeZ) {
-            this.showWorkspace(targetZ)
+        // Validate all target tabs exist and are not locked
+        const uniqueZs = [...new Set(prepared.map(n => n.z))]
+        for (const z of uniqueZs) {
+            this.showWorkspace(z) // validates workspace exists (throws if not)
+            const ws = this.RED.nodes.workspace(z)
+            if (ws.locked) throw new Error(`Target tab ${z} is locked`)
         }
         this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         // Validate import actually succeeded (only when IDs are known)
@@ -560,18 +555,41 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string} params.to - Target node ID
      */
     setWires ({ mode, from, output, to }) {
+        if (from === to) throw new Error('Cannot wire a node to itself')
         const sourceNode = this.RED.nodes.node(from)
         if (!sourceNode) throw new Error(`Source node ${from} not found`)
+        const targetNode = this.RED.nodes.node(to)
+        if (!targetNode) throw new Error(`Target node ${to} not found`)
+        // Source and target must be on the same tab
+        if (sourceNode.z !== targetNode.z) {
+            throw new Error('Source and target nodes must be on the same tab')
+        }
+        // Check workspace is not locked
+        if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
+            throw new Error(`Cannot modify wires — workspace ${sourceNode.z} is locked`)
+        }
+        // Validate output port exists on source
         const port = output ?? 0
+        if (port >= (sourceNode.outputs || 0)) {
+            throw new Error(`Source node ${from} does not have output port ${port}`)
+        }
+        // Validate target accepts inputs
+        const targetDef = this.RED.nodes.getType(targetNode.type)
+        if (targetDef && targetDef.inputs === 0) {
+            throw new Error(`Target node ${to} (${targetNode.type}) does not accept inputs`)
+        }
+        const existingLinks = this.RED.nodes.getNodeLinks(from)
         const wasDirty = this.RED.nodes.dirty()
         if (mode === 'add') {
-            const targetNode = this.RED.nodes.node(to)
-            if (!targetNode) throw new Error(`Target node ${to} not found`)
+            // Check wire doesn't already exist
+            const duplicate = existingLinks.find(l =>
+                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+            )
+            if (duplicate) throw new Error(`Wire already exists from ${from} port ${port} to ${to}`)
             const link = { source: sourceNode, sourcePort: port, target: targetNode }
             this.RED.nodes.addLink(link)
             this.RED.history.push({ t: 'add', links: [link], dirty: wasDirty })
         } else {
-            const existingLinks = this.RED.nodes.getNodeLinks(from)
             const link = existingLinks.find(l =>
                 l.source?.id === from && l.sourcePort === port && l.target?.id === to
             )
