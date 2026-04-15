@@ -17,9 +17,10 @@ const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
 const SET_WIRES = 'automation/set-wires'
+const IMPORT_FLOW = 'automation/import-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES|IMPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -216,6 +217,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['mode', 'from', 'to']
             }
+        },
+        [IMPORT_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    flow: {
+                        type: ['string', 'array'],
+                        description: 'Flow JSON string or array to import onto the canvas'
+                    },
+                    addFlowTab: {
+                        type: 'boolean',
+                        description: 'Whether to create a new tab for the imported nodes (true) or import into the current tab (false). Default: false'
+                    },
+                    generateIds: {
+                        type: 'boolean',
+                        description: 'Whether to regenerate node IDs during import. Default: true.',
+                        default: true
+                    }
+                },
+                required: ['flow']
+            }
         }
     })
 
@@ -299,12 +321,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
     /// Function extracted from Node-RED source `editor-client/src/js/ui/clipboard.js`
     /**
      * Performs the import of nodes, handling any conflicts that may arise
-     * @param {string} nodesStr the nodes to import as a string
+     * @param {string|Object[]} nodesStr the nodes to import — either a JSON string or an array of node objects
      * @param {object} importOptions
      * @param {boolean} importOptions.addFlow whether to add the nodes to a new flow or to the current flow
      * @param {boolean} [importOptions.notify=true] whether to show notifications for import success/failure (default true)
      */
-    importFlow (nodesStr, { addFlow = false, generateIds = true, notify = true } = { addFlow: false, generateIds: true, notify: true }) {
+    importFlow (nodesStr, { addFlow = false, generateIds = true } = { addFlow: false, generateIds: true }) {
         let newNodes = nodesStr
         if (typeof nodesStr === 'string') {
             try {
@@ -318,8 +340,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 e.code = 'NODE_RED'
                 throw e
             }
+        } else if (Array.isArray(nodesStr)) {
+            this.redOps.validateFlow(nodesStr)
+        } else {
+            throw new Error('importFlow expects a JSON string or an array of node objects')
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, notify })
+        // If importing onto the current tab (not creating a new one), check it's not locked
+        if (!addFlow && this.RED.workspaces.isLocked()) {
+            throw new Error('Cannot import into a locked workspace')
+        }
+        this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
+        this.RED.nodes.dirty(true)
     }
 
     async addFlowTab (title) {
@@ -695,6 +726,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case SET_WIRES:
             this.setWires(params)
+            result.success = true
+            break
+
+        case IMPORT_FLOW:
+            this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
             result.success = true
             break
         default:

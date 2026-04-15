@@ -84,7 +84,8 @@ describeMain('expertComms', function () {
                 selection: sinon.stub()
             },
             nodes: {
-                createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || [])
+                createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
+                dirty: sinon.stub()
             },
             notify: sinon.stub(),
             _: sinon.stub().callsFake((key, params) => {
@@ -117,6 +118,9 @@ describeMain('expertComms', function () {
             },
             actionList: {
                 hide: sinon.stub()
+            },
+            workspaces: {
+                isLocked: sinon.stub().returns(false)
             },
             nrAssistant: {
                 DEBUG: false
@@ -951,7 +955,8 @@ describeMain('expertComms', function () {
             mockRED.view.importNodes.firstCall.args[1].should.eql({
                 generateIds: true,
                 addFlow: false,
-                notify: true
+                touchImport: true,
+                applyNodeDefaults: true
             })
 
             eventSource.postMessage.calledOnce.should.be.true()

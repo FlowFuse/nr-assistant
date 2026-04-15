@@ -11,23 +11,26 @@ export class RedOps {
      * @param {string} flowString the string to validate
      * @returns If valid, returns the node array
      */
-    validateFlowString (flowString) {
-        const res = JSON.parse(flowString)
-        if (!Array.isArray(res)) {
+    validateFlow (flow) {
+        if (!Array.isArray(flow)) {
             throw new Error(this.RED._('clipboard.import.errors.notArray'))
         }
-        for (let i = 0; i < res.length; i++) {
-            if (typeof res[i] !== 'object') {
+        for (let i = 0; i < flow.length; i++) {
+            if (typeof flow[i] !== 'object') {
                 throw new Error(this.RED._('clipboard.import.errors.itemNotObject', { index: i }))
             }
-            if (!Object.hasOwn(res[i], 'id')) {
+            if (!Object.hasOwn(flow[i], 'id')) {
                 throw new Error(this.RED._('clipboard.import.errors.missingId', { index: i }))
             }
-            if (!Object.hasOwn(res[i], 'type')) {
+            if (!Object.hasOwn(flow[i], 'type')) {
                 throw new Error(this.RED._('clipboard.import.errors.missingType', { index: i }))
             }
         }
-        return res
+        return flow
+    }
+
+    validateFlowString (flowString) {
+        return this.validateFlow(JSON.parse(flowString))
     }
 
     /**
