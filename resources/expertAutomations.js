@@ -376,38 +376,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Read the live canvas state (including undeployed edits) and return it.
+     * Uses Node-RED's built-in export to get the complete node set.
      * @returns {Object[]} full flows array (tabs + nodes + config nodes)
      */
     getFlow () {
-        const flows = []
-        this.RED.nodes.eachWorkspace(ws => {
-            flows.push({ id: ws.id, type: 'tab', label: ws.label, disabled: ws.disabled || false })
-        })
-        this.RED.nodes.eachNode(node => {
-            const plain = { id: node.id, type: node.type, z: node.z, name: node.name }
-            if (node.x !== undefined) plain.x = node.x
-            if (node.y !== undefined) plain.y = node.y
-            if (node.outputs > 0) {
-                const wires = Array.from({ length: node.outputs }, () => [])
-                this.RED.nodes.getNodeLinks(node.id).forEach(link => {
-                    if (link.source?.id === node.id && wires[link.sourcePort]) {
-                        wires[link.sourcePort].push(link.target.id)
-                    }
-                })
-                plain.wires = wires
-            } else {
-                plain.wires = []
-            }
-            if (node._config) {
-                for (const k of Object.keys(node._config)) {
-                    if (k !== 'x' && k !== 'y' && plain[k] === undefined) {
-                        try { plain[k] = JSON.parse(node._config[k]) } catch { plain[k] = node._config[k] }
-                    }
-                }
-            }
-            flows.push(plain)
-        })
-        return flows
+        return this.RED.nodes.createCompleteNodeSet({ credentials: false })
+    }
+
+    /**
+     * Navigate to a workspace tab, validating it exists first.
+     * @param {string} id - workspace ID to show
+     */
+    showWorkspace (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this.RED.workspaces.show(id)
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -435,6 +418,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     addTab (tab) {
         if (tab.label == null) throw new Error('Tab label is required')
+        if (tab.id && (this.RED.nodes.node(tab.id) || this.RED.nodes.workspace(tab.id) || this.RED.nodes.subflow(tab.id))) {
+            throw new Error(`ID ${tab.id} already exists — provide a unique ID or omit to auto-generate`)
+        }
         const ws = {
             type: 'tab',
             id: tab.id || this.RED.nodes.id(),
@@ -447,7 +433,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.add(ws)
         this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
         this.RED.nodes.dirty(true)
-        this.RED.workspaces.show(ws.id)
+        this.showWorkspace(ws.id)
     }
 
     /**
@@ -458,6 +444,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const ws = this.RED.nodes.workspace(id)
         if (!ws) {
             throw new Error(`Tab with id ${id} not found`)
+        }
+        if (ws.locked) {
+            throw new Error(`Tab ${id} is locked and cannot be removed`)
         }
         this.RED.workspaces.delete(ws)
     }
@@ -490,7 +479,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // so switch to the target tab first if nodes target a different one
         const activeZ = this.RED.workspaces.active()
         if (targetZ && targetZ !== activeZ) {
-            this.RED.workspaces.show(targetZ)
+            this.showWorkspace(targetZ)
         }
         this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         // Validate import actually succeeded (only when IDs are known)
@@ -508,25 +497,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      */
     removeNodes (ids) {
-        // Validate all IDs exist before removing anything to avoid partial operations
-        const notFound = ids.filter(id => !this.RED.nodes.node(id))
-        if (notFound.length > 0) {
-            throw new Error(`Node(s) not found: ${notFound.join(', ')}`)
-        }
-        const allRemovedNodes = []
-        const allRemovedLinks = []
-        for (const id of ids) {
+        // Resolve all nodes once and check for missing
+        const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
-            allRemovedNodes.push(node)
-            const removed = this.RED.nodes.remove(id)
+            if (!node) throw new Error(`Node ${id} not found`)
+            return node
+        })
+        // Check if any node's workspace is locked
+        for (const node of nodes) {
+            if (node.z && this.RED.workspaces.isLocked(node.z)) {
+                throw new Error(`Cannot remove node ${node.id} — workspace ${node.z} is locked`)
+            }
+        }
+        const allRemovedLinks = []
+        for (const node of nodes) {
+            const removed = this.RED.nodes.remove(node.id)
             allRemovedLinks.push(...(removed.links || []))
         }
-        if (allRemovedNodes.length > 0) {
-            this.RED.history.push({ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
-            this.RED.nodes.dirty(true)
-            this.RED.view.updateActive()
-            this.RED.view.redraw()
-        }
+        this.RED.history.push({ t: 'delete', nodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
     }
 
     /**
@@ -642,7 +633,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case SHOW_WORKSPACE:
-            this.RED.workspaces.show(params.id)
+            this.showWorkspace(params.id)
             result.success = true
             break
 
