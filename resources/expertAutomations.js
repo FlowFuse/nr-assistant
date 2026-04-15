@@ -8,9 +8,10 @@ const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
 const UPDATE_NODE = 'automation/update-node'
 const SHOW_WORKSPACE = 'automation/show-workspace'
+const GET_FLOW = 'automation/get-workspace-nodes'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -118,6 +119,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['id']
             }
+        },
+        [GET_FLOW]: {
+            params: null
         }
     })
 
@@ -277,6 +281,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Read the live canvas state (including undeployed edits) and return it.
+     * Uses Node-RED's built-in export to get the complete node set.
+     * @returns {Object[]} full flows array (tabs + nodes + config nodes)
+     */
+    getFlow () {
+        return this.RED.nodes.createCompleteNodeSet({ credentials: false })
+    }
+
+    /**
      * Navigate to a workspace tab, validating it exists first.
      * @param {string} id - workspace ID to show
      */
@@ -364,6 +377,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case SHOW_WORKSPACE:
             this.showWorkspace(params.id)
+            result.success = true
+            break
+
+        case GET_FLOW:
+            result.flows = this.getFlow()
             result.success = true
             break
         default:

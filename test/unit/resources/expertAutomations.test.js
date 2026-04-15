@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -321,6 +321,28 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/add-flow-tab', { params: { } }, result)
                 expertAutomations.redOps.commandAndWait.called.should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+        describe('getWorkspaceNodes action', () => {
+            it('should delegate to RED.nodes.createCompleteNodeSet', async () => {
+                const mockFlows = [
+                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('flows').which.deepEqual(mockFlows)
+                mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
+                mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
+            })
+            it('should return empty array when no flows exist', async () => {
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('flows').which.deepEqual([])
             })
         })
         describe('updateNode action', () => {
