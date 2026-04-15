@@ -16,9 +16,10 @@ const ADD_TAB = 'automation/add-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
+const SET_WIRES = 'automation/set-wires'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -202,6 +203,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids']
+            }
+        },
+        [SET_WIRES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a wire' },
+                    from: { type: 'string', description: 'Source node ID' },
+                    output: { type: 'number', description: 'Source output port index (0-based)' },
+                    to: { type: 'string', description: 'Target node ID' }
+                },
+                required: ['mode', 'from', 'to']
             }
         }
     })
@@ -502,6 +515,65 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
     }
 
+    /**
+     * Add or remove a single wire between two nodes.
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode
+     * @param {string} params.from - Source node ID
+     * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
+     * @param {string} params.to - Target node ID
+     */
+    setWires ({ mode, from, output, to }) {
+        if (from === to) throw new Error('Cannot wire a node to itself')
+        const sourceNode = this.RED.nodes.node(from)
+        if (!sourceNode) throw new Error(`Source node ${from} not found`)
+        const targetNode = this.RED.nodes.node(to)
+        if (!targetNode) throw new Error(`Target node ${to} not found`)
+        // Source and target must be on the same tab
+        if (sourceNode.z !== targetNode.z) {
+            throw new Error('Source and target nodes must be on the same tab')
+        }
+        // Check workspace is not locked
+        if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
+            throw new Error(`Cannot modify wires — workspace ${sourceNode.z} is locked`)
+        }
+        // Validate output port exists on source
+        const port = output ?? 0
+        if (port >= (sourceNode.outputs || 0)) {
+            throw new Error(`Source node ${from} does not have output port ${port}`)
+        }
+        // Validate target accepts inputs
+        const targetDef = this.RED.nodes.getType(targetNode.type)
+        if (targetDef && targetDef.inputs === 0) {
+            throw new Error(`Target node ${to} (${targetNode.type}) does not accept inputs`)
+        }
+        const existingLinks = this.RED.nodes.getNodeLinks(from)
+        const wasDirty = this.RED.nodes.dirty()
+        if (mode === 'add') {
+            // Check wire doesn't already exist
+            const duplicate = existingLinks.find(l =>
+                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+            )
+            if (duplicate) throw new Error(`Wire already exists from ${from} port ${port} to ${to}`)
+            const link = { source: sourceNode, sourcePort: port, target: targetNode }
+            this.RED.nodes.addLink(link)
+            this.RED.history.push({ t: 'add', links: [link], dirty: wasDirty })
+        } else {
+            const link = existingLinks.find(l =>
+                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+            )
+            if (!link) {
+                throw new Error(`Wire not found from ${from} port ${port} to ${to}`)
+            }
+            this.RED.nodes.removeLink(link)
+            this.RED.history.push({ t: 'delete', links: [link], dirty: wasDirty })
+        }
+        sourceNode.dirty = true
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -618,6 +690,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case REMOVE_NODES:
             this.removeNodes(params.ids)
+            result.success = true
+            break
+
+        case SET_WIRES:
+            this.setWires(params)
             result.success = true
             break
         default:

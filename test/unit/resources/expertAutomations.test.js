@@ -69,7 +69,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -393,6 +393,163 @@ describeMain('expertAutomations', () => {
                     params: { ids: ['n1'] }
                 }, result)).rejectedWith(/workspace locked-tab is locked/)
                 mockRED.nodes.remove.called.should.be.false()
+            })
+        })
+        describe('setWires action', () => {
+            beforeEach(() => {
+                mockRED.nodes.addLink = sinon.stub()
+                mockRED.nodes.removeLink = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1 })
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.updateActive = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                mockRED.workspaces = {
+                    ...mockRED.workspaces,
+                    isLocked: sinon.stub().returns(false)
+                }
+            })
+            it('should add a wire between two nodes with history', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)
+                mockRED.nodes.addLink.calledOnce.should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'add')
+                historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                source.changed.should.be.false('wiring should not set node.changed (per NR convention)')
+                source.dirty.should.be.true()
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.updateActive.calledOnce.should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should remove a wire with history', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                const existingLink = { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                mockRED.nodes.getNodeLinks.returns([existingLink])
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'remove', from: 'n1', to: 'n2' }
+                }, result)
+                mockRED.nodes.removeLink.calledWith(existingLink).should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'delete')
+                historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
+                source.changed.should.be.false('wiring should not set node.changed (per NR convention)')
+                result.should.have.property('success', true)
+            })
+            it('should use non-zero output port', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 3, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', output: 2, to: 'n2' }
+                }, result)
+                const linkArg = mockRED.nodes.addLink.firstCall.args[0]
+                linkArg.should.have.property('sourcePort', 2)
+                result.should.have.property('success', true)
+            })
+            it('should throw if source node not found', async () => {
+                mockRED.nodes.node.returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'missing', to: 'n2' }
+                }, result)).rejectedWith(/Source node missing not found/)
+            })
+            it('should throw if target node not found', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Target node n2 not found/)
+            })
+            it('should throw if wiring a node to itself', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n1' }
+                }, result)).rejectedWith(/Cannot wire a node to itself/)
+            })
+            it('should throw if source and target are on different tabs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab2', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Source and target nodes must be on the same tab/)
+            })
+            it('should throw if workspace is locked', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/workspace tab1 is locked/)
+            })
+            it('should throw if source output port does not exist', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', output: 5, to: 'n2' }
+                }, result)).rejectedWith(/does not have output port 5/)
+            })
+            it('should throw if source node has no outputs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 0 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/does not have output port 0/)
+            })
+            it('should throw if target node does not accept inputs', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'inject' })
+                mockRED.nodes.getType.withArgs('inject').returns({ inputs: 0, outputs: 1 })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/does not accept inputs/)
+            })
+            it('should throw if adding a wire that already exists', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1 }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                mockRED.nodes.getNodeLinks.returns([
+                    { source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }
+                ])
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', from: 'n1', to: 'n2' }
+                }, result)).rejectedWith(/Wire already exists from n1 port 0 to n2/)
+            })
+            it('should throw if removing a wire that does not exist', async () => {
+                const source = { id: 'n1', z: 'tab1', outputs: 1 }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(source)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                mockRED.nodes.getNodeLinks.returns([])
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'remove', from: 'n1', output: 0, to: 'n2' }
+                }, result)).rejectedWith(/Wire not found from n1 port 0 to n2/)
             })
         })
         describe('addNodes action', () => {
