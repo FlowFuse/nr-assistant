@@ -7,9 +7,10 @@ const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
 const UPDATE_NODE = 'automation/update-node'
+const SHOW_WORKSPACE = 'automation/show-workspace'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -107,6 +108,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
                 },
                 required: ['id', 'properties']
+            }
+        },
+        [SHOW_WORKSPACE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the flow tab or subflow to navigate to' }
+                },
+                required: ['id']
             }
         }
     })
@@ -266,6 +276,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
     }
 
+    /**
+     * Navigate to a workspace tab, validating it exists first.
+     * @param {string} id - workspace ID to show
+     */
+    showWorkspace (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this.RED.workspaces.show(id)
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -339,6 +359,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case UPDATE_NODE:
             this.updateNode(params.id, params.properties)
+            result.success = true
+            break
+
+        case SHOW_WORKSPACE:
+            this.showWorkspace(params.id)
             result.success = true
             break
         default:

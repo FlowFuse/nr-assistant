@@ -65,7 +65,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -370,6 +370,26 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/update-node', {
                     params: { id: 'missing', properties: {} }
                 }, result)).rejectedWith(/Node missing not found/)
+            })
+        })
+        describe('showWorkspace action', () => {
+            it('should navigate to the specified workspace', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'tab1' }
+                }, result)
+                mockRED.workspaces.show.calledWith('tab1').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should throw if workspace does not exist', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.workspaces = { show: sinon.stub() }
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/show-workspace', {
+                    params: { id: 'nonexistent' }
+                }, result)).rejectedWith(/Workspace nonexistent not found/)
             })
         })
     })
