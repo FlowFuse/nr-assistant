@@ -349,6 +349,14 @@ describeMain('expertAutomations', () => {
                     params: { id: '' }
                 }, {})).rejectedWith(/Tab with id .* not found/)
             })
+            it('should throw if tab is locked', async () => {
+                mockRED.nodes.workspace = sinon.stub().withArgs('locked-tab').returns({ id: 'locked-tab', type: 'tab', locked: true })
+                mockRED.workspaces = { delete: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'locked-tab' }
+                }, {})).rejectedWith(/Tab locked-tab is locked/)
+                mockRED.workspaces.delete.called.should.be.false()
+            })
         })
         describe('addTab action', () => {
             beforeEach(() => {

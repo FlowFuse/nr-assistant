@@ -392,6 +392,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!ws) {
             throw new Error(`Tab with id ${id} not found`)
         }
+        if (ws.locked) {
+            throw new Error(`Tab ${id} is locked and cannot be removed`)
+        }
         this.RED.workspaces.delete(ws)
     }
 
