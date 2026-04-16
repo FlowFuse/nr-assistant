@@ -1683,7 +1683,8 @@ describeMain('expertComms', function () {
                                     enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
                                     description: 'Environment variable type'
                                 }
-                            }
+                            },
+                            required: ['name', 'value', 'type']
                         },
                         description: 'Environment variables'
                     }
@@ -1713,6 +1714,57 @@ describeMain('expertComms', function () {
             result.error.should.containEql('env[0].type: is not one of enum values')
             result.error.should.containEql('env[1].value: is not of a type(s) string')
             result.error.should.containEql('env[2]: is not of a type(s) object')
+        })
+
+        it('should allow empty env array but require all properties when element is present', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    label: { type: 'string' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: {
+                                    type: 'string',
+                                    enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata']
+                                }
+                            },
+                            required: ['name', 'value', 'type']
+                        }
+                    }
+                },
+                required: ['label']
+            }
+
+            // empty env array is valid
+            expertComms.validateActionParams({ label: 'Tab', env: [] }, schema).valid.should.be.true()
+
+            // complete element is valid
+            expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1', type: 'str' }] }, schema).valid.should.be.true()
+
+            // missing name
+            const missingName = expertComms.validateActionParams({ label: 'Tab', env: [{ value: '1', type: 'str' }] }, schema)
+            missingName.valid.should.be.false()
+            missingName.error.should.containEql('name')
+
+            // missing value
+            const missingValue = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', type: 'str' }] }, schema)
+            missingValue.valid.should.be.false()
+            missingValue.error.should.containEql('value')
+
+            // missing type
+            const missingType = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1' }] }, schema)
+            missingType.valid.should.be.false()
+            missingType.error.should.containEql('type')
+
+            // bad type
+            const badType = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1', type: 'invalid' }] }, schema)
+            badType.valid.should.be.false()
+            badType.error.should.containEql('type')
         })
 
         it('should apply default values', () => {

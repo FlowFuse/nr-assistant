@@ -155,7 +155,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
                                     enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
                                     description: 'Environment variable type'
                                 }
-                            }
+                            },
+                            required: ['name', 'value', 'type']
                         },
                         description: 'Environment variables'
                     }
