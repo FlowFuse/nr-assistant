@@ -1,4 +1,5 @@
 import { ExpertAutomations } from './expertAutomations.js'
+import { validate as validateJsonSchema } from 'jsonschema'
 
 function debounce (func, wait) {
     let timeout
@@ -537,7 +538,7 @@ export class ExpertComms {
         // Validate params against permitted schema (native/naive parsing for now - may introduce a library later if more complex schemas are needed)
         const actionSchema = this.supportedActions[action].params
         if (actionSchema) {
-            const validation = this.validateSchema(params, actionSchema)
+            const validation = this.validateActionParams(params, actionSchema)
             if (!validation || !validation.valid) {
                 console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
                 this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
@@ -676,64 +677,52 @@ export class ExpertComms {
         return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
     }
 
-    validateSchema (data, schema) {
-        if (schema.type === 'object') {
-            if (typeof data !== 'object') {
-                return {
-                    valid: false,
-                    error: 'Data is not of type object'
+    /**
+     * Recursively apply default values from a JSON schema to the data object.
+     * Handles nested object properties.
+     * @param {*} data - the data object to apply defaults to (mutated in place)
+     * @param {object} schema - JSON schema with potential default values
+     * @returns {*} the data object with defaults applied
+     */
+    applySchemaDefaults (data, schema) {
+        if (!schema || typeof schema !== 'object') {
+            return data
+        }
+        if (schema.type === 'object' && schema.properties && typeof data === 'object' && data !== null && !Array.isArray(data)) {
+            for (const [propName, propSchema] of Object.entries(schema.properties)) {
+                if (propSchema.default !== undefined && !(propName in data)) {
+                    data[propName] = propSchema.default
+                }
+                if (propName in data) {
+                    this.applySchemaDefaults(data[propName], propSchema)
                 }
             }
-            if (Array.isArray(data)) {
-                return {
-                    valid: false,
-                    error: 'Data is an array but an object was expected'
-                }
-            }
-            // check required properties
-            if (Array.isArray(schema.required)) {
-                for (const reqProp of schema.required) {
-                    if (!(reqProp in data)) {
-                        return {
-                            valid: false,
-                            error: `Data is missing required parameter "${reqProp}"`
-                        }
-                    }
-                }
-            }
-            // check properties & apply defaults
-            if (schema.properties) {
-                for (const [propName, propSchema] of Object.entries(schema.properties)) {
-                    const propExists = propName in data
-                    // check type
-                    if (propSchema.type && propExists) {
-                        const expectedType = propSchema.type
-                        const actualType = Array.isArray(data[propName]) ? 'array' : typeof data[propName]
-                        const allowedTypes = Array.isArray(expectedType) ? expectedType : [expectedType]
-                        if (!allowedTypes.includes(actualType)) {
-                            return {
-                                valid: false,
-                                error: `Data parameter "${propName}" is of type "${actualType}" but expected type is "${allowedTypes.join(' or ')}"`
-                            }
-                        }
-                    }
-                    // check enum
-                    if (propSchema.enum && propExists) {
-                        if (!propSchema.enum.includes(data[propName])) {
-                            return {
-                                valid: false,
-                                error: `Data parameter "${propName}" has invalid value "${data[propName]}". Should be one of: ${propSchema.enum.join(', ')}`
-                            }
-                        }
-                    }
-                    // apply defaults
-                    if (propSchema.default !== undefined && !propExists) {
-                        data[propName] = propSchema.default
-                    }
-                }
+        } else if (schema.type === 'array' && schema.items && Array.isArray(data)) {
+            for (const item of data) {
+                this.applySchemaDefaults(item, schema.items)
             }
         }
-        return { valid: true }
+        return data
+    }
+
+    validateActionParams (data, schema) {
+        // apply defaults (including nested) before validation
+        this.applySchemaDefaults(data, schema)
+        const result = validateJsonSchema(data, schema, { throwError: false, nestedErrors: true })
+        console.debug('Schema validation result:', { data, schema, result })
+        if (result.valid) {
+            return { valid: true }
+        } else {
+            let errorString
+            if (result.errors && result.errors.length > 0) {
+                errorString = result.errors.map(e => `- ${e.property || 'instance'}: ${e.message}`).join('\n')
+                errorString = `Data does not match schema:\n${errorString}`
+            }
+            return {
+                valid: false,
+                error: errorString || 'Data does not match schema'
+            }
+        }
     }
 
     debug (...args) {
