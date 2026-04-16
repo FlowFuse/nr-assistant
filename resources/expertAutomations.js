@@ -216,11 +216,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a wire' },
-                    from: { type: 'string', description: 'Source node ID' },
+                    source: { type: 'string', description: 'Source node ID' },
                     output: { type: 'number', description: 'Source output port index (0-based)' },
-                    to: { type: 'string', description: 'Target node ID' }
+                    target: { type: 'string', description: 'Target node ID' }
                 },
-                required: ['mode', 'from', 'to']
+                required: ['mode', 'source', 'target']
             }
         },
         [IMPORT_FLOW]: {
@@ -556,16 +556,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Add or remove a single wire between two nodes.
      * @param {object} params
      * @param {'add'|'remove'} params.mode
-     * @param {string} params.from - Source node ID
+     * @param {string} params.source - Source node ID
      * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
-     * @param {string} params.to - Target node ID
+     * @param {string} params.target - Target node ID
      */
-    setWires ({ mode, from, output, to }) {
-        if (from === to) throw new Error('Cannot wire a node to itself')
-        const sourceNode = this.RED.nodes.node(from)
-        if (!sourceNode) throw new Error(`Source node ${from} not found`)
-        const targetNode = this.RED.nodes.node(to)
-        if (!targetNode) throw new Error(`Target node ${to} not found`)
+    setWires ({ mode, source, output, target }) {
+        if (source === target) throw new Error('Cannot wire a node to itself')
+        const sourceNode = this.RED.nodes.node(source)
+        if (!sourceNode) throw new Error(`Source node ${source} not found`)
+        const targetNode = this.RED.nodes.node(target)
+        if (!targetNode) throw new Error(`Target node ${target} not found`)
         // Source and target must be on the same tab
         if (sourceNode.z !== targetNode.z) {
             throw new Error('Source and target nodes must be on the same tab')
@@ -577,30 +577,30 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Validate output port exists on source
         const port = output ?? 0
         if (port >= (sourceNode.outputs || 0)) {
-            throw new Error(`Source node ${from} does not have output port ${port}`)
+            throw new Error(`Source node ${source} does not have output port ${port}`)
         }
         // Validate target accepts inputs
         const targetDef = this.RED.nodes.getType(targetNode.type)
         if (targetDef && targetDef.inputs === 0) {
-            throw new Error(`Target node ${to} (${targetNode.type}) does not accept inputs`)
+            throw new Error(`Target node ${target} (${targetNode.type}) does not accept inputs`)
         }
-        const existingLinks = this.RED.nodes.getNodeLinks(from)
+        const existingLinks = this.RED.nodes.getNodeLinks(source)
         const wasDirty = this.RED.nodes.dirty()
         if (mode === 'add') {
             // Check wire doesn't already exist
             const duplicate = existingLinks.find(l =>
-                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+                l.source?.id === source && l.sourcePort === port && l.target?.id === target
             )
-            if (duplicate) throw new Error(`Wire already exists from ${from} port ${port} to ${to}`)
+            if (duplicate) throw new Error(`Wire already exists from ${source} port ${port} to ${target}`)
             const link = { source: sourceNode, sourcePort: port, target: targetNode }
             this.RED.nodes.addLink(link)
             this.RED.history.push({ t: 'add', links: [link], dirty: wasDirty })
         } else {
             const link = existingLinks.find(l =>
-                l.source?.id === from && l.sourcePort === port && l.target?.id === to
+                l.source?.id === source && l.sourcePort === port && l.target?.id === target
             )
             if (!link) {
-                throw new Error(`Wire not found from ${from} port ${port} to ${to}`)
+                throw new Error(`Wire not found from ${source} port ${port} to ${target}`)
             }
             this.RED.nodes.removeLink(link)
             this.RED.history.push({ t: 'delete', links: [link], dirty: wasDirty })
