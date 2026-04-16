@@ -17,10 +17,28 @@ const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
 const SET_WIRES = 'automation/set-wires'
+const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 
 /**
- * @typedef {SELECT_NODES|GET_NODES|EDIT_NODE|SEARCH|ADD_FLOW_TAB|UPDATE_NODE|SHOW_WORKSPACE|GET_FLOW|CLOSE_SEARCH|CLOSE_TYPE_SEARCH|CLOSE_ACTION_LIST|ADD_TAB|REMOVE_TAB|ADD_NODES|REMOVE_NODES|SET_WIRES|IMPORT_FLOW} ExpertAutomationsActionsEnum
+ * @typedef {SELECT_NODES
+ *   |GET_NODES
+ *   |EDIT_NODE
+ *   |SEARCH
+ *   |ADD_FLOW_TAB
+ *   |UPDATE_NODE
+ *   |SHOW_WORKSPACE
+ *   |GET_FLOW
+ *   |CLOSE_SEARCH
+ *   |CLOSE_TYPE_SEARCH
+ *   |CLOSE_ACTION_LIST
+ *   |ADD_TAB
+ *   |REMOVE_TAB
+ *   |ADD_NODES
+ *   |REMOVE_NODES
+ *   |SET_WIRES
+ *   |SET_LINKS
+ *   |IMPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -219,6 +237,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     source: { type: 'string', description: 'Source node ID' },
                     output: { type: 'number', description: 'Source output port index (0-based)' },
                     target: { type: 'string', description: 'Target node ID' }
+                },
+                required: ['mode', 'source', 'target']
+            }
+        },
+        [SET_LINKS]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a virtual link between link nodes' },
+                    source: { type: 'string', description: 'Source link node ID (link out or link call)' },
+                    target: { type: 'string', description: 'Target link node ID (link in)' }
                 },
                 required: ['mode', 'source', 'target']
             }
@@ -611,6 +640,93 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
     }
 
+    /**
+     * Add or remove a virtual link between link nodes (link out → link in, link call → link in).
+     * For link out ↔ link in, the connection is bidirectional (both nodes' `links` arrays are updated).
+     * For link call → link in, only the link call node's `links` array is updated.
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode
+     * @param {string} params.source - Source link node ID (link out or link call)
+     * @param {string} params.target - Target link node ID (link in)
+     */
+    setLinks ({ mode, source, target }) {
+        if (source === target) throw new Error('Cannot link a node to itself')
+        const sourceNode = this.RED.nodes.node(source)
+        if (!sourceNode) throw new Error(`Source node ${source} not found`)
+        const targetNode = this.RED.nodes.node(target)
+        if (!targetNode) throw new Error(`Target node ${target} not found`)
+        // Validate types: source must be link out or link call, target must be link in
+        if (sourceNode.type !== 'link out' && sourceNode.type !== 'link call') {
+            throw new Error(`Source node ${source} must be a link out or link call node (got ${sourceNode.type})`)
+        }
+        if (targetNode.type !== 'link in') {
+            throw new Error(`Target node ${target} must be a link in node (got ${targetNode.type})`)
+        }
+        // link out in "return" mode cannot have outbound links
+        if (sourceNode.type === 'link out' && sourceNode.mode === 'return') {
+            throw new Error(`Source node ${source} is a link out in return mode and cannot have outbound links`)
+        }
+        // link call in "dynamic" mode cannot have static links
+        if (sourceNode.type === 'link call' && sourceNode.linkType === 'dynamic') {
+            throw new Error(`Source node ${source} is a link call in dynamic mode and cannot have static links`)
+        }
+        // Check workspace locks for both nodes
+        if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
+            throw new Error(`Cannot modify links — workspace ${sourceNode.z} is locked`)
+        }
+        if (targetNode.z && targetNode.z !== sourceNode.z && this.RED.workspaces.isLocked(targetNode.z)) {
+            throw new Error(`Cannot modify links — workspace ${targetNode.z} is locked`)
+        }
+        const isBidirectional = sourceNode.type === 'link out'
+        const sourceLinks = sourceNode.links || []
+        const targetLinks = targetNode.links || []
+        const wasDirty = this.RED.nodes.dirty()
+        const wasSourceChanged = sourceNode.changed
+        const wasTargetChanged = targetNode.changed
+        const editHistories = []
+        if (mode === 'add') {
+            if (sourceLinks.includes(target)) {
+                throw new Error(`Link already exists from ${source} to ${target}`)
+            }
+            // Record history before mutating
+            editHistories.push({ t: 'edit', node: sourceNode, changes: { links: [...sourceLinks] }, changed: wasSourceChanged })
+            // link call can only have one target — replace instead of append
+            sourceNode.links = sourceNode.type === 'link call' ? [target] : [...sourceLinks, target]
+            if (isBidirectional) {
+                editHistories.push({ t: 'edit', node: targetNode, changes: { links: [...targetLinks] }, changed: wasTargetChanged })
+                targetNode.links = [...targetLinks, source]
+            }
+        } else {
+            if (!sourceLinks.includes(target)) {
+                throw new Error(`Link not found from ${source} to ${target}`)
+            }
+            editHistories.push({ t: 'edit', node: sourceNode, changes: { links: [...sourceLinks] }, changed: wasSourceChanged })
+            sourceNode.links = sourceLinks.filter(id => id !== target)
+            if (isBidirectional) {
+                editHistories.push({ t: 'edit', node: targetNode, changes: { links: [...targetLinks] }, changed: wasTargetChanged })
+                targetNode.links = targetLinks.filter(id => id !== source)
+            }
+        }
+        sourceNode.changed = true
+        sourceNode.dirty = true
+        if (isBidirectional) {
+            targetNode.changed = true
+            targetNode.dirty = true
+        }
+        this.RED.history.push({ t: 'multi', events: editHistories, dirty: wasDirty })
+        this.RED.nodes.dirty(true)
+        if (this.RED.editor?.validateNode) {
+            this.RED.editor.validateNode(sourceNode)
+            this.RED.editor.validateNode(targetNode)
+        }
+        // Refresh selection to update virtual link wires on the canvas
+        const selection = this.RED.view.selection()
+        if (selection?.nodes) {
+            this.RED.view.select({ nodes: selection.nodes })
+        }
+        this.RED.view.redraw()
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -732,6 +848,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case SET_WIRES:
             this.setWires(params)
+            result.success = true
+            break
+
+        case SET_LINKS:
+            this.setLinks(params)
             result.success = true
             break
 

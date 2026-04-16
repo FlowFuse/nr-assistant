@@ -70,7 +70,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires', 'automation/import-flow')
+            supportedActions.should.only.have.keys('automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires', 'automation/set-links', 'automation/import-flow')
         })
         it('should have hasAction method', () => {
             expertAutomations.should.have.property('hasAction').which.is.a.Function()
@@ -553,6 +553,221 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/set-wires', {
                     params: { mode: 'remove', source: 'n1', output: 0, target: 'n2' }
                 }, result)).rejectedWith(/Wire not found from n1 port 0 to n2/)
+            })
+        })
+        describe('setLinks action', () => {
+            beforeEach(() => {
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.redraw = sinon.stub()
+                mockRED.view.selection = sinon.stub().returns(null)
+                mockRED.workspaces = {
+                    ...mockRED.workspaces,
+                    isLocked: sinon.stub().returns(false)
+                }
+            })
+            it('should add a bidirectional link between link out and link in', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, result)
+                linkOut.links.should.containEql('li1')
+                linkIn.links.should.containEql('lo1')
+                linkOut.dirty.should.be.true()
+                linkIn.dirty.should.be.true()
+                linkOut.changed.should.be.true()
+                linkIn.changed.should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'multi')
+                historyArg.events.should.have.lengthOf(2)
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should remove a bidirectional link between link out and link in', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['li1'], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: ['lo1'], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'remove', source: 'lo1', target: 'li1' }
+                }, result)
+                linkOut.links.should.not.containEql('li1')
+                linkIn.links.should.not.containEql('lo1')
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'multi')
+                historyArg.events.should.have.lengthOf(2)
+                result.should.have.property('success', true)
+            })
+            it('should add a unidirectional link from link call to link in', async () => {
+                const linkCall = { id: 'lc1', type: 'link call', z: 'tab1', links: [], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lc1').returns(linkCall)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lc1', target: 'li1' }
+                }, result)
+                linkCall.links.should.containEql('li1')
+                linkIn.links.should.not.containEql('lc1')
+                linkCall.dirty.should.be.true()
+                linkIn.dirty.should.be.false()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.events.should.have.lengthOf(1)
+                result.should.have.property('success', true)
+            })
+            it('should remove a unidirectional link from link call to link in', async () => {
+                const linkCall = { id: 'lc1', type: 'link call', z: 'tab1', links: ['li1'], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lc1').returns(linkCall)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'remove', source: 'lc1', target: 'li1' }
+                }, result)
+                linkCall.links.should.not.containEql('li1')
+                linkIn.links.should.not.containEql('lc1')
+                result.should.have.property('success', true)
+            })
+            it('should throw if linking a node to itself', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'lo1' }
+                }, {})).rejectedWith(/Cannot link a node to itself/)
+            })
+            it('should throw if source node not found', async () => {
+                mockRED.nodes.node.returns(null)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'missing', target: 'li1' }
+                }, {})).rejectedWith(/Source node missing not found/)
+            })
+            it('should throw if target node not found', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', z: 'tab1' })
+                mockRED.nodes.node.withArgs('li1').returns(null)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/Target node li1 not found/)
+            })
+            it('should throw if source is not a link out or link call', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', type: 'inject', z: 'tab1' })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'n1', target: 'li1' }
+                }, {})).rejectedWith(/must be a link out or link call node/)
+            })
+            it('should throw if target is not a link in', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1' })
+                mockRED.nodes.node.withArgs('lo2').returns({ id: 'lo2', type: 'link out', mode: 'link', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'lo2' }
+                }, {})).rejectedWith(/must be a link in node/)
+            })
+            it('should throw if source is link out in return mode', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'return', z: 'tab1' })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/return mode.*cannot have outbound links/)
+            })
+            it('should throw if source workspace is locked', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [] })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1', links: [] })
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/workspace tab1 is locked/)
+            })
+            it('should throw if target workspace is locked (cross-tab)', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [] })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab2', links: [] })
+                mockRED.workspaces.isLocked.withArgs('tab2').returns(true)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/workspace tab2 is locked/)
+            })
+            it('should throw if adding a link that already exists', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['li1'] }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: ['lo1'] }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/Link already exists from lo1 to li1/)
+            })
+            it('should throw if removing a link that does not exist', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [] }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [] }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'remove', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/Link not found from lo1 to li1/)
+            })
+            it('should allow cross-tab links between link out and link in', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab2', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, result)
+                linkOut.links.should.containEql('li1')
+                linkIn.links.should.containEql('lo1')
+                result.should.have.property('success', true)
+            })
+            it('should replace existing link when adding to link call (single target only)', async () => {
+                const linkCall = { id: 'lc1', type: 'link call', linkType: 'static', z: 'tab1', links: ['li1'], dirty: false, changed: false }
+                const newLinkIn = { id: 'li2', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lc1').returns(linkCall)
+                mockRED.nodes.node.withArgs('li2').returns(newLinkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lc1', target: 'li2' }
+                }, result)
+                linkCall.links.should.deepEqual(['li2'])
+                linkCall.links.should.not.containEql('li1')
+                result.should.have.property('success', true)
+            })
+            it('should throw if link call is in dynamic mode', async () => {
+                mockRED.nodes.node.withArgs('lc1').returns({ id: 'lc1', type: 'link call', linkType: 'dynamic', z: 'tab1' })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lc1', target: 'li1' }
+                }, {})).rejectedWith(/dynamic mode.*cannot have static links/)
+            })
+            it('should refresh selection to update virtual wires', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                mockRED.view.selection.returns({ nodes: [linkOut] })
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, result)
+                mockRED.view.select.calledWith({ nodes: [linkOut] }).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
+            })
+            it('should preserve history with previous links state for undo', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['existing1'], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: ['existing2'], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, result)
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.events[0].changes.links.should.deepEqual(['existing1'])
+                historyArg.events[1].changes.links.should.deepEqual(['existing2'])
             })
         })
         describe('addNodes action', () => {
