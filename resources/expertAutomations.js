@@ -520,6 +520,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {boolean} [options.generateIds=false] - regenerate node IDs during import
      */
     addNodes (nodes, { generateIds = false } = {}) {
+        if (!nodes.length) throw new Error('nodes array must not be empty')
         // Validate required fields and types
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
@@ -536,14 +537,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const ws = this.RED.nodes.workspace(z)
             if (ws.locked) throw new Error(`Target tab ${z} is locked`)
         }
-        this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
-        // Validate import actually succeeded (only when IDs are known)
+        // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
-            const missing = prepared.filter(n => !this.RED.nodes.node(n.id))
-            if (missing.length > 0) {
-                throw new Error(`Failed to add node(s): ${missing.map(n => n.id).join(', ')} — IDs may already exist. Retry with generateIds: true`)
+            const existing = prepared.filter(n => this.RED.nodes.node(n.id))
+            if (existing.length > 0) {
+                throw new Error(`Node ID(s) already exist: ${existing.map(n => n.id).join(', ')} — use generateIds: true to auto-assign new IDs`)
             }
         }
+        this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
         this.RED.nodes.dirty(true)
     }
 
