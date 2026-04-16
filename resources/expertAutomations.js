@@ -166,10 +166,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         items: {
                             type: 'object',
                             properties: {
-                                name: { type: 'string' },
-                                value: { type: 'string' },
-                                type: { type: 'string' }
-                            }
+                                name: { type: 'string', description: 'Environment variable name' },
+                                value: { type: 'string', description: 'Environment variable value' },
+                                type: {
+                                    type: 'string',
+                                    enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
+                                    description: 'Environment variable type'
+                                }
+                            },
+                            required: ['name', 'value', 'type']
                         },
                         description: 'Environment variables'
                     }

@@ -887,7 +887,7 @@ describeMain('expertComms', function () {
             consoleWarnStub.calledOnce.should.be.true()
             eventSource.postMessage.calledOnce.should.be.true()
             const reply = eventSource.postMessage.firstCall.args[0]
-            reply.error.should.equal('Data is missing required parameter "filter"')
+            reply.error.should.containEql('requires property "filter"')
 
             consoleWarnStub.restore()
         })
@@ -1381,16 +1381,218 @@ describeMain('expertComms', function () {
         })
     })
 
-    describe('validateSchema', () => {
+    describe('applySchemaDefaults', () => {
+        it('should apply top-level defaults for missing properties', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', default: 'auto' },
+                    verbose: { type: 'boolean', default: false }
+                }
+            }
+            const data = {}
+            expertComms.applySchemaDefaults(data, schema)
+            data.mode.should.equal('auto')
+            data.verbose.should.equal(false)
+        })
+
+        it('should not overwrite existing values with defaults', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    mode: { type: 'string', default: 'auto' }
+                }
+            }
+            const data = { mode: 'manual' }
+            expertComms.applySchemaDefaults(data, schema)
+            data.mode.should.equal('manual')
+        })
+
+        it('should apply defaults to nested object properties', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    options: {
+                        type: 'object',
+                        properties: {
+                            timeout: { type: 'number', default: 5000 },
+                            retries: { type: 'number', default: 3 }
+                        }
+                    }
+                }
+            }
+            const data = { options: {} }
+            expertComms.applySchemaDefaults(data, schema)
+            data.options.timeout.should.equal(5000)
+            data.options.retries.should.equal(3)
+        })
+
+        it('should apply defaults to deeply nested objects', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    level1: {
+                        type: 'object',
+                        properties: {
+                            level2: {
+                                type: 'object',
+                                properties: {
+                                    value: { type: 'string', default: 'deep' }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { level1: { level2: {} } }
+            expertComms.applySchemaDefaults(data, schema)
+            data.level1.level2.value.should.equal('deep')
+        })
+
+        it('should apply defaults inside array items', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                type: { type: 'string', default: 'json' },
+                                value: { type: 'string', default: '' }
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { env: [{ name: 'VAR1' }, { name: 'VAR2', type: 'str' }] }
+            expertComms.applySchemaDefaults(data, schema)
+            data.env[0].type.should.equal('json')
+            data.env[0].value.should.equal('')
+            data.env[1].type.should.equal('str') // not overwritten
+            data.env[1].value.should.equal('')
+        })
+
+        it('should handle an empty array', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    items: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                enabled: { type: 'boolean', default: true }
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { items: [] }
+            expertComms.applySchemaDefaults(data, schema)
+            data.items.should.have.length(0)
+        })
+
+        it('should apply defaults to nested objects inside array items', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                config: {
+                                    type: 'object',
+                                    properties: {
+                                        enabled: { type: 'boolean', default: true },
+                                        priority: { type: 'number', default: 0 }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { nodes: [{ config: {} }, { config: { enabled: false } }] }
+            expertComms.applySchemaDefaults(data, schema)
+            data.nodes[0].config.enabled.should.equal(true)
+            data.nodes[0].config.priority.should.equal(0)
+            data.nodes[1].config.enabled.should.equal(false) // not overwritten
+            data.nodes[1].config.priority.should.equal(0)
+        })
+
+        it('should not descend into nested object when property is missing from data', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    options: {
+                        type: 'object',
+                        properties: {
+                            timeout: { type: 'number', default: 5000 }
+                        }
+                    }
+                }
+            }
+            const data = {}
+            expertComms.applySchemaDefaults(data, schema)
+            Object.keys(data).should.have.length(0) // options not created
+        })
+
+        it('should return data unchanged for null or invalid schema', () => {
+            const data = { foo: 'bar' }
+            expertComms.applySchemaDefaults(data, null).should.deepEqual({ foo: 'bar' })
+            expertComms.applySchemaDefaults(data, 42).should.deepEqual({ foo: 'bar' })
+        })
+
+        it('should return data unchanged when data is not an object', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    x: { type: 'string', default: 'y' }
+                }
+            }
+            const result = expertComms.applySchemaDefaults('string-value', schema)
+            result.should.equal('string-value')
+        })
+
+        it('should not treat arrays as objects', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    x: { type: 'string', default: 'y' }
+                }
+            }
+            const data = [1, 2, 3]
+            expertComms.applySchemaDefaults(data, schema)
+            data.should.deepEqual([1, 2, 3])
+        })
+
+        it('should handle top-level array schema', () => {
+            const schema = {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        status: { type: 'string', default: 'pending' }
+                    }
+                }
+            }
+            const data = [{}, { status: 'done' }]
+            expertComms.applySchemaDefaults(data, schema)
+            data[0].status.should.equal('pending')
+            data[1].status.should.equal('done')
+        })
+    })
+
+    describe('validateAction', () => {
         it('should validate object type', () => {
             const schema = { type: 'object' }
             const valid = { foo: 'bar' }
             const invalid = 'not an object'
-            const invalidArray = []
 
-            expertComms.validateSchema(valid, schema).valid.should.be.true()
-            expertComms.validateSchema(invalid, schema).valid.should.be.false()
-            expertComms.validateSchema(invalidArray, schema).valid.should.be.false()
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+            expertComms.validateActionParams(invalid, schema).valid.should.be.false()
         })
 
         it('should check required properties', () => {
@@ -1406,8 +1608,8 @@ describeMain('expertComms', function () {
             const valid = { foo: 'value1', bar: 'value2' }
             const missing = { foo: 'value1' }
 
-            expertComms.validateSchema(valid, schema).valid.should.be.true()
-            const result = expertComms.validateSchema(missing, schema)
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+            const result = expertComms.validateActionParams(missing, schema)
             result.valid.should.be.false()
             result.error.should.containEql('bar')
         })
@@ -1424,8 +1626,8 @@ describeMain('expertComms', function () {
             const valid = { foo: 'test', bar: 123 }
             const invalid = { foo: 123, bar: 'test' }
 
-            expertComms.validateSchema(valid, schema).valid.should.be.true()
-            expertComms.validateSchema(invalid, schema).valid.should.be.false()
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+            expertComms.validateActionParams(invalid, schema).valid.should.be.false()
         })
 
         it('should check enum values', () => {
@@ -1442,10 +1644,127 @@ describeMain('expertComms', function () {
             const valid = { view: 'install' }
             const invalid = { view: 'invalid' }
 
-            expertComms.validateSchema(valid, schema).valid.should.be.true()
-            const result = expertComms.validateSchema(invalid, schema)
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+            const result = expertComms.validateActionParams(invalid, schema)
             result.valid.should.be.false()
-            result.error.should.containEql('invalid')
+            result.error.should.containEql('is not one of enum values')
+        })
+
+        it('should ignore additional properties', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    foo: { type: 'string' }
+                }
+            }
+
+            const data = { foo: 'test', extra: 'ignored' }
+            const result = expertComms.validateActionParams(data, schema)
+            result.valid.should.be.true()
+        })
+
+        it('should validate nested objects', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'Tab ID — auto-generated if omitted' },
+                    label: { type: 'string', description: 'Tab label' },
+                    disabled: { type: 'boolean', description: 'Create as disabled' },
+                    info: { type: 'string', description: 'Tab notes' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Environment variable name' },
+                                value: { type: 'string', description: 'Environment variable value' },
+                                type: {
+                                    type: 'string',
+                                    enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
+                                    description: 'Environment variable type'
+                                }
+                            },
+                            required: ['name', 'value', 'type']
+                        },
+                        description: 'Environment variables'
+                    }
+                },
+                required: ['label']
+            }
+
+            const valid = {
+                label: 'My Tab',
+                env: [
+                    { name: 'VAR1', value: 'value1', type: 'str' },
+                    { name: 'VAR2', value: 'true', type: 'bool' }
+                ]
+            }
+            const invalid = {
+                label: 'My Tab',
+                env: [
+                    { name: 'VAR1', value: 'value1', type: 'integer' }, // invalid type
+                    { name: 'VAR2', value: 123, type: 'str' }, // value should be string
+                    'bad env entry' // not an object
+                ]
+            }
+
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+            const result = expertComms.validateActionParams(invalid, schema)
+            result.valid.should.be.false()
+            result.error.should.containEql('env[0].type: is not one of enum values')
+            result.error.should.containEql('env[1].value: is not of a type(s) string')
+            result.error.should.containEql('env[2]: is not of a type(s) object')
+        })
+
+        it('should allow empty env array but require all properties when element is present', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    label: { type: 'string' },
+                    env: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                value: { type: 'string' },
+                                type: {
+                                    type: 'string',
+                                    enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata']
+                                }
+                            },
+                            required: ['name', 'value', 'type']
+                        }
+                    }
+                },
+                required: ['label']
+            }
+
+            // empty env array is valid
+            expertComms.validateActionParams({ label: 'Tab', env: [] }, schema).valid.should.be.true()
+
+            // complete element is valid
+            expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1', type: 'str' }] }, schema).valid.should.be.true()
+
+            // missing name
+            const missingName = expertComms.validateActionParams({ label: 'Tab', env: [{ value: '1', type: 'str' }] }, schema)
+            missingName.valid.should.be.false()
+            missingName.error.should.containEql('name')
+
+            // missing value
+            const missingValue = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', type: 'str' }] }, schema)
+            missingValue.valid.should.be.false()
+            missingValue.error.should.containEql('value')
+
+            // missing type
+            const missingType = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1' }] }, schema)
+            missingType.valid.should.be.false()
+            missingType.error.should.containEql('type')
+
+            // bad type
+            const badType = expertComms.validateActionParams({ label: 'Tab', env: [{ name: 'A', value: '1', type: 'invalid' }] }, schema)
+            badType.valid.should.be.false()
+            badType.error.should.containEql('type')
         })
 
         it('should apply default values', () => {
@@ -1461,7 +1780,7 @@ describeMain('expertComms', function () {
             }
 
             const data = {}
-            const result = expertComms.validateSchema(data, schema)
+            const result = expertComms.validateActionParams(data, schema)
 
             result.valid.should.be.true()
             data.view.should.equal('install')
