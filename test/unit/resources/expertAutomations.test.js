@@ -560,6 +560,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED.history = { push: sinon.stub() }
                 mockRED.view.redraw = sinon.stub()
+                mockRED.view.selection = sinon.stub().returns(null)
                 mockRED.workspaces = {
                     ...mockRED.workspaces,
                     isLocked: sinon.stub().returns(false)
@@ -721,6 +722,39 @@ describeMain('expertAutomations', () => {
                 linkOut.links.should.containEql('li1')
                 linkIn.links.should.containEql('lo1')
                 result.should.have.property('success', true)
+            })
+            it('should replace existing link when adding to link call (single target only)', async () => {
+                const linkCall = { id: 'lc1', type: 'link call', linkType: 'static', z: 'tab1', links: ['li1'], dirty: false, changed: false }
+                const newLinkIn = { id: 'li2', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lc1').returns(linkCall)
+                mockRED.nodes.node.withArgs('li2').returns(newLinkIn)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lc1', target: 'li2' }
+                }, result)
+                linkCall.links.should.deepEqual(['li2'])
+                linkCall.links.should.not.containEql('li1')
+                result.should.have.property('success', true)
+            })
+            it('should throw if link call is in dynamic mode', async () => {
+                mockRED.nodes.node.withArgs('lc1').returns({ id: 'lc1', type: 'link call', linkType: 'dynamic', z: 'tab1' })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lc1', target: 'li1' }
+                }, {})).rejectedWith(/dynamic mode.*cannot have static links/)
+            })
+            it('should refresh selection to update virtual wires', async () => {
+                const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [], dirty: false, changed: false }
+                const linkIn = { id: 'li1', type: 'link in', z: 'tab1', links: [], dirty: false, changed: false }
+                mockRED.nodes.node.withArgs('lo1').returns(linkOut)
+                mockRED.nodes.node.withArgs('li1').returns(linkIn)
+                mockRED.view.selection.returns({ nodes: [linkOut] })
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, result)
+                mockRED.view.select.calledWith({ nodes: [linkOut] }).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
             })
             it('should preserve history with previous links state for undo', async () => {
                 const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['existing1'], dirty: false, changed: false }

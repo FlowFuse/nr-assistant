@@ -660,6 +660,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (sourceNode.type === 'link out' && sourceNode.mode === 'return') {
             throw new Error(`Source node ${source} is a link out in return mode and cannot have outbound links`)
         }
+        // link call in "dynamic" mode cannot have static links
+        if (sourceNode.type === 'link call' && sourceNode.linkType === 'dynamic') {
+            throw new Error(`Source node ${source} is a link call in dynamic mode and cannot have static links`)
+        }
         // Check workspace locks for both nodes
         if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
             throw new Error(`Cannot modify links — workspace ${sourceNode.z} is locked`)
@@ -680,7 +684,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             // Record history before mutating
             editHistories.push({ t: 'edit', node: sourceNode, changes: { links: [...sourceLinks] }, changed: wasSourceChanged })
-            sourceNode.links = [...sourceLinks, target]
+            // link call can only have one target — replace instead of append
+            sourceNode.links = sourceNode.type === 'link call' ? [target] : [...sourceLinks, target]
             if (isBidirectional) {
                 editHistories.push({ t: 'edit', node: targetNode, changes: { links: [...targetLinks] }, changed: wasTargetChanged })
                 targetNode.links = [...targetLinks, source]
@@ -707,6 +712,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.editor?.validateNode) {
             this.RED.editor.validateNode(sourceNode)
             this.RED.editor.validateNode(targetNode)
+        }
+        // Refresh selection to update virtual link wires on the canvas
+        const selection = this.RED.view.selection()
+        if (selection?.nodes) {
+            this.RED.view.select({ nodes: selection.nodes })
         }
         this.RED.view.redraw()
     }
