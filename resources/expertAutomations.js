@@ -133,9 +133,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
+                    patches: {
+                        type: 'array',
+                        description: 'Line-based partial edits for string properties. When from <= to, replaces lines from..to (1-indexed, inclusive). When from = to + 1, inserts content without removing lines.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                property: { type: 'string', description: 'Name of the node property to patch' },
+                                from: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                to: { type: 'number', description: 'End line (1-indexed, inclusive). Set to from - 1 to insert without replacing.' },
+                                content: { type: 'string', description: 'Replacement content (use \\n for multiple lines, empty string to delete lines)' }
+                            },
+                            required: ['property', 'from', 'to', 'content']
+                        }
+                    }
                 },
-                required: ['id', 'properties']
+                required: ['id']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -415,20 +429,45 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Update properties of an existing node in place.
+     * Supports full property replacement via `properties` and/or line-based
+     * partial edits via `patches`. At least one must be provided.
      * @param {string} id - node ID
-     * @param {Object} properties - key-value pairs to merge into the node
+     * @param {Object} [properties] - key-value pairs to merge into the node
+     * @param {Array} [patches] - line-based partial edits for string properties
      */
-    updateNode (id, properties) {
+    updateNode (id, properties, patches) {
+        const hasProperties = properties !== undefined && properties !== null
+        const hasPatches = Array.isArray(patches) && patches.length > 0
+        if (hasProperties && Object.keys(properties).length === 0) {
+            throw new Error('"properties" must not be empty')
+        }
+        if (!hasProperties && !hasPatches) {
+            throw new Error('At least one of "properties" or "patches" must be provided')
+        }
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
+
         const changes = {}
-        for (const key in properties) {
-            if (Object.prototype.hasOwnProperty.call(properties, key)) {
-                changes[key] = node[key]
-            }
+
+        // Apply line-based patches first (before full property replacement)
+        // so that patches reference the original line numbers
+        if (hasPatches) {
+            this._applyPatches(node, patches, changes)
         }
+
+        // Apply full property replacement
+        if (hasProperties) {
+            for (const key in properties) {
+                if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                    if (!(key in changes)) {
+                        changes[key] = node[key]
+                    }
+                }
+            }
+            Object.assign(node, properties)
+        }
+
         const wasChanged = node.changed
-        Object.assign(node, properties)
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
         node.dirty = true
@@ -437,6 +476,104 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.editor.validateNode(node)
         }
         this.RED.view.redraw()
+    }
+
+    /**
+     * Apply line-based patches to string properties of a node.
+     * @param {Object} node - the node object to patch
+     * @param {Array} patches - array of { property, from, to, content } operations
+     * @param {Object} changes - map to record original values (for history/undo)
+     */
+    _applyPatches (node, patches, changes) {
+        // Group patches by property
+        const grouped = {}
+        for (const patch of patches) {
+            if (!grouped[patch.property]) {
+                grouped[patch.property] = []
+            }
+            grouped[patch.property].push(patch)
+        }
+
+        for (const [prop, propPatches] of Object.entries(grouped)) {
+            const value = node[prop]
+            if (typeof value !== 'string') {
+                throw new Error(`Property "${prop}" is not a string (got ${value === null ? 'null' : typeof value})`)
+            }
+
+            // Save original for undo before any mutation
+            if (!(prop in changes)) {
+                changes[prop] = value
+            }
+
+            const lines = value.split('\n')
+            const lineCount = lines.length
+
+            // Validate all patches before applying any
+            for (const p of propPatches) {
+                if (!Number.isInteger(p.from) || p.from < 1) {
+                    throw new Error(`Patch "from" must be a positive integer (got ${p.from})`)
+                }
+                if (!Number.isInteger(p.to) || p.to < 0) {
+                    throw new Error(`Patch "to" must be a non-negative integer (got ${p.to})`)
+                }
+                const isInsert = p.from === p.to + 1
+                const isReplace = p.from <= p.to
+                if (!isInsert && !isReplace) {
+                    throw new Error(`Invalid patch range: from ${p.from} to ${p.to}. For replace, from <= to. For insert, from = to + 1.`)
+                }
+                if (isReplace && p.to > lineCount) {
+                    throw new Error(`Patch "to" (${p.to}) exceeds line count (${lineCount}) for property "${prop}"`)
+                }
+                if (isInsert && p.from > lineCount + 1) {
+                    throw new Error(`Insert position "from" (${p.from}) exceeds line count + 1 (${lineCount + 1}) for property "${prop}"`)
+                }
+            }
+
+            // Check for overlapping patches (using replace ranges only; inserts at boundaries are fine)
+            const sorted = [...propPatches].sort((a, b) => a.from - b.from)
+            for (let i = 1; i < sorted.length; i++) {
+                const prev = sorted[i - 1]
+                const curr = sorted[i]
+                const prevIsReplace = prev.from <= prev.to
+                const currIsReplace = curr.from <= curr.to
+                if (prevIsReplace && currIsReplace && curr.from <= prev.to) {
+                    throw new Error(
+                        `Overlapping patches on property "${prop}": ` +
+                        `lines ${prev.from}-${prev.to} and ${curr.from}-${curr.to}`
+                    )
+                }
+            }
+
+            // Sort patches for bottom-up application (highest line numbers first)
+            // so that earlier line numbers remain stable as we splice.
+            //
+            // Secondary sort for same `from`: replaces before inserts.
+            // An insert at line N shifts everything below it, so if a replace
+            // also targets line N, the replace must run first — otherwise it
+            // would hit the newly inserted content instead of the original line.
+            //
+            // insert  = from > to  (from = to + 1)  → sort value 1
+            // replace = from <= to                   → sort value 0
+            const descending = [...propPatches].sort((a, b) => {
+                if (b.from !== a.from) return b.from - a.from // primary: highest `from` first
+                const aIsInsert = a.from > a.to ? 1 : 0
+                const bIsInsert = b.from > b.to ? 1 : 0
+                return aIsInsert - bIsInsert // secondary: replaces (0) before inserts (1)
+            })
+            for (const p of descending) {
+                const replacementLines = p.content === '' ? [] : p.content.split('\n')
+                const isInsert = p.from === p.to + 1
+                if (isInsert) {
+                    // Insert before line `from` (0-indexed: from - 1)
+                    lines.splice(p.from - 1, 0, ...replacementLines)
+                } else {
+                    // Replace lines from..to inclusive
+                    lines.splice(p.from - 1, p.to - p.from + 1, ...replacementLines)
+                }
+            }
+
+            node[prop] = lines.join('\n')
+        }
     }
 
     /**
@@ -799,7 +936,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE:
-            this.updateNode(params.id, params.properties)
+            this.updateNode(params.id, params.properties, params.patches)
             result.success = true
             break
 
