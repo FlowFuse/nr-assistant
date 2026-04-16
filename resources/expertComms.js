@@ -1,5 +1,4 @@
 import { ExpertAutomations } from './expertAutomations.js'
-import { validate as validateJsonSchema } from 'jsonschema'
 
 function debounce (func, wait) {
     let timeout
@@ -708,21 +707,61 @@ export class ExpertComms {
     validateActionParams (data, schema) {
         // apply defaults (including nested) before validation
         this.applySchemaDefaults(data, schema)
-        const result = validateJsonSchema(data, schema, { throwError: false, nestedErrors: true })
-        console.debug('Schema validation result:', { data, schema, result })
-        if (result.valid) {
-            return { valid: true }
-        } else {
-            let errorString
-            if (result.errors && result.errors.length > 0) {
-                errorString = result.errors.map(e => `- ${e.property || 'instance'}: ${e.message}`).join('\n')
-                errorString = `Data does not match schema:\n${errorString}`
+        const errors = []
+
+        const validate = (data, schema, path, errors) => {
+            if (schema.type === 'object') {
+                if (typeof data !== 'object' || Array.isArray(data) || data === null) {
+                    errors.push(path ? `${path}: is not of a type(s) object` : 'Data is not of type object')
+                    return
+                }
+                // check required properties
+                if (Array.isArray(schema.required)) {
+                    for (const reqProp of schema.required) {
+                        if (!(reqProp in data)) {
+                            const propPath = path ? `${path}.${reqProp}` : reqProp
+                            errors.push(`${propPath}: is required`)
+                        }
+                    }
+                }
+                // check properties
+                if (schema.properties) {
+                    for (const [propName, propSchema] of Object.entries(schema.properties)) {
+                        if (!(propName in data)) continue
+                        const propPath = path ? `${path}.${propName}` : propName
+                        validate(data[propName], propSchema, propPath, errors)
+                    }
+                }
+            } else if (schema.type === 'array') {
+                if (!Array.isArray(data)) {
+                    errors.push(path ? `${path}: is not of a type(s) array` : 'Data is not of type array')
+                    return
+                }
+                if (schema.items) {
+                    for (let i = 0; i < data.length; i++) {
+                        const itemPath = path ? `${path}[${i}]` : `[${i}]`
+                        validate(data[i], schema.items, itemPath, errors)
+                    }
+                }
+            } else if (schema.type) {
+                const actualType = typeof data
+                const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type]
+                if (!allowedTypes.includes(actualType)) {
+                    errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
+                    return
+                }
             }
-            return {
-                valid: false,
-                error: errorString || 'Data does not match schema'
+            // check enum
+            if (schema.enum && !schema.enum.includes(data)) {
+                errors.push(`${path}: is not one of enum values: ${schema.enum.join(', ')}`)
             }
         }
+
+        validate(data, schema, '', errors)
+        if (errors.length > 0) {
+            return { valid: false, error: errors.join('; ') }
+        }
+        return { valid: true }
     }
 
     debug (...args) {

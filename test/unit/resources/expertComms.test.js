@@ -887,7 +887,7 @@ describeMain('expertComms', function () {
             consoleWarnStub.calledOnce.should.be.true()
             eventSource.postMessage.calledOnce.should.be.true()
             const reply = eventSource.postMessage.firstCall.args[0]
-            reply.error.should.containEql('requires property "filter"')
+            reply.error.should.containEql('filter: is required')
 
             consoleWarnStub.restore()
         })
