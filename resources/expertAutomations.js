@@ -484,22 +484,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
         this.RED.sidebar?.info?.refresh()
 
-        // If the editor tray is open, close all stacked trays then reopen
-        // so form fields reflect the updated node values.
+        // If the editor tray is open, close all stacked trays so the user
+        // sees the updated node when they reopen it.
         // The tray is a stack (e.g. node editor → JSONata editor), so we
         // pop each level until the view returns to DEFAULT state.
         if (this.RED.tray?.close && this.RED.view.state() !== this.RED.state?.DEFAULT) {
-            const closeAllAndReopen = () => {
+            const closeAll = () => {
                 this.RED.tray.close()
                 setTimeout(() => {
                     if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
-                        closeAllAndReopen()
-                    } else {
-                        try { this.RED.editor.edit(node) } catch (_) {}
+                        closeAll()
                     }
                 }, 300)
             }
-            closeAllAndReopen()
+            closeAll()
         }
     }
 

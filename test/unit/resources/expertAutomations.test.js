@@ -1386,15 +1386,14 @@ describeMain('expertAutomations', () => {
                     }, result)
                     mockRED.sidebar.info.refresh.calledOnce.should.be.true()
                 })
-                it('should close and reopen editor tray if open during update', async () => {
+                it('should close editor tray if open during update', async () => {
                     setupPatchNode()
-                    mockRED.view.state = sinon.stub().returns(2) // not DEFAULT — editor tray is open
+                    mockRED.view.state = sinon.stub().returns(2)
                     mockRED.tray = {
                         close: sinon.stub().callsFake(() => {
                             mockRED.view.state = sinon.stub().returns(1)
                         })
                     }
-                    mockRED.editor = { validateNode: sinon.stub(), edit: sinon.stub() }
                     const clock = sinon.useFakeTimers()
                     const result = {}
                     await expertAutomations.invokeAction('automation/update-node', {
@@ -1402,11 +1401,10 @@ describeMain('expertAutomations', () => {
                     }, result)
                     mockRED.tray.close.calledOnce.should.be.true()
                     clock.tick(300)
-                    mockRED.editor.edit.calledOnce.should.be.true()
                     result.should.have.property('success', true)
                     clock.restore()
                 })
-                it('should close all stacked trays before reopening', async () => {
+                it('should close all stacked trays', async () => {
                     setupPatchNode()
                     let closeCount = 0
                     mockRED.view.state = sinon.stub().returns(2)
@@ -1418,16 +1416,14 @@ describeMain('expertAutomations', () => {
                             }
                         })
                     }
-                    mockRED.editor = { validateNode: sinon.stub(), edit: sinon.stub() }
                     const clock = sinon.useFakeTimers()
                     const result = {}
                     await expertAutomations.invokeAction('automation/update-node', {
                         params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
                     }, result)
-                    clock.tick(300) // first close completes, triggers second close
+                    clock.tick(300)
                     mockRED.tray.close.callCount.should.equal(2)
-                    clock.tick(300) // second close completes, triggers reopen
-                    mockRED.editor.edit.calledOnce.should.be.true()
+                    clock.tick(300)
                     clock.restore()
                 })
                 it('should not close tray when editor is not open', async () => {
