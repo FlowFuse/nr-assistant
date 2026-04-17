@@ -81,6 +81,10 @@ export class ExpertComms {
      */
     targetOrigin = '*'
 
+    messageTransactionId = null
+
+    messageUserProperties = null
+
     /**
      * Define supported actions and their parameter schemas
      */
@@ -310,7 +314,15 @@ export class ExpertComms {
                 return
             }
 
-            const { type, action, params, target, source, scope } = event.data || {}
+            const { type, action, params, target, source, scope, userProperties, transactionId } = event.data || {}
+
+            if (userProperties) {
+                this.messageUserProperties = userProperties
+            }
+
+            if (transactionId) {
+                this.messageTransactionId = transactionId
+            }
 
             // Ensure scope and source match expected values
             if (target !== this.MESSAGE_SOURCE || source !== this.MESSAGE_TARGET || scope !== this.MESSAGE_SCOPE) {
@@ -795,8 +807,18 @@ export class ExpertComms {
                 ...payload,
                 source: this.MESSAGE_SOURCE,
                 scope: this.MESSAGE_SCOPE,
-                target: this.MESSAGE_TARGET
+                target: this.MESSAGE_TARGET,
+
+                // if transactionId and userProperties are present, it means that the response is for an agent tool call
+                // that is getting executed tool calls are executed sequentially and awaited for, and
+                // there should be no risk of overlap
+                transactionId: this.messageTransactionId,
+                userProperties: this.messageUserProperties
             }, this.targetOrigin)
+
+            // clear message transactionId and userProperties
+            this.messageTransactionId = null
+            this.messageUserProperties = null
         } else {
             console.warn('Unable to post message, target window not available', payload)
         }
