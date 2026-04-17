@@ -136,16 +136,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
                     patches: {
                         type: 'array',
-                        description: 'Line-based partial edits for string properties. When from <= to, replaces lines from..to (1-indexed, inclusive). When from = to + 1, inserts content without removing lines.',
+                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
                         items: {
                             type: 'object',
                             properties: {
-                                property: { type: 'string', description: 'Name of the node property to patch' },
-                                from: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                to: { type: 'number', description: 'End line (1-indexed, inclusive). Set to from - 1 to insert without replacing.' },
-                                content: { type: 'string', description: 'Replacement content (use \\n for multiple lines, empty string to delete lines)' }
+                                property: { type: 'string', description: 'Top-level node property name (used for undo snapshot)' },
+                                path: { type: 'string', description: 'Optional dot-separated path within the property value to reach the target string. Numeric segments index into arrays (e.g. "0.to" for rules[0].to). Omit if the property itself is the target string.' },
+                                op: {
+                                    type: 'string',
+                                    enum: ['replace', 'insert', 'delete'],
+                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                },
+                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
+                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
                             },
-                            required: ['property', 'from', 'to', 'content']
+                            required: ['property', 'op', 'start']
                         }
                     }
                 },
@@ -433,7 +439,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * partial edits via `patches`. At least one must be provided.
      * @param {string} id - node ID
      * @param {Object} [properties] - key-value pairs to merge into the node
-     * @param {Array} [patches] - line-based partial edits for string properties
+     * @param {Array} [patches] - line-based partial edits: { property, path?, op, start, end?, content? }
      */
     updateNode (id, properties, patches) {
         const hasProperties = properties !== undefined && properties !== null
@@ -476,104 +482,162 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.editor.validateNode(node)
         }
         this.RED.view.redraw()
+        this.RED.sidebar?.info?.refresh()
     }
 
     /**
      * Apply line-based patches to string properties of a node.
+     * Supports nested property paths (e.g. rules[0].to via path: "0.to").
      * @param {Object} node - the node object to patch
-     * @param {Array} patches - array of { property, from, to, content } operations
+     * @param {Array} patches - array of { property, path?, op, start, end?, content? }
      * @param {Object} changes - map to record original values (for history/undo)
      */
     _applyPatches (node, patches, changes) {
-        // Group patches by property
+        // Group patches by target (property + path combination)
         const grouped = {}
         for (const patch of patches) {
-            if (!grouped[patch.property]) {
-                grouped[patch.property] = []
+            const targetKey = patch.path ? `${patch.property}:::${patch.path}` : patch.property
+            if (!grouped[targetKey]) {
+                grouped[targetKey] = { property: patch.property, path: patch.path || null, patches: [] }
             }
-            grouped[patch.property].push(patch)
+            grouped[targetKey].patches.push(patch)
         }
 
-        for (const [prop, propPatches] of Object.entries(grouped)) {
-            const value = node[prop]
-            if (typeof value !== 'string') {
-                throw new Error(`Property "${prop}" is not a string (got ${value === null ? 'null' : typeof value})`)
+        for (const { property, path, patches: targetPatches } of Object.values(grouped)) {
+            // Snapshot top-level property for undo (once per property).
+            // Nested paths require a deep clone since we mutate in place.
+            if (!(property in changes)) {
+                changes[property] = path ? JSON.parse(JSON.stringify(node[property])) : node[property]
             }
 
-            // Save original for undo before any mutation
-            if (!(prop in changes)) {
-                changes[prop] = value
+            // Resolve the target string value
+            let targetValue, setTarget
+            if (path) {
+                const resolved = this._resolvePath(node[property], path)
+                targetValue = resolved.parent[resolved.key]
+                setTarget = (v) => { resolved.parent[resolved.key] = v }
+            } else {
+                targetValue = node[property]
+                setTarget = (v) => { node[property] = v }
             }
 
-            const lines = value.split('\n')
+            const targetDesc = path ? `${property}.${path}` : property
+            if (typeof targetValue !== 'string') {
+                throw new Error(`Property "${targetDesc}" is not a string (got ${targetValue === null ? 'null' : typeof targetValue})`)
+            }
+
+            const lines = targetValue.split('\n')
             const lineCount = lines.length
 
             // Validate all patches before applying any
-            for (const p of propPatches) {
-                if (!Number.isInteger(p.from) || p.from < 1) {
-                    throw new Error(`Patch "from" must be a positive integer (got ${p.from})`)
+            for (const p of targetPatches) {
+                if (!Number.isInteger(p.start) || p.start < 1) {
+                    throw new Error(`Patch "start" must be a positive integer (got ${p.start})`)
                 }
-                if (!Number.isInteger(p.to) || p.to < 0) {
-                    throw new Error(`Patch "to" must be a non-negative integer (got ${p.to})`)
-                }
-                const isInsert = p.from === p.to + 1
-                const isReplace = p.from <= p.to
-                if (!isInsert && !isReplace) {
-                    throw new Error(`Invalid patch range: from ${p.from} to ${p.to}. For replace, from <= to. For insert, from = to + 1.`)
-                }
-                if (isReplace && p.to > lineCount) {
-                    throw new Error(`Patch "to" (${p.to}) exceeds line count (${lineCount}) for property "${prop}"`)
-                }
-                if (isInsert && p.from > lineCount + 1) {
-                    throw new Error(`Insert position "from" (${p.from}) exceeds line count + 1 (${lineCount + 1}) for property "${prop}"`)
+                switch (p.op) {
+                case 'replace':
+                    if (p.end == null) throw new Error('Patch op "replace" requires "end"')
+                    if (!Number.isInteger(p.end) || p.end < 1) {
+                        throw new Error(`Patch "end" must be a positive integer (got ${p.end})`)
+                    }
+                    if (p.start > p.end) throw new Error(`Invalid patch range: start ${p.start} > end ${p.end}`)
+                    if (p.end > lineCount) {
+                        throw new Error(`Patch "end" (${p.end}) exceeds line count (${lineCount}) for property "${targetDesc}"`)
+                    }
+                    if (p.content == null) throw new Error('Patch op "replace" requires "content"')
+                    break
+                case 'insert':
+                    if (p.start > lineCount + 1) {
+                        throw new Error(`Insert position "start" (${p.start}) exceeds line count + 1 (${lineCount + 1}) for property "${targetDesc}"`)
+                    }
+                    if (p.content == null) throw new Error('Patch op "insert" requires "content"')
+                    break
+                case 'delete':
+                    if (p.end == null) throw new Error('Patch op "delete" requires "end"')
+                    if (!Number.isInteger(p.end) || p.end < 1) {
+                        throw new Error(`Patch "end" must be a positive integer (got ${p.end})`)
+                    }
+                    if (p.start > p.end) throw new Error(`Invalid patch range: start ${p.start} > end ${p.end}`)
+                    if (p.end > lineCount) {
+                        throw new Error(`Patch "end" (${p.end}) exceeds line count (${lineCount}) for property "${targetDesc}"`)
+                    }
+                    break
+                default:
+                    throw new Error(`Unknown patch op "${p.op}"`)
                 }
             }
 
-            // Check for overlapping patches (using replace ranges only; inserts at boundaries are fine)
-            const sorted = [...propPatches].sort((a, b) => a.from - b.from)
-            for (let i = 1; i < sorted.length; i++) {
-                const prev = sorted[i - 1]
-                const curr = sorted[i]
-                const prevIsReplace = prev.from <= prev.to
-                const currIsReplace = curr.from <= curr.to
-                if (prevIsReplace && currIsReplace && curr.from <= prev.to) {
+            // Check for overlapping ranges (replace/delete only; inserts don't consume lines)
+            const rangeOps = targetPatches.filter(p => p.op !== 'insert').sort((a, b) => a.start - b.start)
+            for (let i = 1; i < rangeOps.length; i++) {
+                const prev = rangeOps[i - 1]
+                const curr = rangeOps[i]
+                if (curr.start <= prev.end) {
                     throw new Error(
-                        `Overlapping patches on property "${prop}": ` +
-                        `lines ${prev.from}-${prev.to} and ${curr.from}-${curr.to}`
+                        `Overlapping patches on property "${targetDesc}": ` +
+                        `lines ${prev.start}-${prev.end} and ${curr.start}-${curr.end}`
                     )
                 }
             }
 
-            // Sort patches for bottom-up application (highest line numbers first)
+            // Sort for bottom-up application (highest line numbers first)
             // so that earlier line numbers remain stable as we splice.
             //
-            // Secondary sort for same `from`: replaces before inserts.
-            // An insert at line N shifts everything below it, so if a replace
-            // also targets line N, the replace must run first — otherwise it
+            // Secondary sort for same `start`: replace/delete before insert.
+            // An insert at line N shifts everything below it, so if a replace/delete
+            // also targets line N, it must run first — otherwise it
             // would hit the newly inserted content instead of the original line.
-            //
-            // insert  = from > to  (from = to + 1)  → sort value 1
-            // replace = from <= to                   → sort value 0
-            const descending = [...propPatches].sort((a, b) => {
-                if (b.from !== a.from) return b.from - a.from // primary: highest `from` first
-                const aIsInsert = a.from > a.to ? 1 : 0
-                const bIsInsert = b.from > b.to ? 1 : 0
-                return aIsInsert - bIsInsert // secondary: replaces (0) before inserts (1)
+            const descending = [...targetPatches].sort((a, b) => {
+                if (b.start !== a.start) return b.start - a.start
+                const aIsInsert = a.op === 'insert' ? 1 : 0
+                const bIsInsert = b.op === 'insert' ? 1 : 0
+                return aIsInsert - bIsInsert
             })
+
             for (const p of descending) {
-                const replacementLines = p.content === '' ? [] : p.content.split('\n')
-                const isInsert = p.from === p.to + 1
-                if (isInsert) {
-                    // Insert before line `from` (0-indexed: from - 1)
-                    lines.splice(p.from - 1, 0, ...replacementLines)
-                } else {
-                    // Replace lines from..to inclusive
-                    lines.splice(p.from - 1, p.to - p.from + 1, ...replacementLines)
+                switch (p.op) {
+                case 'replace': {
+                    const replacementLines = p.content.split('\n')
+                    lines.splice(p.start - 1, p.end - p.start + 1, ...replacementLines)
+                    break
+                }
+                case 'insert': {
+                    const insertLines = p.content.split('\n')
+                    lines.splice(p.start - 1, 0, ...insertLines)
+                    break
+                }
+                case 'delete':
+                    lines.splice(p.start - 1, p.end - p.start + 1)
+                    break
                 }
             }
 
-            node[prop] = lines.join('\n')
+            setTarget(lines.join('\n'))
         }
+    }
+
+    /**
+     * Resolve a dot-separated path within an object/array structure.
+     * Numeric segments index into arrays.
+     * @param {*} obj - root value to navigate from
+     * @param {string} path - dot-separated path (e.g. "0.to", "rules.2.expression")
+     * @returns {{ parent: *, key: string|number }} parent container and final key
+     */
+    _resolvePath (obj, path) {
+        const segments = path.split('.')
+        let current = obj
+        for (let i = 0; i < segments.length - 1; i++) {
+            const seg = segments[i]
+            const idx = Number(seg)
+            current = Array.isArray(current) && Number.isInteger(idx) ? current[idx] : current[seg]
+            if (current == null) {
+                throw new Error(`Path segment "${seg}" resolved to ${current}`)
+            }
+        }
+        const lastSeg = segments[segments.length - 1]
+        const lastIdx = Number(lastSeg)
+        const key = Array.isArray(current) && Number.isInteger(lastIdx) ? lastIdx : lastSeg
+        return { parent: current, key }
     }
 
     /**
