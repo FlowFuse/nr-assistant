@@ -483,6 +483,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         this.RED.view.redraw()
         this.RED.sidebar?.info?.refresh()
+
+        // If the editor tray is open, close all stacked trays then reopen
+        // so form fields reflect the updated node values.
+        // The tray is a stack (e.g. node editor → JSONata editor), so we
+        // pop each level until the view returns to DEFAULT state.
+        if (this.RED.tray?.close && this.RED.view.state() !== this.RED.state?.DEFAULT) {
+            const closeAllAndReopen = () => {
+                this.RED.tray.close()
+                setTimeout(() => {
+                    if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
+                        closeAllAndReopen()
+                    } else {
+                        try { this.RED.editor.edit(node) } catch (_) {}
+                    }
+                }, 300)
+            }
+            closeAllAndReopen()
+        }
     }
 
     /**
@@ -526,7 +544,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw new Error(`Property "${targetDesc}" is not a string (got ${targetValue === null ? 'null' : typeof targetValue})`)
             }
 
-            const lines = targetValue.split('\n')
+            // Auto-detect line separator: some properties use \t (e.g. inject JSONata)
+            const sep = targetValue.includes('\t') && !targetValue.includes('\n') ? '\t' : '\n'
+            const lines = targetValue.split(sep)
             const lineCount = lines.length
 
             // Validate all patches before applying any
@@ -612,7 +632,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
 
-            setTarget(lines.join('\n'))
+            setTarget(lines.join(sep))
         }
     }
 

@@ -1310,6 +1310,38 @@ describeMain('expertAutomations', () => {
                     }, result)
                     mockNode.func.should.equal('replaced')
                 })
+                it('should auto-detect tab separator and preserve it', async () => {
+                    const mockNode = setupPatchNode({ func: '$sum(items.price)\t* discount\t+ shipping' })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: '* (discount + loyalty)' }] }
+                    }, result)
+                    mockNode.func.should.equal('$sum(items.price)\t* (discount + loyalty)\t+ shipping')
+                })
+                it('should insert with tab separator when target uses tabs', async () => {
+                    const mockNode = setupPatchNode({ func: 'a\tb\tc' })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 4, content: 'd' }] }
+                    }, result)
+                    mockNode.func.should.equal('a\tb\tc\td')
+                })
+                it('should delete with tab separator when target uses tabs', async () => {
+                    const mockNode = setupPatchNode({ func: 'a\tb\tc\td' })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'delete', start: 2, end: 3 }] }
+                    }, result)
+                    mockNode.func.should.equal('a\td')
+                })
+                it('should use newline when value contains both tabs and newlines', async () => {
+                    const mockNode = setupPatchNode({ func: 'line1\nline2\twith tab\nline3' })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'replaced' }] }
+                    }, result)
+                    mockNode.func.should.equal('line1\nreplaced\nline3')
+                })
                 it('should patch a nested property via path', async () => {
                     const mockNode = setupPatchNode({
                         rules: [{ from: 'msg.payload', to: '$sum(items.price)\n* 1.0', type: 'jsonata' }]
@@ -1353,6 +1385,59 @@ describeMain('expertAutomations', () => {
                         params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
                     }, result)
                     mockRED.sidebar.info.refresh.calledOnce.should.be.true()
+                })
+                it('should close and reopen editor tray if open during update', async () => {
+                    setupPatchNode()
+                    mockRED.view.state = sinon.stub().returns(2) // not DEFAULT — editor tray is open
+                    mockRED.tray = {
+                        close: sinon.stub().callsFake(() => {
+                            mockRED.view.state = sinon.stub().returns(1)
+                        })
+                    }
+                    mockRED.editor = { validateNode: sinon.stub(), edit: sinon.stub() }
+                    const clock = sinon.useFakeTimers()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    }, result)
+                    mockRED.tray.close.calledOnce.should.be.true()
+                    clock.tick(300)
+                    mockRED.editor.edit.calledOnce.should.be.true()
+                    result.should.have.property('success', true)
+                    clock.restore()
+                })
+                it('should close all stacked trays before reopening', async () => {
+                    setupPatchNode()
+                    let closeCount = 0
+                    mockRED.view.state = sinon.stub().returns(2)
+                    mockRED.tray = {
+                        close: sinon.stub().callsFake(() => {
+                            closeCount++
+                            if (closeCount >= 2) {
+                                mockRED.view.state = sinon.stub().returns(1)
+                            }
+                        })
+                    }
+                    mockRED.editor = { validateNode: sinon.stub(), edit: sinon.stub() }
+                    const clock = sinon.useFakeTimers()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    }, result)
+                    clock.tick(300) // first close completes, triggers second close
+                    mockRED.tray.close.callCount.should.equal(2)
+                    clock.tick(300) // second close completes, triggers reopen
+                    mockRED.editor.edit.calledOnce.should.be.true()
+                    clock.restore()
+                })
+                it('should not close tray when editor is not open', async () => {
+                    setupPatchNode()
+                    mockRED.tray = { close: sinon.stub() }
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-node', {
+                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    }, result)
+                    mockRED.tray.close.called.should.be.false()
                 })
                 it('should throw if start > end for replace', async () => {
                     setupPatchNode()
