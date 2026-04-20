@@ -883,10 +883,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case CLOSE_SEARCH:
+            this.closeSearch()
+            result.success = true
+            break
+
         case CLOSE_TYPE_SEARCH:
             this.closeTypeSearch()
             result.success = true
             break
+
         case CLOSE_ACTION_LIST:
             this.closeActionList()
             result.success = true
