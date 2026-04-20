@@ -745,9 +745,17 @@ export class ExpertComms {
                     }
                 }
             } else if (schema.type) {
-                const actualType = typeof data
+                let actualType = typeof data
+                if (Array.isArray(data)) {
+                    actualType = 'array'
+                }
                 const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type]
-                if (!allowedTypes.includes(actualType)) {
+                if (actualType === 'array') {
+                    for (let i = 0; i < data.length; i++) {
+                        const itemPath = path ? `${path}[${i}]` : `[${i}]`
+                        validate(data[i], schema.items, itemPath, errors)
+                    }
+                } else if (!allowedTypes.includes(actualType)) {
                     errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
                     return
                 }
