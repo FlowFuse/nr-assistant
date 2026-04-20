@@ -9,6 +9,7 @@ const ADD_FLOW_TAB = 'automation/add-flow-tab'
 const UPDATE_NODE = 'automation/update-node'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 const GET_FLOW = 'automation/get-workspace-nodes'
+const LIST_WORKSPACES = 'automation/list-workspaces'
 const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
@@ -29,6 +30,7 @@ const IMPORT_FLOW = 'automation/import-flow'
  *   |UPDATE_NODE
  *   |SHOW_WORKSPACE
  *   |GET_FLOW
+ *   |LIST_WORKSPACES
  *   |CLOSE_SEARCH
  *   |CLOSE_TYPE_SEARCH
  *   |CLOSE_ACTION_LIST
@@ -49,7 +51,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 properties: {
                     id: {
                         type: 'string',
-                        description: 'The ID of a single node to retrieve'
+                        description: 'The ID of a single node to retrieve. Can be used with `include` property to also retrieve nodes upstream, downstream, or connected to the specified node.'
                     },
                     ids: {
                         type: 'array',
@@ -60,8 +62,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     },
                     include: {
                         type: 'string',
-                        enum: ['upstream', 'downstream', 'connected', null],
-                        default: null, // single node
+                        enum: ['upstream', 'downstream', 'connected'],
                         description: 'If `id` is provided, `include` can be used to specify whether to also retrieve nodes upstream, downstream, or connected to the specified node. Not applicable if `ids` property is used.'
                     }
                 }
@@ -84,8 +85,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     },
                     include: {
                         type: 'string',
-                        enum: ['upstream', 'downstream', 'connected', null],
-                        default: null, // single node
+                        enum: ['upstream', 'downstream', 'connected'],
                         description: 'If `id` is provided, `include` can be used to specify whether to also select nodes upstream, downstream, or connected to the specified node. Not applicable if `ids` property is used.'
                     }
                 }
@@ -133,9 +133,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
+                    patches: {
+                        type: 'array',
+                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                property: { type: 'string', description: 'Top-level node property name (used for undo snapshot)' },
+                                path: { type: 'string', description: 'Optional dot-separated path within the property value to reach the target string. Numeric segments index into arrays (e.g. "0.to" for rules[0].to). Omit if the property itself is the target string.' },
+                                op: {
+                                    type: 'string',
+                                    enum: ['replace', 'insert', 'delete'],
+                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                },
+                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
+                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                            },
+                            required: ['property', 'op', 'start']
+                        }
+                    }
                 },
-                required: ['id', 'properties']
+                required: ['id']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -148,6 +168,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
         },
         [GET_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    type: {
+                        type: 'string',
+                        description: 'Optional parameter to filter by node type. Exclude this parameter to get all node types.'
+                    },
+                    tabId: {
+                        type: 'string',
+                        description: 'Optional parameter to only get nodes on a specific workspace. Exclude this parameter to get node from all workspaces.'
+                    }
+                }
+            }
+        },
+        [LIST_WORKSPACES]: {
             params: null
         },
         [CLOSE_SEARCH]: { params: null },
@@ -453,9 +488,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string} id - workspace ID to show
      */
     showWorkspace (id) {
-        const ws = this.RED.nodes.workspace(id)
-        if (!ws) throw new Error(`Workspace ${id} not found`)
+        if (!this.hasWorkspace(id)) throw new Error(`Workspace ${id} not found`)
         this.RED.workspaces.show(id)
+    }
+
+    /**
+     * Check if a workspace tab exists.
+     * @param {string} id - workspace ID to check
+     * @returns {boolean} true if the workspace exists, false otherwise
+     */
+    hasWorkspace (id) {
+        const ws = this.RED.nodes.workspace(id)
+        if (ws) return true
+        return false
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -538,7 +583,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Validate all target tabs exist and are not locked
         const uniqueZs = [...new Set(prepared.map(n => n.z))]
         for (const z of uniqueZs) {
-            this.showWorkspace(z) // validates workspace exists (throws if not)
+            if (!this.hasWorkspace(z)) throw new Error(`Target tab ${z} not found`)
             const ws = this.RED.nodes.workspace(z)
             if (ws.locked) throw new Error(`Target tab ${z} is locked`)
         }
@@ -810,13 +855,34 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case GET_FLOW:
             result.flows = this.getFlow()
+            if (result.flows && Array.isArray(result.flows) && result.flows.length > 0) {
+                if (params.type) {
+                    // filter by type if specified (e.g. "tab", "subflow", or any node type)
+                    result.flows = result.flows.filter(f => f.type === params.type)
+                }
+                if (params.tabId) {
+                    // filter by parent tab ID if specified (for nodes/config nodes)
+                    result.flows = result.flows.filter(f => f.z === params.tabId)
+                }
+            }
             result.success = true
             break
 
-        case CLOSE_SEARCH:
-            this.closeSearch()
+        case LIST_WORKSPACES: {
+            const workspaceIds = this.RED.nodes.getWorkspaceOrder()
+            const tabs = workspaceIds.map(id => this.RED.nodes.workspace(id))
+            const sanitized = tabs.map(t => ({ id: t.id, label: t.label, disabled: t.disabled, info: t.info, locked: t.locked, contentsChanged: t.contentsChanged }))
+            const selectedWorkspaces = this.RED.workspaces.selection() || []
+            sanitized.forEach(t => {
+                t.hidden = this.RED.workspaces.isHidden(t.id)
+                t.isActiveWorkspace = this.RED.workspaces.active() === t.id
+                t.isSelected = t.isActiveWorkspace || selectedWorkspaces.includes(t.id)
+            })
+            result.workspaces = sanitized
             result.success = true
+        }
             break
+
         case CLOSE_TYPE_SEARCH:
             this.closeTypeSearch()
             result.success = true
