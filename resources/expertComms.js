@@ -711,48 +711,40 @@ export class ExpertComms {
         const errors = []
 
         const validate = (data, schema, path, errors) => {
-            if (schema.type === 'object') {
-                if (typeof data !== 'object' || Array.isArray(data) || data === null) {
-                    errors.push(path ? `${path}: is not of a type(s) object` : 'Data is not of type object')
-                    return
-                }
-                // check required properties
+            const allowedTypes = schema.type
+                ? (Array.isArray(schema.type) ? schema.type : [schema.type])
+                : null
+
+            let actualType = data === null ? 'null' : typeof data
+            if (Array.isArray(data)) actualType = 'array'
+
+            if (allowedTypes && !allowedTypes.includes(actualType)) {
+                errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
+                return
+            }
+
+            if (actualType === 'object' && allowedTypes?.includes('object')) {
                 if (Array.isArray(schema.required)) {
                     for (const reqProp of schema.required) {
                         if (!(reqProp in data)) {
-                            const propPath = path ? `${path}.${reqProp}` : reqProp
-                            errors.push(`${propPath}: is required`)
+                            errors.push(`${path ? `${path}.${reqProp}` : reqProp}: is required`)
                         }
                     }
                 }
-                // check properties
                 if (schema.properties) {
                     for (const [propName, propSchema] of Object.entries(schema.properties)) {
                         if (!(propName in data)) continue
-                        const propPath = path ? `${path}.${propName}` : propName
-                        validate(data[propName], propSchema, propPath, errors)
+                        validate(data[propName], propSchema, path ? `${path}.${propName}` : propName, errors)
                     }
                 }
-            } else if (schema.type === 'array') {
-                if (!Array.isArray(data)) {
-                    errors.push(path ? `${path}: is not of a type(s) array` : 'Data is not of type array')
-                    return
-                }
+            } else if (actualType === 'array' && allowedTypes?.includes('array')) {
                 if (schema.items) {
                     for (let i = 0; i < data.length; i++) {
-                        const itemPath = path ? `${path}[${i}]` : `[${i}]`
-                        validate(data[i], schema.items, itemPath, errors)
+                        validate(data[i], schema.items, path ? `${path}[${i}]` : `[${i}]`, errors)
                     }
                 }
-            } else if (schema.type) {
-                const actualType = typeof data
-                const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type]
-                if (!allowedTypes.includes(actualType)) {
-                    errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
-                    return
-                }
             }
-            // check enum
+
             if (schema.enum && !schema.enum.includes(data)) {
                 errors.push(`${path}: is not one of enum values: ${schema.enum.join(', ')}`)
             }

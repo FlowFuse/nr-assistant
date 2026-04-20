@@ -1767,6 +1767,128 @@ describeMain('expertComms', function () {
             badType.error.should.containEql('type')
         })
 
+        it('should accept union types (string or null)', () => {
+            const schema = { type: ['string', 'null'] }
+
+            expertComms.validateActionParams('hello', schema).valid.should.be.true()
+            expertComms.validateActionParams(null, schema).valid.should.be.true()
+
+            const invalid = expertComms.validateActionParams(123, schema)
+            invalid.valid.should.be.false()
+            invalid.error.should.containEql('is not of a type(s) string or null')
+        })
+
+        it('should accept union types (string or number)', () => {
+            const schema = { type: ['string', 'number'] }
+
+            expertComms.validateActionParams('hello', schema).valid.should.be.true()
+            expertComms.validateActionParams(42, schema).valid.should.be.true()
+
+            const invalid = expertComms.validateActionParams(true, schema)
+            invalid.valid.should.be.false()
+            invalid.error.should.containEql('is not of a type(s) string or number')
+        })
+
+        it('should allow nullable property inside nested object', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    label: { type: 'string' },
+                    info: { type: ['string', 'null'] }
+                },
+                required: ['label']
+            }
+
+            expertComms.validateActionParams({ label: 'Tab', info: 'notes' }, schema).valid.should.be.true()
+            expertComms.validateActionParams({ label: 'Tab', info: null }, schema).valid.should.be.true()
+
+            const invalid = expertComms.validateActionParams({ label: 'Tab', info: 123 }, schema)
+            invalid.valid.should.be.false()
+            invalid.error.should.containEql('info: is not of a type(s) string or null')
+        })
+
+        it('should validate root-level array schema', () => {
+            const schema = {
+                type: 'array',
+                items: { type: 'string' }
+            }
+
+            expertComms.validateActionParams(['a', 'b', 'c'], schema).valid.should.be.true()
+            expertComms.validateActionParams([], schema).valid.should.be.true()
+
+            const invalid = expertComms.validateActionParams(['a', 123, 'c'], schema)
+            invalid.valid.should.be.false()
+            invalid.error.should.containEql('[1]: is not of a type(s) string')
+
+            const notArray = expertComms.validateActionParams({ not: 'array' }, schema)
+            notArray.valid.should.be.false()
+            notArray.error.should.containEql('is not of a type(s) array')
+        })
+
+        it('should validate array-of-object-containing-array-of-object', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    groups: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                items: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: { id: { type: 'number' } },
+                                        required: ['id']
+                                    }
+                                }
+                            },
+                            required: ['name']
+                        }
+                    }
+                }
+            }
+
+            const valid = {
+                groups: [
+                    { name: 'g1', items: [{ id: 1 }, { id: 2 }] },
+                    { name: 'g2', items: [] }
+                ]
+            }
+            expertComms.validateActionParams(valid, schema).valid.should.be.true()
+
+            const invalid = {
+                groups: [
+                    { name: 'g1', items: [{ id: 'not-a-number' }] },
+                    { items: [{ id: 3 }] } // missing name
+                ]
+            }
+            const result = expertComms.validateActionParams(invalid, schema)
+            result.valid.should.be.false()
+            result.error.should.containEql('groups[0].items[0].id: is not of a type(s) number')
+            result.error.should.containEql('groups[1].name: is required')
+        })
+
+        it('should accept array or null for nullable array field', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    tags: {
+                        type: ['array', 'null'],
+                        items: { type: 'string' }
+                    }
+                }
+            }
+
+            expertComms.validateActionParams({ tags: ['a', 'b'] }, schema).valid.should.be.true()
+            expertComms.validateActionParams({ tags: null }, schema).valid.should.be.true()
+
+            const invalid = expertComms.validateActionParams({ tags: ['a', 123] }, schema)
+            invalid.valid.should.be.false()
+            invalid.error.should.containEql('tags[1]: is not of a type(s) string')
+        })
+
         it('should apply default values', () => {
             const schema = {
                 type: 'object',
@@ -1784,6 +1906,56 @@ describeMain('expertComms', function () {
 
             result.valid.should.be.true()
             data.view.should.equal('install')
+        })
+
+        it('should apply default values to nested objects', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    options: {
+                        type: 'object',
+                        properties: {
+                            timeout: { type: 'number', default: 5000 }
+                        }
+                    }
+                }
+            }
+            const data = { options: {} }
+            const result = expertComms.validateActionParams(data, schema)
+            result.valid.should.be.true()
+            data.options.timeout.should.equal(5000)
+        })
+
+        it('should apply default values to nested objects inside array items', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    nodes: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                things: {
+                                    type: 'object',
+                                    properties: {
+                                        name: { type: 'string', default: 'default-name' },
+                                        enabled: { type: 'boolean', default: true }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            const data = { nodes: [{ things: {} }, { things: { enabled: false } }, { things: { name: 'custom-name' } }] }
+            const result = expertComms.validateActionParams(data, schema)
+            result.valid.should.be.true()
+            data.nodes[0].things.enabled.should.equal(true) // default applied
+            data.nodes[0].things.name.should.equal('default-name') // default applied
+            data.nodes[1].things.enabled.should.equal(false) // not overwritten
+            data.nodes[1].things.name.should.equal('default-name') // default applied
+            data.nodes[2].things.enabled.should.equal(true) // default applied
+            data.nodes[2].things.name.should.equal('custom-name') // not overwritten
         })
     })
 
