@@ -583,9 +583,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Validate all target tabs exist and are not locked
         const uniqueZs = [...new Set(prepared.map(n => n.z))]
         for (const z of uniqueZs) {
-            if (!this.hasWorkspace(z)) throw new Error(`Target tab ${z} not found`)
+            if (!this.hasWorkspace(z)) throw new Error(`Workspace tab ${z} not found`)
             const ws = this.RED.nodes.workspace(z)
-            if (ws.locked) throw new Error(`Target tab ${z} is locked`)
+            if (ws.locked) throw new Error(`Workspace tab ${z} is locked`)
         }
         // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
