@@ -310,7 +310,7 @@ export class ExpertComms {
                 return
             }
 
-            const { type, action, params, target, source, scope } = event.data || {}
+            const { type, action, params, target, source, scope, correlationId } = event.data || {}
 
             // Ensure scope and source match expected values
             if (target !== this.MESSAGE_SOURCE || source !== this.MESSAGE_TARGET || scope !== this.MESSAGE_SCOPE) {
@@ -328,7 +328,8 @@ export class ExpertComms {
                 event,
                 type,
                 action,
-                params
+                params,
+                correlationId
             }
 
             for (const eventName in this.commandMap) {
@@ -521,7 +522,7 @@ export class ExpertComms {
     /**
      * FlowFuse Expert message handlers
      */
-    async handleActionInvocation ({ event, type, action, params } = {}) {
+    async handleActionInvocation ({ event, type, action, params, correlationId } = {}) {
         this.debug(`Received request to invoke action "${action}" with params`, params)
         // handle action invocation requests (must be registered actions in supportedActions)
         if (typeof action !== 'string') {
@@ -530,7 +531,7 @@ export class ExpertComms {
 
         if (!this.supportedActions[action]) {
             console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
-            this.postReply({ type, action, error: 'unknown-action' }, event)
+            this.postReply({ type, action, error: 'unknown-action', correlationId }, event)
             return
         }
 
@@ -540,7 +541,7 @@ export class ExpertComms {
             const validation = this.validateActionParams(params, actionSchema)
             if (!validation || !validation.valid) {
                 console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
-                this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
+                this.postReply({ type, action, error: validation.error || 'invalid-parameters', correlationId }, event)
                 return
             }
         }
@@ -549,28 +550,28 @@ export class ExpertComms {
         switch (action) {
         case 'custom:close-search':
             this.RED.search.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:close-typeSearch':
             this.RED.typeSearch.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:close-actionList':
             this.RED.actionList.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:import-flow':
             // import-flow is a custom action - handle it here directly
             try {
                 this.nrAutomations.importFlow(params.flow, { addFlow: params.addFlow })
-                this.postReply({ type, success: true }, event)
+                this.postReply({ type, success: true, correlationId }, event)
             } catch (err) {
                 this.RED.notify('Import failed:' + err.message, 'error')
-                this.postReply({ type, error: err?.message }, event)
+                this.postReply({ type, error: err?.message, correlationId }, event)
             }
             return
         default: {
-            const result = { handled: false, success: false, noReply: false }
+            const result = { handled: false, success: false, noReply: false, correlationId }
             try {
                 if (actionNamespace === 'automation') {
                     // Handle supported automated actions
