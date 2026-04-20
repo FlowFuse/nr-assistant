@@ -133,29 +133,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
-                    patches: {
-                        type: 'array',
-                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                property: { type: 'string', description: 'Top-level node property name (used for undo snapshot)' },
-                                path: { type: 'string', description: 'Optional dot-separated path within the property value to reach the target string. Numeric segments index into arrays (e.g. "0.to" for rules[0].to). Omit if the property itself is the target string.' },
-                                op: {
-                                    type: 'string',
-                                    enum: ['replace', 'insert', 'delete'],
-                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
-                                },
-                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
-                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
-                            },
-                            required: ['property', 'op', 'start']
-                        }
-                    }
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
                 },
-                required: ['id']
+                required: ['id', 'properties']
             }
         },
         [SHOW_WORKSPACE]: {
