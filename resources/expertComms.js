@@ -310,7 +310,7 @@ export class ExpertComms {
                 return
             }
 
-            const { type, action, params, target, source, scope } = event.data || {}
+            const { type, action, params, target, source, scope, correlationId } = event.data || {}
 
             // Ensure scope and source match expected values
             if (target !== this.MESSAGE_SOURCE || source !== this.MESSAGE_TARGET || scope !== this.MESSAGE_SCOPE) {
@@ -328,7 +328,8 @@ export class ExpertComms {
                 event,
                 type,
                 action,
-                params
+                params,
+                correlationId
             }
 
             for (const eventName in this.commandMap) {
@@ -521,7 +522,7 @@ export class ExpertComms {
     /**
      * FlowFuse Expert message handlers
      */
-    async handleActionInvocation ({ event, type, action, params } = {}) {
+    async handleActionInvocation ({ event, type, action, params, correlationId } = {}) {
         this.debug(`Received request to invoke action "${action}" with params`, params)
         // handle action invocation requests (must be registered actions in supportedActions)
         if (typeof action !== 'string') {
@@ -530,7 +531,7 @@ export class ExpertComms {
 
         if (!this.supportedActions[action]) {
             console.warn(`Action "${action}" is not permitted to be invoked via postMessage`)
-            this.postReply({ type, action, error: 'unknown-action' }, event)
+            this.postReply({ type, action, error: 'unknown-action', correlationId }, event)
             return
         }
 
@@ -540,7 +541,7 @@ export class ExpertComms {
             const validation = this.validateActionParams(params, actionSchema)
             if (!validation || !validation.valid) {
                 console.warn(`Params for action "${action}" did not validate against the expected schema`, params, actionSchema, validation)
-                this.postReply({ type, action, error: validation.error || 'invalid-parameters' }, event)
+                this.postReply({ type, action, error: validation.error || 'invalid-parameters', correlationId }, event)
                 return
             }
         }
@@ -549,28 +550,28 @@ export class ExpertComms {
         switch (action) {
         case 'custom:close-search':
             this.RED.search.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:close-typeSearch':
             this.RED.typeSearch.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:close-actionList':
             this.RED.actionList.hide()
-            this.postReply({ type, action, acknowledged: true }, event)
+            this.postReply({ type, action, acknowledged: true, correlationId }, event)
             return
         case 'custom:import-flow':
             // import-flow is a custom action - handle it here directly
             try {
                 this.nrAutomations.importFlow(params.flow, { addFlow: params.addFlow })
-                this.postReply({ type, success: true }, event)
+                this.postReply({ type, success: true, correlationId }, event)
             } catch (err) {
                 this.RED.notify('Import failed:' + err.message, 'error')
-                this.postReply({ type, error: err?.message }, event)
+                this.postReply({ type, error: err?.message, correlationId }, event)
             }
             return
         default: {
-            const result = { handled: false, success: false, noReply: false }
+            const result = { handled: false, success: false, noReply: false, correlationId }
             try {
                 if (actionNamespace === 'automation') {
                     // Handle supported automated actions
@@ -710,48 +711,40 @@ export class ExpertComms {
         const errors = []
 
         const validate = (data, schema, path, errors) => {
-            if (schema.type === 'object') {
-                if (typeof data !== 'object' || Array.isArray(data) || data === null) {
-                    errors.push(path ? `${path}: is not of a type(s) object` : 'Data is not of type object')
-                    return
-                }
-                // check required properties
+            const allowedTypes = schema.type
+                ? (Array.isArray(schema.type) ? schema.type : [schema.type])
+                : null
+
+            let actualType = data === null ? 'null' : typeof data
+            if (Array.isArray(data)) actualType = 'array'
+
+            if (allowedTypes && !allowedTypes.includes(actualType)) {
+                errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
+                return
+            }
+
+            if (actualType === 'object' && allowedTypes?.includes('object')) {
                 if (Array.isArray(schema.required)) {
                     for (const reqProp of schema.required) {
                         if (!(reqProp in data)) {
-                            const propPath = path ? `${path}.${reqProp}` : reqProp
-                            errors.push(`${propPath}: is required`)
+                            errors.push(`${path ? `${path}.${reqProp}` : reqProp}: is required`)
                         }
                     }
                 }
-                // check properties
                 if (schema.properties) {
                     for (const [propName, propSchema] of Object.entries(schema.properties)) {
                         if (!(propName in data)) continue
-                        const propPath = path ? `${path}.${propName}` : propName
-                        validate(data[propName], propSchema, propPath, errors)
+                        validate(data[propName], propSchema, path ? `${path}.${propName}` : propName, errors)
                     }
                 }
-            } else if (schema.type === 'array') {
-                if (!Array.isArray(data)) {
-                    errors.push(path ? `${path}: is not of a type(s) array` : 'Data is not of type array')
-                    return
-                }
+            } else if (actualType === 'array' && allowedTypes?.includes('array')) {
                 if (schema.items) {
                     for (let i = 0; i < data.length; i++) {
-                        const itemPath = path ? `${path}[${i}]` : `[${i}]`
-                        validate(data[i], schema.items, itemPath, errors)
+                        validate(data[i], schema.items, path ? `${path}[${i}]` : `[${i}]`, errors)
                     }
                 }
-            } else if (schema.type) {
-                const actualType = typeof data
-                const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type]
-                if (!allowedTypes.includes(actualType)) {
-                    errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
-                    return
-                }
             }
-            // check enum
+
             if (schema.enum && !schema.enum.includes(data)) {
                 errors.push(`${path}: is not one of enum values: ${schema.enum.join(', ')}`)
             }
