@@ -70,7 +70,28 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            const expectedKeys = ['automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/list-workspaces', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires', 'automation/set-links', 'automation/import-flow', 'automation/close-editor-tray']
+            const expectedKeys = [
+                'automation/get-nodes',
+                'automation/select-nodes',
+                'automation/open-node-edit',
+                'automation/search',
+                'automation/add-flow-tab',
+                'automation/update-node',
+                'automation/show-workspace',
+                'automation/get-workspace-nodes',
+                'automation/list-workspaces',
+                'automation/close-search',
+                'automation/close-type-search',
+                'automation/close-action-list',
+                'automation/add-tab',
+                'automation/remove-tab',
+                'automation/add-nodes',
+                'automation/remove-nodes',
+                'automation/set-wires',
+                'automation/set-links',
+                'automation/import-flow',
+                'automation/close-editor-tray'
+            ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
         it('should have hasAction method', () => {
