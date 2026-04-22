@@ -70,7 +70,7 @@ describeMain('expertAutomations', () => {
         it('should have supported actions', () => {
             const supportedActions = expertAutomations.supportedActions
             supportedActions.should.be.an.Object()
-            const expectedKeys = ['automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/list-workspaces', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires', 'automation/set-links', 'automation/import-flow']
+            const expectedKeys = ['automation/get-nodes', 'automation/select-nodes', 'automation/open-node-edit', 'automation/search', 'automation/add-flow-tab', 'automation/update-node', 'automation/show-workspace', 'automation/get-workspace-nodes', 'automation/list-workspaces', 'automation/close-search', 'automation/close-type-search', 'automation/close-action-list', 'automation/add-tab', 'automation/remove-tab', 'automation/add-nodes', 'automation/remove-nodes', 'automation/set-wires', 'automation/set-links', 'automation/import-flow', 'automation/close-editor-tray']
             supportedActions.should.only.have.keys(...expectedKeys)
         })
         it('should have hasAction method', () => {
@@ -1343,7 +1343,7 @@ describeMain('expertAutomations', () => {
                     }, result)
                     mockNode.func.should.equal('line1\nreplaced\nline3')
                 })
-                it('should patch a nested property via path', async () => {
+                it('should patch a nested property via dot path', async () => {
                     const mockNode = setupPatchNode({
                         rules: [{ from: 'msg.payload', to: '$sum(items.price)\n* 1.0', type: 'jsonata' }]
                     })
@@ -1351,14 +1351,14 @@ describeMain('expertAutomations', () => {
                     await expertAutomations.invokeAction('automation/update-node', {
                         params: {
                             id: 'n1',
-                            patches: [{ property: 'rules', path: '0.to', op: 'replace', start: 2, end: 2, content: '* 1.2' }]
+                            patches: [{ property: 'rules.0.to', op: 'replace', start: 2, end: 2, content: '* 1.2' }]
                         }
                     }, result)
                     mockNode.rules[0].to.should.equal('$sum(items.price)\n* 1.2')
                     const historyArg = mockRED.history.push.firstCall.args[0]
                     historyArg.changes.rules[0].to.should.equal('$sum(items.price)\n* 1.0')
                 })
-                it('should patch multiple nested paths on the same property', async () => {
+                it('should patch multiple nested paths on the same top-level property', async () => {
                     const mockNode = setupPatchNode({
                         rules: [
                             { to: 'line1\nline2' },
@@ -1370,8 +1370,8 @@ describeMain('expertAutomations', () => {
                         params: {
                             id: 'n1',
                             patches: [
-                                { property: 'rules', path: '0.to', op: 'replace', start: 1, end: 1, content: 'LINE1' },
-                                { property: 'rules', path: '1.to', op: 'replace', start: 2, end: 2, content: 'BBB' }
+                                { property: 'rules.0.to', op: 'replace', start: 1, end: 1, content: 'LINE1' },
+                                { property: 'rules.1.to', op: 'replace', start: 2, end: 2, content: 'BBB' }
                             ]
                         }
                     }, result)
@@ -1389,52 +1389,30 @@ describeMain('expertAutomations', () => {
                 })
                 it('should close editor tray if open during update', async () => {
                     setupPatchNode()
-                    mockRED.view.state = sinon.stub().returns(2)
-                    mockRED.tray = {
-                        close: sinon.stub().callsFake(() => {
-                            mockRED.view.state = sinon.stub().returns(1)
-                        })
-                    }
-                    const clock = sinon.useFakeTimers()
+                    const triggerStub = sinon.stub()
+                    let stateCallCount = 0
+                    mockRED.view.state = sinon.stub().callsFake(() => {
+                        stateCallCount++
+                        return stateCallCount <= 2 ? 2 : 1
+                    })
+                    global.$ = sinon.stub().returns({ trigger: triggerStub })
                     const result = {}
                     await expertAutomations.invokeAction('automation/update-node', {
                         params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
                     }, result)
-                    mockRED.tray.close.calledOnce.should.be.true()
-                    clock.tick(300)
+                    triggerStub.calledWith('click').should.be.true()
                     result.should.have.property('success', true)
-                    clock.restore()
-                })
-                it('should close all stacked trays', async () => {
-                    setupPatchNode()
-                    let closeCount = 0
-                    mockRED.view.state = sinon.stub().returns(2)
-                    mockRED.tray = {
-                        close: sinon.stub().callsFake(() => {
-                            closeCount++
-                            if (closeCount >= 2) {
-                                mockRED.view.state = sinon.stub().returns(1)
-                            }
-                        })
-                    }
-                    const clock = sinon.useFakeTimers()
-                    const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
-                    }, result)
-                    clock.tick(300)
-                    mockRED.tray.close.callCount.should.equal(2)
-                    clock.tick(300)
-                    clock.restore()
+                    delete global.$
                 })
                 it('should not close tray when editor is not open', async () => {
                     setupPatchNode()
-                    mockRED.tray = { close: sinon.stub() }
+                    global.$ = sinon.stub().returns({ trigger: sinon.stub() })
                     const result = {}
                     await expertAutomations.invokeAction('automation/update-node', {
                         params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
                     }, result)
-                    mockRED.tray.close.called.should.be.false()
+                    global.$.called.should.be.false()
+                    delete global.$
                 })
                 it('should throw if start > end for replace', async () => {
                     setupPatchNode()
@@ -1537,9 +1515,66 @@ describeMain('expertAutomations', () => {
                     setupPatchNode({ rules: [{ to: 'value' }] })
                     const result = {}
                     await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'rules', path: '5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }
+                        params: { id: 'n1', patches: [{ property: 'rules.5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }
                     }, result)).rejectedWith(/resolved to/)
                 })
+            })
+        })
+        describe('closeEditorTray action', () => {
+            afterEach(() => {
+                delete global.$
+            })
+            it('should close the editor tray by clicking cancel', async () => {
+                const triggerStub = sinon.stub()
+                mockRED.view.state = sinon.stub()
+                mockRED.view.state.onFirstCall().returns(2)
+                mockRED.view.state.returns(1)
+                global.$ = sinon.stub().returns({ trigger: triggerStub })
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-editor-tray', {
+                    params: {}
+                }, result)
+                global.$.calledWith('.red-ui-tray-toolbar button#node-dialog-cancel').should.be.true()
+                triggerStub.calledWith('click').should.be.true()
+                result.should.have.property('closed', true)
+                result.should.have.property('success', true)
+            })
+            it('should close multiple stacked trays', async () => {
+                let clickCount = 0
+                const triggerStub = sinon.stub().callsFake(() => { clickCount++ })
+                mockRED.view.state = sinon.stub().callsFake(() => clickCount >= 2 ? 1 : 2)
+                global.$ = sinon.stub().returns({ trigger: triggerStub })
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-editor-tray', {
+                    params: {}
+                }, result)
+                triggerStub.callCount.should.equal(2)
+                result.should.have.property('closed', true)
+            })
+            it('should return closed false if tray did not close within max iterations', async () => {
+                mockRED.view.state = sinon.stub().returns(2)
+                global.$ = sinon.stub().returns({ trigger: sinon.stub() })
+                const clock = sinon.useFakeTimers()
+                const result = {}
+                const promise = expertAutomations.invokeAction('automation/close-editor-tray', {
+                    params: {}
+                }, result)
+                for (let i = 0; i < 10; i++) {
+                    await clock.tickAsync(300)
+                }
+                await promise
+                global.$.callCount.should.equal(10)
+                result.should.have.property('closed', false)
+                clock.restore()
+            })
+            it('should be a no-op when editor is already in default state', async () => {
+                global.$ = sinon.stub().returns({ trigger: sinon.stub() })
+                const result = {}
+                await expertAutomations.invokeAction('automation/close-editor-tray', {
+                    params: {}
+                }, result)
+                global.$.called.should.be.false()
+                result.should.have.property('closed', true)
             })
         })
         describe('showWorkspace action', () => {
