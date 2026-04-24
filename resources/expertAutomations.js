@@ -1046,10 +1046,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case UPDATE_NODE:
+        case UPDATE_NODE: {
             await this.updateNode(params.id, params.properties, params.patches)
-            result.node = this._formatNodes([this.RED.nodes.node(params.id)], params.options?.includeModuleConfig)[0] || null
+            const updatedNode = this.RED.nodes.node(params.id)
+            result.node = this._formatNodes([updatedNode], params.options?.includeModuleConfig)[0] || null
+            result.validation = this._getNodeValidation(updatedNode)
             result.success = true
+        }
             break
 
         case SHOW_WORKSPACE: {
@@ -1124,7 +1127,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case ADD_NODES: {
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
+            if (this.RED.editor?.validateNode) {
+                addedNodes.forEach(n => this.RED.editor.validateNode(n))
+            }
             result.nodes = this._formatNodes(addedNodes, params.options?.includeModuleConfig)
+            result.validation = addedNodes.map(n => ({ id: n.id, ...this._getNodeValidation(n) })).filter(v => v.valid === false)
             result.success = true
         }
             break
@@ -1152,7 +1159,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case IMPORT_FLOW: {
             const imported = this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
-            result.nodes = Array.isArray(imported) ? this._formatNodes(imported, params.options?.includeModuleConfig) : []
+            const importedNodes = Array.isArray(imported) ? imported : []
+            if (this.RED.editor?.validateNode) {
+                importedNodes.forEach(n => this.RED.editor.validateNode(n))
+            }
+            result.nodes = importedNodes.length > 0 ? this._formatNodes(importedNodes, params.options?.includeModuleConfig) : []
+            result.validation = importedNodes.map(n => ({ id: n.id, ...this._getNodeValidation(n) })).filter(v => v.valid === false)
             result.success = true
         }
             break
@@ -1170,5 +1182,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     _formatNodes (nodes, includeModuleConfig = true) {
         return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+    }
+
+    /**
+     * RED.editor.validateNode(node) is a side-effect function that sets:
+     *   - node.valid (boolean)
+     *   - node.validationErrors (string[] — property names or custom error messages)
+     * It checks each property against node._def.defaults validators: required fields,
+     * custom validators, config node refs, and credentials. For subflow instances it
+     * cascades into the subflow definition and all internal nodes.
+     */
+    _getNodeValidation (node) {
+        if (!node || typeof node.valid === 'undefined') return null
+        const result = { valid: node.valid }
+        if (Array.isArray(node.validationErrors) && node.validationErrors.length > 0) {
+            result.validationErrors = node.validationErrors
+        }
+        return result
     }
 }
