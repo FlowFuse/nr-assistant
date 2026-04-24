@@ -1022,7 +1022,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case EDIT_NODE: {
             const selectedNode = this.editNode(params.id || '')
-            result.node = this._formatNodes([selectedNode], false)[0] || null
+            result.node = this._formatNodes([selectedNode], params.options?.includeModuleConfig)[0] || null
             result.success = true
         }
             break
@@ -1032,7 +1032,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.results = []
                 for (let index = 0; index < searchResults.length; index++) {
                     const searchResult = searchResults[index]
-                    searchResult.node = this._formatNodes([searchResult.node], false)[0] || null
+                    searchResult.node = this._formatNodes([searchResult.node], params.options?.includeModuleConfig)[0] || null
                     result.results.push(searchResult)
                 }
             }
@@ -1041,14 +1041,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case ADD_FLOW_TAB: {
             const newFlowTab = await this.addFlowTab(params?.title || undefined)
-            result.tab = this._formatNodes([newFlowTab], false)[0] || null
+            result.tab = this._formatNodes([newFlowTab], params.options?.includeModuleConfig)[0] || null
             result.success = true
         }
             break
 
         case UPDATE_NODE:
             await this.updateNode(params.id, params.properties, params.patches)
-            result.node = this._formatNodes([this.RED.nodes.node(params.id)], false)[0] || null
+            result.node = this._formatNodes([this.RED.nodes.node(params.id)], params.options?.includeModuleConfig)[0] || null
             result.success = true
             break
 
@@ -1107,29 +1107,35 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case ADD_TAB: {
             const newTab = this.addTab(params)
-            result.tab = this._formatNodes([newTab], false)[0] || null
+            result.tab = this._formatNodes([newTab], params.options?.includeModuleConfig)[0] || null
             result.success = true
         }
             break
 
-        case REMOVE_TAB:
-            result.removedId = params.id
+        case REMOVE_TAB: {
+            const ws = this.RED.nodes.workspace(params.id)
+            const tab = ws ? this._formatNodes([ws], params.options?.includeModuleConfig)[0] : null
             this.removeTab(params.id)
+            result.tab = tab
             result.success = true
+        }
             break
 
         case ADD_NODES: {
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
-            result.nodes = this._formatNodes(addedNodes)
+            result.nodes = this._formatNodes(addedNodes, params.options?.includeModuleConfig)
             result.success = true
         }
             break
 
-        case REMOVE_NODES:
-            result.removedIds = params.ids
+        case REMOVE_NODES: {
+            const nodesToRemove = params.ids.map(id => this.RED.nodes.node(id)).filter(Boolean)
+            const nodes = this._formatNodes(nodesToRemove, params.options?.includeModuleConfig)
             this.removeNodes(params.ids)
+            result.nodes = nodes
             result.success = true
+        }
             break
 
         case SET_WIRES:
@@ -1146,7 +1152,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case IMPORT_FLOW: {
             const imported = this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
-            result.nodes = Array.isArray(imported) ? this._formatNodes(imported) : []
+            result.nodes = Array.isArray(imported) ? this._formatNodes(imported, params.options?.includeModuleConfig) : []
             result.success = true
         }
             break

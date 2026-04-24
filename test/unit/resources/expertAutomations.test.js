@@ -379,7 +379,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
-                result.should.have.property('removedIds').which.deepEqual(['n1'])
+                result.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
             })
             it('should collect removed links for history', async () => {
                 const mockNode = { id: 'n1' }
@@ -952,7 +952,7 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('removedId', 'tab1')
+                result.should.have.property('tab').which.is.an.Object()
             })
             it('should throw if tab not found', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
