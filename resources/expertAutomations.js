@@ -1195,18 +1195,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 return
             }
             const rawDefaults = def.defaults || {}
-            result.type = params.type
-            result.defaults = Object.fromEntries(
-                Object.entries(rawDefaults).map(([key, propDef]) => {
-                    if (propDef && typeof propDef === 'object') {
-                        const safe = Object.fromEntries(
-                            Object.entries(propDef).filter(([, v]) => typeof v !== 'function')
-                        )
-                        return [key, safe]
-                    }
-                    return [key, propDef]
-                })
-            )
+            result.nodeType = params.type
+            result.defaults = JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
+                typeof value === 'function' ? value.toString() : value
+            ))
             result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
             result.category = def.category || null
             result.color = def.color || null
