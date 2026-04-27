@@ -589,7 +589,6 @@ export class ExpertComms {
                 this.postReply({ type, action, success: true, ...result }, event)
             } catch (err) {
                 result.error = err.message
-                result.exception = err
                 this.postReply({ type, action, ...result, success: false }, event)
             }
         }

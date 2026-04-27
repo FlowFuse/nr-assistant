@@ -1191,11 +1191,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const def = this.RED.nodes.getType(params.type)
             if (!def) {
                 result.success = false
-                result.error = new Error(`Node type "${params.type}" is not installed in this Node-RED instance`)
+                result.error = `Node type "${params.type}" is not installed in this Node-RED instance`
                 return
             }
+            const rawDefaults = def.defaults || {}
             result.type = params.type
-            result.defaults = def.defaults || {}
+            result.defaults = Object.fromEntries(
+                Object.entries(rawDefaults).map(([key, propDef]) => {
+                    if (propDef && typeof propDef === 'object') {
+                        const safe = Object.fromEntries(
+                            Object.entries(propDef).filter(([, v]) => typeof v !== 'function')
+                        )
+                        return [key, safe]
+                    }
+                    return [key, propDef]
+                })
+            )
             result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
             result.category = def.category || null
             result.color = def.color || null
