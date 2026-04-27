@@ -21,6 +21,7 @@ const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
+const GET_NODE_TYPE = 'automation/get-node-type'
 
 /**
  * @typedef {SELECT_NODES
@@ -42,7 +43,8 @@ const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
  *   |SET_WIRES
  *   |SET_LINKS
  *   |IMPORT_FLOW
- *   |CLOSE_EDITOR_TRAY} ExpertAutomationsActionsEnum
+ *   |CLOSE_EDITOR_TRAY
+ *   |GET_NODE_TYPE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -311,6 +313,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [CLOSE_EDITOR_TRAY]: {
             params: null
+        },
+        [GET_NODE_TYPE]: {
+            params: {
+                type: 'object',
+                required: ['type'],
+                properties: {
+                    type: {
+                        type: 'string',
+                        description: 'Node type identifier to look up (e.g. "inject", "function", "worldmap")'
+                    }
+                }
+            }
         }
     })
 
@@ -1172,6 +1186,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case CLOSE_EDITOR_TRAY:
             result.closed = await this.closeEditorTray()
             result.success = true
+            break
+        case GET_NODE_TYPE: {
+            const def = this.RED.nodes.getType(params.type)
+            if (!def) {
+                result.success = false
+                result.error = new Error(`Node type "${params.type}" is not installed in this Node-RED instance`)
+                return
+            }
+            result.type = params.type
+            result.defaults = def.defaults || {}
+            result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
+            result.category = def.category || null
+            result.color = def.color || null
+            result.inputs = def.inputs ?? 0
+            result.outputs = def.outputs ?? 0
+            result.success = true
+        }
             break
         default:
             result.handled = false
