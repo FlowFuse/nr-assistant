@@ -21,6 +21,7 @@ const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
+const GET_NODE_TYPE = 'automation/get-node-type'
 
 /**
  * @typedef {SELECT_NODES
@@ -42,7 +43,8 @@ const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
  *   |SET_WIRES
  *   |SET_LINKS
  *   |IMPORT_FLOW
- *   |CLOSE_EDITOR_TRAY} ExpertAutomationsActionsEnum
+ *   |CLOSE_EDITOR_TRAY
+ *   |GET_NODE_TYPE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -311,6 +313,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         },
         [CLOSE_EDITOR_TRAY]: {
             params: null
+        },
+        [GET_NODE_TYPE]: {
+            params: {
+                type: 'object',
+                required: ['type'],
+                properties: {
+                    type: {
+                        type: 'string',
+                        description: 'Node type identifier to look up (e.g. "inject", "function", "worldmap")'
+                    }
+                }
+            }
         }
     })
 
@@ -493,6 +507,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
             Object.assign(node, properties)
         }
 
+        // Syntax-check all changed string properties that look like code (multi-line).
+        // new Function() compiles as a function body — same context Node-RED uses for function nodes.
+        // This catches syntax errors synchronously before the runtime does, and works for any node type.
+        const codeErrors = {}
+        for (const key of Object.keys(changes)) {
+            const newVal = key.includes('.') ? undefined : node[key] // skip deep paths; node[key] covers top-level
+            if (typeof newVal === 'string' && newVal.includes('\n')) {
+                try {
+                    // eslint-disable-next-line no-new-func, no-unused-vars
+                    const _syntaxCheck = new Function(newVal)
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        codeErrors[key] = err.message
+                    }
+                }
+            }
+        }
+
         const wasChanged = node.changed
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
@@ -507,6 +539,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
+
+        return Object.keys(codeErrors).length > 0 ? codeErrors : null
     }
 
     async closeEditorTray () {
@@ -1047,10 +1081,32 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE: {
-            await this.updateNode(params.id, params.properties, params.patches)
+            // Capture pre-patch line counts so the agent can see what it was working with
+            const preUpdateLineCounts = {}
+            if (Array.isArray(params.patches) && params.patches.length > 0) {
+                const currentNode = this.RED.nodes.node(params.id)
+                if (currentNode) {
+                    const patchedTopLevel = [...new Set(params.patches.map(p => p.property.split('.')[0]))]
+                    for (const prop of patchedTopLevel) {
+                        const val = currentNode[prop]
+                        if (typeof val === 'string') {
+                            preUpdateLineCounts[prop] = val.split('\n').length
+                        }
+                    }
+                }
+            }
+            const codeErrors = await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.node = this._formatNodes([updatedNode], params.options?.includeModuleConfig)[0] || null
             result.validation = this._getNodeValidation(updatedNode)
+            if (codeErrors) {
+                if (!result.validation) result.validation = {}
+                result.validation.valid = false
+                result.validation.codeErrors = codeErrors
+            }
+            if (Object.keys(preUpdateLineCounts).length > 0) {
+                result.preUpdateLineCounts = preUpdateLineCounts
+            }
             result.success = true
         }
             break
@@ -1172,6 +1228,26 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case CLOSE_EDITOR_TRAY:
             result.closed = await this.closeEditorTray()
             result.success = true
+            break
+        case GET_NODE_TYPE: {
+            const def = this.RED.nodes.getType(params.type)
+            if (!def) {
+                result.success = false
+                result.error = `Node type "${params.type}" is not installed in this Node-RED instance`
+                return
+            }
+            const rawDefaults = def.defaults || {}
+            result.nodeType = params.type
+            result.defaults = JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
+                typeof value === 'function' ? value.toString() : value
+            ))
+            result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
+            result.category = def.category || null
+            result.color = def.color || null
+            result.inputs = def.inputs ?? 0
+            result.outputs = def.outputs ?? 0
+            result.success = true
+        }
             break
         default:
             result.handled = false
