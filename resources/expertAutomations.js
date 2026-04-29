@@ -22,6 +22,7 @@ const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPE = 'automation/get-node-type'
+const LIST_NODE_PACKAGES = 'automation/list-node-packages'
 
 /**
  * @typedef {SELECT_NODES
@@ -44,7 +45,8 @@ const GET_NODE_TYPE = 'automation/get-node-type'
  *   |SET_LINKS
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
- *   |GET_NODE_TYPE} ExpertAutomationsActionsEnum
+ *   |GET_NODE_TYPE
+ *   |LIST_NODE_PACKAGES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -322,6 +324,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     type: {
                         type: 'string',
                         description: 'Node type identifier to look up (e.g. "inject", "function", "worldmap")'
+                    }
+                }
+            }
+        },
+        [LIST_NODE_PACKAGES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    typedModules: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Module names that have pre-built schemas, used to set hasSchema flag on each package'
                     }
                 }
             }
@@ -1252,6 +1266,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.color = def.color || null
             result.inputs = def.inputs ?? 0
             result.outputs = def.outputs ?? 0
+            result.success = true
+        }
+            break
+        case LIST_NODE_PACKAGES: {
+            const typedSet = new Set(Array.isArray(params?.typedModules) ? params.typedModules : [])
+            const nodeList = this.RED.nodes.registry.getNodeList()
+            const packages = {}
+            for (const ns of nodeList) {
+                if (!packages[ns.module]) {
+                    packages[ns.module] = { version: ns.version, enabled: ns.enabled !== false, module: ns.module, hasSchema: typedSet.has(ns.module), nodeCount: 0 }
+                }
+                if (ns.enabled === false) packages[ns.module].enabled = false
+                packages[ns.module].nodeCount += (Array.isArray(ns.types) ? ns.types.length : 0)
+            }
+            result.packages = Object.values(packages)
             result.success = true
         }
             break
