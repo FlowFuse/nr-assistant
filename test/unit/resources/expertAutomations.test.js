@@ -1849,6 +1849,53 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
             })
+
+            it('should return only global config nodes when tabId is "global"', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' },
+                    { id: 'cfg2', type: 'mqtt-broker', name: 'Scoped Broker', z: 'tab1' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: { tabId: 'global' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.configNodes[0].should.have.property('id', 'cfg1')
+            })
+
+            it('should return only config nodes scoped to a specific tab', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' },
+                    { id: 'cfg2', type: 'mqtt-broker', name: 'Scoped Broker', z: 'tab1' },
+                    { id: 'cfg3', type: 'mqtt-broker', name: 'Other Broker', z: 'tab2' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: { tabId: 'tab1' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.configNodes[0].should.have.property('id', 'cfg2')
+            })
+
+            it('should combine type and tabId filters', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' },
+                    { id: 'cfg2', type: 'mqtt-broker', name: 'Global Broker' },
+                    { id: 'cfg3', type: 'mqtt-broker', name: 'Scoped Broker', z: 'tab1' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: { type: 'mqtt-broker', tabId: 'global' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.configNodes[0].should.have.property('id', 'cfg2')
+            })
         })
     })
 })

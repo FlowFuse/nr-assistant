@@ -349,6 +349,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     type: {
                         type: 'string',
                         description: 'Optional filter by config node type (e.g. "ui-base", "mqtt-broker")'
+                    },
+                    tabId: {
+                        type: 'string',
+                        description: 'Scope filter: "global" for config nodes not attached to any tab, a tab ID for config nodes scoped to that tab, or omit to return all'
                     }
                 }
             }
@@ -1302,6 +1306,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const configNodes = []
             this.RED.nodes.eachConfig(configNode => {
                 if (params?.type && configNode.type !== params.type) return
+                if (params?.tabId === 'global' && configNode.z) return
+                if (params?.tabId && params.tabId !== 'global' && configNode.z !== params.tabId) return
                 configNodes.push(configNode)
             })
             result.configNodes = this._formatNodes(configNodes, false)
