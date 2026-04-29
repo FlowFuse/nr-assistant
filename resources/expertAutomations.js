@@ -475,7 +475,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object} [properties] - key-value pairs to merge into the node
      * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
      */
-    async updateNode (id, properties, patches) {
+    async updateNode (id, properties, patches, codeProperties) {
         const hasProperties = properties !== undefined && properties !== null
         const hasPatches = Array.isArray(patches) && patches.length > 0
         if (hasProperties && Object.keys(properties).length === 0) {
@@ -507,12 +507,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
             Object.assign(node, properties)
         }
 
-        // Syntax-check all changed string properties that look like code (multi-line).
-        // new Function() compiles as a function body — same context Node-RED uses for function nodes.
-        // This catches syntax errors synchronously before the runtime does, and works for any node type.
+        // Syntax-check changed properties that contain JavaScript code.
+        // Auto-detects for built-in function nodes; callers can extend via codeProperties param.
         const codeErrors = {}
-        for (const key of Object.keys(changes)) {
-            const newVal = key.includes('.') ? undefined : node[key] // skip deep paths; node[key] covers top-level
+        const jsProps = new Set(Array.isArray(codeProperties) ? codeProperties : [])
+        if (node.type === 'function') {
+            jsProps.add('func')
+            jsProps.add('initialize')
+            jsProps.add('finalize')
+        }
+        for (const key of jsProps) {
+            if (!changes[key]) continue
+            const newVal = node[key]
             if (typeof newVal === 'string' && newVal.includes('\n')) {
                 try {
                     // eslint-disable-next-line no-new-func, no-unused-vars
@@ -1095,7 +1101,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-            const codeErrors = await this.updateNode(params.id, params.properties, params.patches)
+            const codeErrors = await this.updateNode(params.id, params.properties, params.patches, params.codeProperties)
             const updatedNode = this.RED.nodes.node(params.id)
             result.node = this._formatNodes([updatedNode], params.options?.includeModuleConfig)[0] || null
             result.validation = this._getNodeValidation(updatedNode)
