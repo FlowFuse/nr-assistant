@@ -822,7 +822,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Add one or more nodes to the live NR4 canvas.
      * Delegates to RED.view.importNodes which handles node initialisation,
      * history (undo/redo) and view updates internally.
-     * @param {Object[]} nodes - array of raw node objects (must include id, type, z)
+     * @param {Object[]} nodes - array of raw node objects (must include id, type; z required for non-config nodes)
      * @param {Object} [options]
      * @param {boolean} [options.generateIds=false] - regenerate node IDs during import
      */
@@ -832,13 +832,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            if (!rawNode.z) throw new Error('Node is missing required property: z')
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            const isConfigNode = def.category === 'config'
+            if (!isConfigNode && !rawNode.z) throw new Error('Node is missing required property: z')
             return { ...rawNode }
         })
         // Validate all target tabs exist and are not locked
-        const uniqueZs = [...new Set(prepared.map(n => n.z))]
+        const uniqueZs = [...new Set(prepared.map(n => n.z).filter(Boolean))]
         for (const z of uniqueZs) {
             if (!this.hasWorkspace(z)) throw new Error(`Workspace tab ${z} not found`)
             const ws = this.RED.nodes.workspace(z)
