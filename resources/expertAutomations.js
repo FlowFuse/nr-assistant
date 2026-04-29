@@ -244,10 +244,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                                 type: { type: 'string', description: 'Node type identifier' },
                                 x: { type: 'number', description: 'Canvas x position' },
                                 y: { type: 'number', description: 'Canvas y position' },
-                                z: { type: 'string', description: 'Tab (workspace) ID' }
+                                z: { type: 'string', description: 'Tab (workspace) ID — required for non-config nodes, omit for config nodes' }
                             },
                             additionalProperties: true,
-                            required: ['id', 'type', 'z']
+                            required: ['id', 'type']
                         },
                         description: 'Array of node objects to add to the canvas'
                     },
