@@ -23,6 +23,7 @@ const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPE = 'automation/get-node-type'
 const LIST_NODE_PACKAGES = 'automation/list-node-packages'
+const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 
 /**
  * @typedef {SELECT_NODES
@@ -46,7 +47,8 @@ const LIST_NODE_PACKAGES = 'automation/list-node-packages'
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
  *   |GET_NODE_TYPE
- *   |LIST_NODE_PACKAGES} ExpertAutomationsActionsEnum
+ *   |LIST_NODE_PACKAGES
+ *   |LIST_CONFIG_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -336,6 +338,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         description: 'Module names that have pre-built schemas, used to set hasSchema flag on each package'
+                    }
+                }
+            }
+        },
+        [LIST_CONFIG_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    type: {
+                        type: 'string',
+                        description: 'Optional filter by config node type (e.g. "ui-base", "mqtt-broker")'
                     }
                 }
             }
@@ -1282,6 +1295,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 packages[ns.module].nodeCount += (Array.isArray(ns.types) ? ns.types.length : 0)
             }
             result.packages = Object.values(packages)
+            result.success = true
+        }
+            break
+        case LIST_CONFIG_NODES: {
+            const configNodes = []
+            this.RED.nodes.eachConfig(configNode => {
+                if (params?.type && configNode.type !== params.type) return
+                configNodes.push(configNode)
+            })
+            result.configNodes = this._formatNodes(configNodes, false)
             result.success = true
         }
             break

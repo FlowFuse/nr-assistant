@@ -92,7 +92,8 @@ describeMain('expertAutomations', () => {
                 'automation/import-flow',
                 'automation/close-editor-tray',
                 'automation/get-node-type',
-                'automation/list-node-packages'
+                'automation/list-node-packages',
+                'automation/list-config-nodes'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -1774,6 +1775,79 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+
+        describe('automation/list-config-nodes', () => {
+            beforeEach(() => {
+                expertAutomations.init(mockExpertComms, mockRED)
+                mockRED.nodes.eachConfig = sinon.stub()
+                mockRED.nodes.createExportableNodeSet = sinon.stub().callsFake((nodes) => nodes || [])
+            })
+
+            it('should return all config nodes', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' },
+                    { id: 'cfg2', type: 'ui-theme', name: 'Default Theme' },
+                    { id: 'cfg3', type: 'mqtt-broker', name: 'Local MQTT' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: {}
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(3)
+            })
+
+            it('should filter config nodes by type', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' },
+                    { id: 'cfg2', type: 'ui-theme', name: 'Default Theme' },
+                    { id: 'cfg3', type: 'mqtt-broker', name: 'Local MQTT' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: { type: 'mqtt-broker' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.configNodes[0].should.have.property('type', 'mqtt-broker')
+            })
+
+            it('should return empty array when no config nodes exist', async () => {
+                mockRED.nodes.eachConfig.callsFake(() => {})
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: {}
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
+            })
+
+            it('should return empty array when type filter matches nothing', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {
+                    params: { type: 'nonexistent-type' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
+            })
+
+            it('should work with no params', async () => {
+                const configNodes = [
+                    { id: 'cfg1', type: 'ui-base', name: 'Dashboard' }
+                ]
+                mockRED.nodes.eachConfig.callsFake(cb => configNodes.forEach(cb))
+                const result = {}
+                await expertAutomations.invokeAction('automation/list-config-nodes', {}, result)
+                result.should.have.property('success', true)
+                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
             })
         })
     })
