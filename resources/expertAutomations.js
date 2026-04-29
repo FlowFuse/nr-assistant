@@ -22,6 +22,7 @@ const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPE = 'automation/get-node-type'
+const LIST_NODE_PACKAGES = 'automation/list-node-packages'
 
 /**
  * @typedef {SELECT_NODES
@@ -44,7 +45,8 @@ const GET_NODE_TYPE = 'automation/get-node-type'
  *   |SET_LINKS
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
- *   |GET_NODE_TYPE} ExpertAutomationsActionsEnum
+ *   |GET_NODE_TYPE
+ *   |LIST_NODE_PACKAGES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -325,6 +327,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
+        },
+        [LIST_NODE_PACKAGES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    typedModules: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Module names that have pre-built schemas, used to set hasSchema flag on each package'
+                    }
+                }
+            }
         }
     })
 
@@ -475,7 +489,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object} [properties] - key-value pairs to merge into the node
      * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
      */
-    async updateNode (id, properties, patches) {
+    async updateNode (id, properties, patches, codeProperties) {
         const hasProperties = properties !== undefined && properties !== null
         const hasPatches = Array.isArray(patches) && patches.length > 0
         if (hasProperties && Object.keys(properties).length === 0) {
@@ -507,12 +521,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
             Object.assign(node, properties)
         }
 
-        // Syntax-check all changed string properties that look like code (multi-line).
-        // new Function() compiles as a function body — same context Node-RED uses for function nodes.
-        // This catches syntax errors synchronously before the runtime does, and works for any node type.
+        // Syntax-check changed properties that contain JavaScript code.
+        // Auto-detects for built-in function nodes; callers can extend via codeProperties param.
         const codeErrors = {}
-        for (const key of Object.keys(changes)) {
-            const newVal = key.includes('.') ? undefined : node[key] // skip deep paths; node[key] covers top-level
+        const jsProps = new Set(Array.isArray(codeProperties) ? codeProperties : [])
+        if (node.type === 'function') {
+            jsProps.add('func')
+            jsProps.add('initialize')
+            jsProps.add('finalize')
+        }
+        for (const key of jsProps) {
+            if (!changes[key]) continue
+            const newVal = node[key]
             if (typeof newVal === 'string' && newVal.includes('\n')) {
                 try {
                     // eslint-disable-next-line no-new-func, no-unused-vars
@@ -1095,7 +1115,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-            const codeErrors = await this.updateNode(params.id, params.properties, params.patches)
+            const codeErrors = await this.updateNode(params.id, params.properties, params.patches, params.codeProperties)
             const updatedNode = this.RED.nodes.node(params.id)
             result.node = this._formatNodes([updatedNode], params.options?.includeModuleConfig)[0] || null
             result.validation = this._getNodeValidation(updatedNode)
@@ -1246,6 +1266,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.color = def.color || null
             result.inputs = def.inputs ?? 0
             result.outputs = def.outputs ?? 0
+            result.success = true
+        }
+            break
+        case LIST_NODE_PACKAGES: {
+            const typedSet = new Set(Array.isArray(params?.typedModules) ? params.typedModules : [])
+            const nodeList = this.RED.nodes.registry.getNodeList()
+            const packages = {}
+            for (const ns of nodeList) {
+                if (!packages[ns.module]) {
+                    packages[ns.module] = { version: ns.version, enabled: ns.enabled !== false, module: ns.module, hasSchema: typedSet.has(ns.module), nodeCount: 0 }
+                }
+                if (ns.enabled === false) packages[ns.module].enabled = false
+                packages[ns.module].nodeCount += (Array.isArray(ns.types) ? ns.types.length : 0)
+            }
+            result.packages = Object.values(packages)
             result.success = true
         }
             break

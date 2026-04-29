@@ -91,7 +91,8 @@ describeMain('expertAutomations', () => {
                 'automation/set-links',
                 'automation/import-flow',
                 'automation/close-editor-tray',
-                'automation/get-node-type'
+                'automation/get-node-type',
+                'automation/list-node-packages'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
