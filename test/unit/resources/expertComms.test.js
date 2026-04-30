@@ -1236,7 +1236,7 @@ describeMain('expertComms', function () {
             expertToolButtonEl3.closest.returns(parent3)
 
             // Stub $ calls: selector for list and window dimensions and element wrappers
-            mockJQuery.withArgs('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').returns({
+            mockJQuery.withArgs('.red-ui-debug-content-list button.ff-expert-debug-context').returns({
                 each: (cb) => {
                     // eslint-disable-next-line n/no-callback-literal
                     cb(0, rawEl1)
@@ -1304,7 +1304,7 @@ describeMain('expertComms', function () {
             parent2.length = 1
             expertToolButtonEl2.closest.returns(parent2)
 
-            mockJQuery.withArgs('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').returns({
+            mockJQuery.withArgs('.red-ui-debug-content-list button.ff-expert-debug-context').returns({
                 each: (cb) => {
                     // eslint-disable-next-line n/no-callback-literal
                     cb(0, rawEl1)
