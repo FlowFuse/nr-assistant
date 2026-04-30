@@ -4,21 +4,8 @@ on:
     types:
       - opened
 jobs:
-  generate_token:
-    runs-on: ubuntu-latest
-    outputs:
-      token: ${{ steps.generate_token.outputs.token }}
-    steps:
-      - name: Generate a token
-        id: generate_token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-        with:
-          client-id: ${{ secrets.GH_BOT_APP_ID }}
-          private-key: ${{ secrets.GH_BOT_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-
   add_issue_to_relevant_boards:
-    needs: generate_token
-    uses: flowfuse/.github/.github/workflows/project-automation.yml@main
+    uses: flowfuse/github-actions-workflows/.github/workflows/project-automation.yaml@project-automation/v1
     secrets:
-      token: ${{ needs.generate_token.outputs.token }}
+      app-client-id: ${{ secrets.GH_BOT_APP_ID }}
+      app-private-key: ${{ secrets.GH_BOT_APP_KEY }}
