@@ -449,9 +449,9 @@ export class ExpertComms {
         $('button.ff-expert-debug-context').removeClass('selected')
 
         const filteredEntries = []
-        // get buttons `#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context` in the debug sidebar
+        // get buttons `.red-ui-debug-content-list button.ff-expert-debug-context` in the debug sidebar
         // but dont include any with `.hide` on the parent `.red-ui-debug-msg` element, as those are not visible
-        $('#red-ui-sidebar-content .red-ui-debug-content-list button.ff-expert-debug-context').each((i, el) => {
+        $('.red-ui-debug-content-list button.ff-expert-debug-context').each((i, el) => {
             const expertToolButtonEl = $(el)
             const parent = expertToolButtonEl.closest('div.red-ui-debug-msg')
             if (!isElementInView(parent)) {
