@@ -1278,11 +1278,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
                 if (enabled === false) packages[mod].enabled = false
             }
-            for (const ns of this.RED.nodes.registry.getNodeList()) {
+            const [nodes, plugins] = await Promise.all([
+                $.ajax({ url: 'nodes', method: 'GET', headers: { Accept: 'application/json' } }),
+                $.ajax({ url: 'plugins', method: 'GET', headers: { Accept: 'application/json' } })
+            ])
+            for (const ns of nodes) {
                 ensure(ns.module, ns.version, ns.enabled)
                 packages[ns.module].nodes.push(ns)
             }
-            for (const plugin of this.RED.nodes.registry.getPluginList()) {
+            for (const plugin of plugins) {
                 ensure(plugin.module, plugin.version, plugin.enabled)
                 packages[plugin.module].plugins.push(plugin)
             }
