@@ -1271,16 +1271,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case LIST_NODE_PACKAGES: {
             const typedSet = new Set(Array.isArray(params?.typedModules) ? params.typedModules : [])
-            const nodeList = this.RED.nodes.registry.getNodeList()
             const packages = {}
-            for (const ns of nodeList) {
-                if (!packages[ns.module]) {
-                    packages[ns.module] = { version: ns.version, enabled: ns.enabled !== false, module: ns.module, hasSchema: typedSet.has(ns.module), nodeCount: 0 }
+            const ensure = (mod, version, enabled) => {
+                if (!packages[mod]) {
+                    packages[mod] = { version, enabled: enabled !== false, module: mod, hasSchema: typedSet.has(mod), nodes: [], plugins: [] }
                 }
-                if (ns.enabled === false) packages[ns.module].enabled = false
-                packages[ns.module].nodeCount += (Array.isArray(ns.types) ? ns.types.length : 0)
+                if (enabled === false) packages[mod].enabled = false
             }
-            result.packages = Object.values(packages)
+            for (const ns of this.RED.nodes.registry.getNodeList()) {
+                ensure(ns.module, ns.version, ns.enabled)
+                packages[ns.module].nodes.push(ns)
+            }
+            for (const plugin of this.RED.nodes.registry.getPluginList()) {
+                ensure(plugin.module, plugin.version, plugin.enabled)
+                packages[plugin.module].plugins.push(plugin)
+            }
+            result.packages = packages
             result.success = true
         }
             break
