@@ -547,7 +547,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     async getPalette (typedModules = null) {
-        const typedSet = typedModules !== null ? new Set(typedModules) : null
+        const typedSet = !typedModules || !Array.isArray(typedModules) || !typedModules.length ? null : new Set(typedModules)
         const palette = {}
         const plugins = await $.ajax({
             url: 'plugins',
