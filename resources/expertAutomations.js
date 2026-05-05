@@ -1127,7 +1127,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case SHOW_WORKSPACE: {
             this.showWorkspace(params.id)
             const ws = this.RED.nodes.workspace(params.id)
-            result.data = ws ? { id: ws.id, label: typeof ws.label === 'function' ? ws.label() : ws.label } : null
+            result.data = this._summarizeWorkspace(ws)
             result.success = true
         }
             break
@@ -1147,19 +1147,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
 
-        case LIST_WORKSPACES: {
-            const workspaceIds = this.RED.nodes.getWorkspaceOrder()
-            const tabs = workspaceIds.map(id => this.RED.nodes.workspace(id))
-            const sanitized = tabs.map(t => ({ id: t.id, label: typeof t.label === 'function' ? t.label() : t.label, disabled: t.disabled, info: t.info, locked: t.locked, contentsChanged: t.contentsChanged }))
-            const selectedWorkspaces = this.RED.workspaces.selection() || []
-            sanitized.forEach(t => {
-                t.hidden = this.RED.workspaces.isHidden(t.id)
-                t.isActiveWorkspace = this.RED.workspaces.active() === t.id
-                t.isSelected = t.isActiveWorkspace || selectedWorkspaces.includes(t.id)
-            })
-            result.workspaces = sanitized
+        case LIST_WORKSPACES:
+            result.workspaces = this._listWorkspaces()
             result.success = true
-        }
             break
 
         case CLOSE_SEARCH:
@@ -1186,7 +1176,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case REMOVE_TAB:
             this.removeTab(params.id)
-            result.data = { removed: params.id }
+            result.data = {
+                removed: params.id,
+                remainingTabs: this._listWorkspaces()
+            }
             result.success = true
             break
 
@@ -1284,6 +1277,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.validationErrors = node.validationErrors
         }
         return result
+    }
+
+    _listWorkspaces () {
+        return this.RED.nodes.getWorkspaceOrder().map(id => this._summarizeWorkspace(this.RED.nodes.workspace(id)))
+    }
+
+    _summarizeWorkspace (ws) {
+        if (!ws) return null
+        const selectedWorkspaces = this.RED.workspaces.selection() || []
+        const isActiveWorkspace = this.RED.workspaces.active() === ws.id
+        return {
+            id: ws.id,
+            label: typeof ws.label === 'function' ? ws.label() : ws.label,
+            disabled: ws.disabled,
+            info: ws.info,
+            locked: ws.locked,
+            contentsChanged: ws.contentsChanged,
+            hidden: this.RED.workspaces.isHidden(ws.id),
+            isActiveWorkspace,
+            isSelected: isActiveWorkspace || selectedWorkspaces.includes(ws.id)
+        }
     }
 
     _summarizeNode (node) {
