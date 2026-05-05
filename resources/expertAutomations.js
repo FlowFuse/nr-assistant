@@ -22,7 +22,7 @@ const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPES = 'automation/get-node-types'
-const LIST_NODE_PACKAGES = 'automation/list-node-packages'
+const GET_PALETTE = 'automation/get-palette'
 
 /**
  * @typedef {SELECT_NODES
@@ -46,7 +46,7 @@ const LIST_NODE_PACKAGES = 'automation/list-node-packages'
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
  *   |GET_NODE_TYPES
- *   |LIST_NODE_PACKAGES} ExpertAutomationsActionsEnum
+ *   |GET_PALETTE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -330,14 +330,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [LIST_NODE_PACKAGES]: {
+        [GET_PALETTE]: {
             params: {
                 type: 'object',
                 properties: {
                     typedModules: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Module names that have pre-built schemas, used to set hasSchema flag on each package'
+                        description: 'Module names that have pre-built schemas. When provided, each palette entry includes a hasSchema flag.'
                     }
                 }
             }
@@ -544,6 +544,63 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
+    }
+
+    async getPalette (typedModules = [], hasSchema = false) {
+        const typedSet = hasSchema ? new Set(typedModules) : null
+        const palette = {}
+        const plugins = await $.ajax({
+            url: 'plugins',
+            method: 'GET',
+            headers: {
+                Accept: 'application/json'
+            }
+        })
+        const nodes = await $.ajax({
+            url: 'nodes',
+            method: 'GET',
+            headers: {
+                Accept: 'application/json'
+            }
+        })
+
+        plugins.forEach(plugin => {
+            if (Object.prototype.hasOwnProperty.call(palette, plugin.module)) {
+                palette[plugin.module].plugins.push(plugin)
+            } else {
+                const entry = {
+                    version: plugin.version,
+                    enabled: plugin.enabled,
+                    module: plugin.module,
+                    plugins: [
+                        plugin
+                    ],
+                    nodes: []
+                }
+                if (typedSet) entry.hasSchema = typedSet.has(plugin.module)
+                palette[plugin.module] = entry
+            }
+        })
+
+        nodes.forEach(node => {
+            if (Object.prototype.hasOwnProperty.call(palette, node.module)) {
+                palette[node.module].nodes.push(node)
+            } else {
+                const entry = {
+                    version: node.version,
+                    enabled: node.enabled,
+                    module: node.module,
+                    plugins: [],
+                    nodes: [
+                        node
+                    ]
+                }
+                if (typedSet) entry.hasSchema = typedSet.has(node.module)
+                palette[node.module] = entry
+            }
+        })
+
+        return palette
     }
 
     async closeEditorTray () {
@@ -1226,30 +1283,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
-        case LIST_NODE_PACKAGES: {
-            const typedSet = new Set(Array.isArray(params?.typedModules) ? params.typedModules : [])
-            const packages = {}
-            const ensure = (mod, version, enabled) => {
-                if (!packages[mod]) {
-                    packages[mod] = { version, enabled: enabled !== false, module: mod, hasSchema: typedSet.has(mod), nodes: [], plugins: [] }
-                }
-                if (enabled === false) packages[mod].enabled = false
-            }
-            const [nodes, plugins] = await Promise.all([
-                $.ajax({ url: 'nodes', method: 'GET', headers: { Accept: 'application/json' } }),
-                $.ajax({ url: 'plugins', method: 'GET', headers: { Accept: 'application/json' } })
-            ])
-            for (const ns of nodes) {
-                ensure(ns.module, ns.version, ns.enabled)
-                packages[ns.module].nodes.push(ns)
-            }
-            for (const plugin of plugins) {
-                ensure(plugin.module, plugin.version, plugin.enabled)
-                packages[plugin.module].plugins.push(plugin)
-            }
-            result.packages = packages
+        case GET_PALETTE:
+            result.palette = await this.getPalette(params?.typedModules ?? [], true)
             result.success = true
-        }
             break
         default:
             result.handled = false
