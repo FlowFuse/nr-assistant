@@ -975,11 +975,29 @@ describeMain('expertAutomations', () => {
                 result.data[0].should.not.have.property('label')
                 should(() => JSON.stringify(result.data[0])).not.throw()
             })
-            it('should throw if node is missing required property z', async () => {
+            it('should throw if non-config node is missing required property z', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ category: 'function', inputs: 1, outputs: 1, defaults: {} })
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject' }] }
                 }, result)).rejectedWith(/missing required property: z/)
+            })
+            it('should accept config nodes without z property', async () => {
+                const configNode = { id: 'cfg1', type: 'ui-base', name: 'Dashboard' }
+                mockRED.nodes.getType = sinon.stub().returns({ category: 'config', inputs: 0, outputs: 0, defaults: { name: { value: '' } } })
+                mockRED.nodes.node = sinon.stub()
+                mockRED.nodes.node.withArgs('cfg1').onFirstCall().returns(null)
+                mockRED.nodes.node.withArgs('cfg1').returns(configNode)
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [configNode] }
+                }, result)
+                mockRED.view.importNodes.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
             })
             it('should throw if node is missing required property id', async () => {
                 const result = {}
