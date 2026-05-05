@@ -1244,15 +1244,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 return
             }
             const rawDefaults = def.defaults || {}
-            result.nodeType = params.type
-            result.defaults = JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
-                typeof value === 'function' ? value.toString() : value
-            ))
-            result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
-            result.category = def.category || null
-            result.color = typeof def.color === 'function' ? def.color.call({}) : (def.color || null)
-            result.inputs = def.inputs ?? 0
-            result.outputs = def.outputs ?? 0
+            result.data = {
+                nodeType: params.type,
+                defaults: JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
+                    typeof value === 'function' ? value.toString() : value
+                )),
+                label: typeof def.label === 'function' ? def.label.toString() : (def.label || params.type),
+                category: def.category || null,
+                color: typeof def.color === 'function' ? def.color.call({}) : (def.color || null),
+                inputs: def.inputs ?? 0,
+                outputs: def.outputs ?? 0
+            }
             result.success = true
         }
             break
