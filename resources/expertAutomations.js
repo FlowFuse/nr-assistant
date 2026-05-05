@@ -1250,7 +1250,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             ))
             result.label = typeof def.label === 'function' ? def.label.toString() : (def.label || params.type)
             result.category = def.category || null
-            result.color = def.color || null
+            result.color = typeof def.color === 'function' ? def.color.call({}) : (def.color || null)
             result.inputs = def.inputs ?? 0
             result.outputs = def.outputs ?? 0
             result.success = true
