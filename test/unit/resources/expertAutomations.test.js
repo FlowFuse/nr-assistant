@@ -971,16 +971,24 @@ describeMain('expertAutomations', () => {
         })
         describe('removeTab action', () => {
             it('should remove an existing tab', async () => {
-                const mockWs = { id: 'tab1', type: 'tab' }
+                const mockWs = { id: 'tab1', type: 'tab', locked: false, disabled: false }
                 mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.nodes.getWorkspaceOrder = sinon.stub().returns([])
+                mockRED.workspaces = {
+                    delete: sinon.stub(),
+                    selection: sinon.stub().returns([]),
+                    active: sinon.stub().returns(null),
+                    isHidden: sinon.stub().returns(false)
+                }
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: 'tab1' }
                 }, result)
                 mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('data').which.deepEqual({ removed: 'tab1' })
+                result.should.have.property('data')
+                result.data.should.have.property('removed', 'tab1')
+                result.data.should.have.property('remainingTabs').which.is.an.Array()
             })
             it('should throw if tab not found', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
@@ -1643,15 +1651,24 @@ describeMain('expertAutomations', () => {
         })
         describe('showWorkspace action', () => {
             it('should navigate to the specified workspace', async () => {
-                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', label: 'My Tab', type: 'tab' })
-                mockRED.workspaces = { show: sinon.stub() }
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', label: 'My Tab', type: 'tab', locked: false, disabled: false })
+                mockRED.workspaces = {
+                    show: sinon.stub(),
+                    selection: sinon.stub().returns([]),
+                    active: sinon.stub().returns('tab1'),
+                    isHidden: sinon.stub().returns(false)
+                }
                 const result = {}
                 await expertAutomations.invokeAction('automation/show-workspace', {
                     params: { id: 'tab1' }
                 }, result)
                 mockRED.workspaces.show.calledWith('tab1').should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('data').which.deepEqual({ id: 'tab1', label: 'My Tab' })
+                result.should.have.property('data')
+                result.data.should.have.property('id', 'tab1')
+                result.data.should.have.property('label', 'My Tab')
+                result.data.should.have.property('isActiveWorkspace', true)
+                result.data.should.have.property('locked', false)
             })
             it('should throw if workspace does not exist', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
