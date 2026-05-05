@@ -608,55 +608,7 @@ export class ExpertComms {
     }
 
     async getPalette () {
-        const palette = {}
-        const plugins = await $.ajax({
-            url: 'plugins',
-            method: 'GET',
-            headers: {
-                Accept: 'application/json'
-            }
-        })
-        const nodes = await $.ajax({
-            url: 'nodes',
-            method: 'GET',
-            headers: {
-                Accept: 'application/json'
-            }
-        })
-
-        plugins.forEach(plugin => {
-            if (hasProperty(palette, plugin.module)) {
-                palette[plugin.module].plugins.push(plugin)
-            } else {
-                palette[plugin.module] = {
-                    version: plugin.version,
-                    enabled: plugin.enabled,
-                    module: plugin.module,
-                    plugins: [
-                        plugin
-                    ],
-                    nodes: []
-                }
-            }
-        })
-
-        nodes.forEach(node => {
-            if (hasProperty(palette, node.module)) {
-                palette[node.module].nodes.push(node)
-            } else {
-                palette[node.module] = {
-                    version: node.version,
-                    enabled: node.enabled,
-                    module: node.module,
-                    plugins: [],
-                    nodes: [
-                        node
-                    ]
-                }
-            }
-        })
-
-        return palette
+        return this.nrAutomations.getPalette()
     }
 
     handleExpertReady ({ event, params }) {

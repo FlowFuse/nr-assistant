@@ -92,7 +92,7 @@ describeMain('expertAutomations', () => {
                 'automation/import-flow',
                 'automation/close-editor-tray',
                 'automation/get-node-types',
-                'automation/list-node-packages'
+                'automation/get-palette'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -1925,6 +1925,49 @@ describeMain('expertAutomations', () => {
                 result.data.function.defaults.pattern.value.should.have.property('type', 'regexp')
                 result.data.function.defaults.ratio.value.should.have.property('__enc__', true)
                 result.data.function.defaults.ratio.value.should.have.property('type', 'number')
+            })
+        })
+
+        describe('getPalette action', () => {
+            let mockAjax
+            const plugins = [
+                { module: 'node-red', version: '4.1.0', enabled: true, id: 'plugin1' }
+            ]
+            const nodes = [
+                { module: 'node-red', id: 'node1', type: 'inject', enabled: true },
+                { module: 'node-red-contrib-test', id: 'node2', type: 'test', enabled: true }
+            ]
+            beforeEach(() => {
+                mockAjax = sinon.stub()
+                mockAjax.onFirstCall().resolves(plugins)
+                mockAjax.onSecondCall().resolves(nodes)
+                global.$ = { ajax: mockAjax }
+            })
+            afterEach(() => {
+                delete global.$
+            })
+            it('should return palette with hasSchema: false for all modules when typedModules not provided', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-palette', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('palette')
+                result.palette['node-red'].should.have.property('hasSchema', false)
+            })
+            it('should include hasSchema flag when typedModules provided', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-palette', {
+                    params: { typedModules: ['node-red'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.palette['node-red'].should.have.property('hasSchema', true)
+                result.palette['node-red-contrib-test'].should.have.property('hasSchema', false)
+            })
+            it('should combine plugins and nodes per module', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-palette', { params: {} }, result)
+                result.palette['node-red'].plugins.should.have.length(1)
+                result.palette['node-red'].nodes.should.have.length(1)
+                result.palette['node-red-contrib-test'].nodes.should.have.length(1)
             })
         })
     })
