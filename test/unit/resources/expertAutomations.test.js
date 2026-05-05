@@ -952,6 +952,30 @@ describeMain('expertAutomations', () => {
                 opts.generateIds.should.equal(true)
                 result.should.have.property('success', true)
             })
+            it('should not include label in result.data when node.label is a function (postMessage structured clone safety)', async () => {
+                const configNode = {
+                    id: 'cfg1',
+                    type: 'ui-base',
+                    name: 'My Dashboard',
+                    label: function () { return `${this.name} [${this.path}]` || 'UI Config' }
+                }
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.getType = sinon.stub().returns({ category: 'config', inputs: 0, outputs: 0, defaults: { name: { value: '' } } })
+                mockRED.nodes.node = sinon.stub()
+                mockRED.nodes.node.withArgs('cfg1').onFirstCall().returns(null)
+                mockRED.nodes.node.withArgs('cfg1').returns(configNode)
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'cfg1', type: 'ui-base', name: 'My Dashboard', z: 'tab1' }] }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
+                result.data[0].should.have.property('id', 'cfg1')
+                result.data[0].should.not.have.property('label')
+                should(() => JSON.stringify(result.data[0])).not.throw()
+            })
             it('should throw if non-config node is missing required property z', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ category: 'function', inputs: 1, outputs: 1, defaults: {} })
                 const result = {}
