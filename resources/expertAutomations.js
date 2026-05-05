@@ -1062,7 +1062,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case SHOW_WORKSPACE: {
             this.showWorkspace(params.id)
             const ws = this.RED.nodes.workspace(params.id)
-            result.data = ws ? { id: ws.id, label: ws.label } : null
+            result.data = ws ? { id: ws.id, label: typeof ws.label === 'function' ? ws.label() : ws.label } : null
             result.success = true
         }
             break
@@ -1085,7 +1085,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case LIST_WORKSPACES: {
             const workspaceIds = this.RED.nodes.getWorkspaceOrder()
             const tabs = workspaceIds.map(id => this.RED.nodes.workspace(id))
-            const sanitized = tabs.map(t => ({ id: t.id, label: t.label, disabled: t.disabled, info: t.info, locked: t.locked, contentsChanged: t.contentsChanged }))
+            const sanitized = tabs.map(t => ({ id: t.id, label: typeof t.label === 'function' ? t.label() : t.label, disabled: t.disabled, info: t.info, locked: t.locked, contentsChanged: t.contentsChanged }))
             const selectedWorkspaces = this.RED.workspaces.selection() || []
             sanitized.forEach(t => {
                 t.hidden = this.RED.workspaces.isHidden(t.id)
@@ -1178,7 +1178,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const s = { id: node.id }
         if (node.type !== undefined) s.type = node.type
         if (node.name !== undefined) s.name = node.name
-        if (node.label !== undefined) s.label = node.label
+        if (node.label !== undefined && typeof node.label !== 'function') s.label = node.label
         if (node.x !== undefined) s.x = node.x
         if (node.y !== undefined) s.y = node.y
         if (node.z !== undefined) s.z = node.z
