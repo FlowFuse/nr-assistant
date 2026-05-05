@@ -20,6 +20,7 @@ const REMOVE_NODES = 'automation/remove-nodes'
 const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
+const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 
 /**
  * @typedef {SELECT_NODES
@@ -40,7 +41,8 @@ const IMPORT_FLOW = 'automation/import-flow'
  *   |REMOVE_NODES
  *   |SET_WIRES
  *   |SET_LINKS
- *   |IMPORT_FLOW} ExpertAutomationsActionsEnum
+ *   |IMPORT_FLOW
+ *   |CLOSE_EDITOR_TRAY} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -133,9 +135,28 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 type: 'object',
                 properties: {
                     id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' }
+                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
+                    patches: {
+                        type: 'array',
+                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
+                                op: {
+                                    type: 'string',
+                                    enum: ['replace', 'insert', 'delete'],
+                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                },
+                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
+                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                            },
+                            required: ['property', 'op', 'start']
+                        }
+                    }
                 },
-                required: ['id', 'properties']
+                required: ['id']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -287,6 +308,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['flow']
             }
+        },
+        [CLOSE_EDITOR_TRAY]: {
+            params: null
         }
     })
 
@@ -430,20 +454,45 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Update properties of an existing node in place.
+     * Supports full property replacement via `properties` and/or line-based
+     * partial edits via `patches`. At least one must be provided.
      * @param {string} id - node ID
-     * @param {Object} properties - key-value pairs to merge into the node
+     * @param {Object} [properties] - key-value pairs to merge into the node
+     * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
      */
-    updateNode (id, properties) {
+    async updateNode (id, properties, patches) {
+        const hasProperties = properties !== undefined && properties !== null
+        const hasPatches = Array.isArray(patches) && patches.length > 0
+        if (hasProperties && Object.keys(properties).length === 0) {
+            throw new Error('"properties" must not be empty')
+        }
+        if (!hasProperties && !hasPatches) {
+            throw new Error('At least one of "properties" or "patches" must be provided')
+        }
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
+
         const changes = {}
-        for (const key in properties) {
-            if (Object.prototype.hasOwnProperty.call(properties, key)) {
-                changes[key] = node[key]
-            }
+
+        // Apply line-based patches first (before full property replacement)
+        // so that patches reference the original line numbers
+        if (hasPatches) {
+            this._applyPatches(node, patches, changes)
         }
+
+        // Apply full property replacement
+        if (hasProperties) {
+            for (const key in properties) {
+                if (Object.prototype.hasOwnProperty.call(properties, key)) {
+                    if (!(key in changes)) {
+                        changes[key] = node[key]
+                    }
+                }
+            }
+            Object.assign(node, properties)
+        }
+
         const wasChanged = node.changed
-        Object.assign(node, properties)
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
         node.dirty = true
@@ -452,6 +501,178 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.editor.validateNode(node)
         }
         this.RED.view.redraw()
+        this.RED.sidebar?.info?.refresh()
+
+        if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
+            await this.closeEditorTray()
+        }
+    }
+
+    async closeEditorTray () {
+        if (this.RED.view.state() === this.RED.state?.DEFAULT) return true
+        const MAX = 10
+        let count = 0
+        while (count++ < MAX) {
+            // eslint-disable-next-line no-undef
+            $('.red-ui-tray-toolbar button#node-dialog-cancel').trigger('click')
+            await new Promise(resolve => setTimeout(resolve, 300))
+            if (this.RED.view.state() === this.RED.state?.DEFAULT) break
+        }
+        return this.RED.view.state() === this.RED.state?.DEFAULT
+    }
+
+    /**
+     * Apply line-based patches to string properties of a node.
+     * Supports dot-separated property paths (e.g. "rules.0.to" for rules[0].to).
+     * @param {Object} node - the node object to patch
+     * @param {Array} patches - array of { property, op, start, end?, content? }
+     * @param {Object} changes - map to record original values (for history/undo)
+     */
+    _applyPatches (node, patches, changes) {
+        const grouped = {}
+        for (const patch of patches) {
+            if (!grouped[patch.property]) {
+                grouped[patch.property] = []
+            }
+            grouped[patch.property].push(patch)
+        }
+
+        for (const [property, targetPatches] of Object.entries(grouped)) {
+            const segments = property.split('.')
+            const topLevel = segments[0]
+            const hasPath = segments.length > 1
+
+            if (!(topLevel in changes)) {
+                changes[topLevel] = hasPath ? JSON.parse(JSON.stringify(node[topLevel])) : node[topLevel]
+            }
+
+            let targetValue, setTarget
+            if (hasPath) {
+                const resolved = this._resolvePath(node[topLevel], segments.slice(1).join('.'))
+                targetValue = resolved.parent[resolved.key]
+                setTarget = (v) => { resolved.parent[resolved.key] = v }
+            } else {
+                targetValue = node[property]
+                setTarget = (v) => { node[property] = v }
+            }
+            if (typeof targetValue !== 'string') {
+                throw new Error(`Property "${property}" is not a string (got ${targetValue === null ? 'null' : typeof targetValue})`)
+            }
+
+            // Auto-detect line separator: some properties use \t (e.g. inject JSONata)
+            const sep = targetValue.includes('\t') && !targetValue.includes('\n') ? '\t' : '\n'
+            const lines = targetValue.split(sep)
+            const lineCount = lines.length
+
+            // Validate all patches before applying any
+            for (const p of targetPatches) {
+                if (!Number.isInteger(p.start) || p.start < 1) {
+                    throw new Error(`Patch "start" must be a positive integer (got ${p.start})`)
+                }
+                switch (p.op) {
+                case 'replace':
+                    if (p.end == null) throw new Error('Patch op "replace" requires "end"')
+                    if (!Number.isInteger(p.end) || p.end < 1) {
+                        throw new Error(`Patch "end" must be a positive integer (got ${p.end})`)
+                    }
+                    if (p.start > p.end) throw new Error(`Invalid patch range: start ${p.start} > end ${p.end}`)
+                    if (p.end > lineCount) {
+                        throw new Error(`Patch "end" (${p.end}) exceeds line count (${lineCount}) for property "${property}"`)
+                    }
+                    if (p.content == null) throw new Error('Patch op "replace" requires "content"')
+                    break
+                case 'insert':
+                    if (p.start > lineCount + 1) {
+                        throw new Error(`Insert position "start" (${p.start}) exceeds line count + 1 (${lineCount + 1}) for property "${property}"`)
+                    }
+                    if (p.content == null) throw new Error('Patch op "insert" requires "content"')
+                    break
+                case 'delete':
+                    if (p.end == null) throw new Error('Patch op "delete" requires "end"')
+                    if (!Number.isInteger(p.end) || p.end < 1) {
+                        throw new Error(`Patch "end" must be a positive integer (got ${p.end})`)
+                    }
+                    if (p.start > p.end) throw new Error(`Invalid patch range: start ${p.start} > end ${p.end}`)
+                    if (p.end > lineCount) {
+                        throw new Error(`Patch "end" (${p.end}) exceeds line count (${lineCount}) for property "${property}"`)
+                    }
+                    break
+                default:
+                    throw new Error(`Unknown patch op "${p.op}"`)
+                }
+            }
+
+            // Check for overlapping ranges (replace/delete only; inserts don't consume lines)
+            const rangeOps = targetPatches.filter(p => p.op !== 'insert').sort((a, b) => a.start - b.start)
+            for (let i = 1; i < rangeOps.length; i++) {
+                const prev = rangeOps[i - 1]
+                const curr = rangeOps[i]
+                if (curr.start <= prev.end) {
+                    throw new Error(
+                        `Overlapping patches on property "${property}": ` +
+                        `lines ${prev.start}-${prev.end} and ${curr.start}-${curr.end}`
+                    )
+                }
+            }
+
+            // Sort for bottom-up application (highest line numbers first)
+            // so that earlier line numbers remain stable as we splice.
+            //
+            // Secondary sort for same `start`: replace/delete before insert.
+            // An insert at line N shifts everything below it, so if a replace/delete
+            // also targets line N, it must run first — otherwise it
+            // would hit the newly inserted content instead of the original line.
+            const descending = [...targetPatches].sort((a, b) => {
+                if (b.start !== a.start) return b.start - a.start
+                const aIsInsert = a.op === 'insert' ? 1 : 0
+                const bIsInsert = b.op === 'insert' ? 1 : 0
+                return aIsInsert - bIsInsert
+            })
+
+            for (const p of descending) {
+                switch (p.op) {
+                case 'replace': {
+                    const replacementLines = p.content.split('\n')
+                    lines.splice(p.start - 1, p.end - p.start + 1, ...replacementLines)
+                    break
+                }
+                case 'insert': {
+                    const insertLines = p.content.split('\n')
+                    lines.splice(p.start - 1, 0, ...insertLines)
+                    break
+                }
+                case 'delete':
+                    lines.splice(p.start - 1, p.end - p.start + 1)
+                    break
+                }
+            }
+
+            setTarget(lines.join(sep))
+        }
+    }
+
+    /**
+     * Resolve a dot-separated path within an object/array structure.
+     * Numeric segments index into arrays.
+     * @param {*} obj - root value to navigate from
+     * @param {string} path - dot-separated path (e.g. "0.to", "rules.2.expression")
+     * @returns {{ parent: *, key: string|number }} parent container and final key
+     */
+    _resolvePath (obj, path) {
+        const segments = path.split('.')
+        let current = obj
+        for (let i = 0; i < segments.length - 1; i++) {
+            const seg = segments[i]
+            const idx = Number(seg)
+            current = Array.isArray(current) && Number.isInteger(idx) ? current[idx] : current[seg]
+            if (current == null) {
+                throw new Error(`Path segment "${seg}" resolved to ${current}`)
+            }
+        }
+        const lastSeg = segments[segments.length - 1]
+        const lastIdx = Number(lastSeg)
+        const key = Array.isArray(current) && Number.isInteger(lastIdx) ? lastIdx : lastSeg
+        return { parent: current, key }
     }
 
     /**
@@ -824,7 +1045,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE:
-            this.updateNode(params.id, params.properties)
+            await this.updateNode(params.id, params.properties, params.patches)
             result.success = true
             break
 
@@ -910,6 +1131,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case IMPORT_FLOW:
             this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
+            result.success = true
+            break
+
+        case CLOSE_EDITOR_TRAY:
+            result.closed = await this.closeEditorTray()
             result.success = true
             break
         default:
