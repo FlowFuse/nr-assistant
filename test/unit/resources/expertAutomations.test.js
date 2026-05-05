@@ -1855,20 +1855,57 @@ describeMain('expertAutomations', () => {
                 result.data.function.should.not.have.property('installed')
                 result.data.should.have.property('not-installed').which.deepEqual({ installed: false })
             })
-            it('should resolve function-typed color without throwing', async () => {
+            it('should encode function-typed label, color, and defaults using __enc__ format', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({
                     inputs: 1,
                     outputs: 1,
                     category: 'function',
-                    defaults: {},
-                    color: function () { return '#aabbcc' }
+                    defaults: {
+                        name: { value: '', validate: function isValid (v) { return v.length > 0 } }
+                    },
+                    label: function myLabel () { return 'My Node' },
+                    color: function myColor () { return '#aabbcc' }
                 })
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-node-types', {
                     params: { types: ['function'] }
                 }, result)
                 result.should.have.property('success', true)
-                result.data.function.should.have.property('color', '#aabbcc')
+                result.data.function.label.should.have.property('__enc__', true)
+                result.data.function.label.should.have.property('type', 'function')
+                result.data.function.label.should.have.property('data').which.is.a.String()
+                result.data.function.color.should.have.property('__enc__', true)
+                result.data.function.color.should.have.property('type', 'function')
+                result.data.function.color.should.have.property('data').which.is.a.String()
+                result.data.function.defaults.name.validate.should.have.property('__enc__', true)
+                result.data.function.defaults.name.validate.should.have.property('type', 'function')
+                result.data.function.defaults.name.validate.should.have.property('data').which.is.a.String()
+            })
+            it('should encode Set, Map, RegExp, and non-finite numbers in defaults', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({
+                    inputs: 1,
+                    outputs: 1,
+                    category: 'function',
+                    defaults: {
+                        tags: { value: new Set(['a', 'b']) },
+                        meta: { value: new Map([['k', 'v']]) },
+                        pattern: { value: /foo/i },
+                        ratio: { value: Infinity }
+                    }
+                })
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-node-types', {
+                    params: { types: ['function'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data.function.defaults.tags.value.should.have.property('__enc__', true)
+                result.data.function.defaults.tags.value.should.have.property('type', 'set')
+                result.data.function.defaults.meta.value.should.have.property('__enc__', true)
+                result.data.function.defaults.meta.value.should.have.property('type', 'map')
+                result.data.function.defaults.pattern.value.should.have.property('__enc__', true)
+                result.data.function.defaults.pattern.value.should.have.property('type', 'regexp')
+                result.data.function.defaults.ratio.value.should.have.property('__enc__', true)
+                result.data.function.defaults.ratio.value.should.have.property('type', 'number')
             })
         })
     })
