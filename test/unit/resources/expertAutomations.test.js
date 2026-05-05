@@ -1928,12 +1928,12 @@ describeMain('expertAutomations', () => {
             afterEach(() => {
                 delete global.$
             })
-            it('should return palette with hasSchema: false for all modules when typedModules not provided', async () => {
+            it('should return palette without hasSchema field when typedModules not provided', async () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-palette', { params: {} }, result)
                 result.should.have.property('success', true)
                 result.should.have.property('palette')
-                result.palette['node-red'].should.have.property('hasSchema', false)
+                result.palette['node-red'].should.not.have.property('hasSchema')
             })
             it('should include hasSchema flag when typedModules provided', async () => {
                 const result = {}

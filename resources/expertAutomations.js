@@ -546,8 +546,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     }
 
-    async getPalette (typedModules = [], hasSchema = false) {
-        const typedSet = hasSchema ? new Set(typedModules) : null
+    async getPalette (typedModules = null) {
+        const typedSet = typedModules !== null ? new Set(typedModules) : null
         const palette = {}
         const plugins = await $.ajax({
             url: 'plugins',
@@ -1284,7 +1284,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         }
         case GET_PALETTE:
-            result.palette = await this.getPalette(params?.typedModules ?? [], true)
+            result.palette = await this.getPalette(params?.typedModules ?? null)
             result.success = true
             break
         default:
