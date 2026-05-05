@@ -973,7 +973,7 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
             })
             it('should throw if node is missing required property id', async () => {
                 const result = {}
