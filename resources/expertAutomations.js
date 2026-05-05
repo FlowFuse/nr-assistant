@@ -1102,27 +1102,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE: {
-            // Capture pre-patch line counts so the agent can see what it was working with
-            const preUpdateLineCounts = {}
-            if (Array.isArray(params.patches) && params.patches.length > 0) {
-                const currentNode = this.RED.nodes.node(params.id)
-                if (currentNode) {
-                    const patchedTopLevel = [...new Set(params.patches.map(p => p.property.split('.')[0]))]
-                    for (const prop of patchedTopLevel) {
-                        const val = currentNode[prop]
-                        if (typeof val === 'string') {
-                            preUpdateLineCounts[prop] = val.split('\n').length
-                        }
-                    }
-                }
-            }
             await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
             result.validation = this._getNodeValidation(updatedNode)
-            if (Object.keys(preUpdateLineCounts).length > 0) {
-                result.preUpdateLineCounts = preUpdateLineCounts
-            }
             result.success = true
         }
             break

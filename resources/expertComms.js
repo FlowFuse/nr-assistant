@@ -588,12 +588,9 @@ export class ExpertComms {
                 }
                 this.postReply({ type, action, success: true, ...result }, event)
             } catch (err) {
-                try {
-                    result.error = err.message
-                    this.postReply({ type, action, ...result, success: false }, event)
-                } catch (_) {
-                    this.postReply({ type, action, correlationId, success: false, error: err.message }, event)
-                }
+                result.error = err.message
+                result.exception = err
+                this.postReply({ type, action, ...result, success: false }, event)
             }
         }
         }
