@@ -23,6 +23,7 @@ const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
+const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 
 /**
  * @typedef {SELECT_NODES
@@ -46,7 +47,8 @@ const GET_PALETTE = 'automation/get-palette'
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
  *   |GET_NODE_TYPES
- *   |GET_PALETTE} ExpertAutomationsActionsEnum
+ *   |GET_PALETTE
+ *   |LIST_CONFIG_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -338,6 +340,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         description: 'Module names that have pre-built schemas. When provided, each palette entry includes a hasSchema flag.'
+                    }
+                }
+            }
+        },
+        [LIST_CONFIG_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    type: {
+                        type: 'string',
+                        description: 'Optional filter by config node type (e.g. "ui-base", "mqtt-broker")'
+                    },
+                    tabId: {
+                        type: 'string',
+                        description: 'Scope filter: "global" for config nodes not attached to any tab, a tab ID for config nodes scoped to that tab, or omit to return all'
                     }
                 }
             }
@@ -1287,6 +1304,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case GET_PALETTE:
             result.palette = await this.getPalette(params?.typedModules ?? null)
             result.success = true
+            break
+        case LIST_CONFIG_NODES: {
+            const configNodes = []
+            this.RED.nodes.eachConfig(configNode => {
+                if (params?.type && configNode.type !== params.type) return
+                if (params?.tabId === 'global' && configNode.z) return
+                if (params?.tabId && params.tabId !== 'global' && configNode.z !== params.tabId) return
+                configNodes.push(configNode)
+            })
+            result.data = { configNodes: this._formatNodes(configNodes, false) }
+            result.success = true
+        }
             break
         default:
             result.handled = false
