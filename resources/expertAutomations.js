@@ -21,7 +21,7 @@ const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
-const GET_NODE_TYPE = 'automation/get-node-type'
+const GET_NODE_TYPES = 'automation/get-node-types'
 
 /**
  * @typedef {SELECT_NODES
@@ -44,7 +44,7 @@ const GET_NODE_TYPE = 'automation/get-node-type'
  *   |SET_LINKS
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
- *   |GET_NODE_TYPE} ExpertAutomationsActionsEnum
+ *   |GET_NODE_TYPES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -314,14 +314,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         [CLOSE_EDITOR_TRAY]: {
             params: null
         },
-        [GET_NODE_TYPE]: {
+        [GET_NODE_TYPES]: {
             params: {
                 type: 'object',
-                required: ['type'],
+                required: ['types'],
                 properties: {
-                    type: {
-                        type: 'string',
-                        description: 'Node type identifier to look up (e.g. "inject", "function", "worldmap")'
+                    types: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        minItems: 1,
+                        description: 'One or more node type identifiers to look up (e.g. ["inject", "function", "ui-text"])'
                     }
                 }
             }
@@ -482,7 +484,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object} [properties] - key-value pairs to merge into the node
      * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
      */
-    async updateNode (id, properties, patches, codeProperties) {
+    async updateNode (id, properties, patches) {
         const hasProperties = properties !== undefined && properties !== null
         const hasPatches = Array.isArray(patches) && patches.length > 0
         if (hasProperties && Object.keys(properties).length === 0) {
@@ -514,30 +516,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
             Object.assign(node, properties)
         }
 
-        // Syntax-check changed properties that contain JavaScript code.
-        // Auto-detects for built-in function nodes; callers can extend via codeProperties param.
-        const codeErrors = {}
-        const jsProps = new Set(Array.isArray(codeProperties) ? codeProperties : [])
-        if (node.type === 'function') {
-            jsProps.add('func')
-            jsProps.add('initialize')
-            jsProps.add('finalize')
-        }
-        for (const key of jsProps) {
-            if (!changes[key]) continue
-            const newVal = node[key]
-            if (typeof newVal === 'string' && newVal.includes('\n')) {
-                try {
-                    // eslint-disable-next-line no-new-func, no-unused-vars
-                    const _syntaxCheck = new Function(newVal)
-                } catch (err) {
-                    if (err instanceof SyntaxError) {
-                        codeErrors[key] = err.message
-                    }
-                }
-            }
-        }
-
         const wasChanged = node.changed
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
@@ -552,8 +530,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
-
-        return Object.keys(codeErrors).length > 0 ? codeErrors : null
     }
 
     async closeEditorTray () {
@@ -1108,15 +1084,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
-            const codeErrors = await this.updateNode(params.id, params.properties, params.patches, params.codeProperties)
+            await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
             result.validation = this._getNodeValidation(updatedNode)
-            if (codeErrors) {
-                if (!result.validation) result.validation = {}
-                result.validation.valid = false
-                result.validation.codeErrors = codeErrors
-            }
             if (Object.keys(preUpdateLineCounts).length > 0) {
                 result.preUpdateLineCounts = preUpdateLineCounts
             }
@@ -1229,27 +1200,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.closed = await this.closeEditorTray()
             result.success = true
             break
-        case GET_NODE_TYPE: {
-            const def = this.RED.nodes.getType(params.type)
-            if (!def) {
-                result.success = false
-                result.error = `Node type "${params.type}" is not installed in this Node-RED instance`
-                return
-            }
-            const rawDefaults = def.defaults || {}
-            result.data = {
-                nodeType: params.type,
-                defaults: JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
-                    typeof value === 'function' ? value.toString() : value
-                )),
-                label: typeof def.label === 'function' ? def.label.toString() : (def.label || params.type),
-                category: def.category || null,
-                color: typeof def.color === 'function' ? def.color.call({}) : (def.color || null),
-                inputs: def.inputs ?? 0,
-                outputs: def.outputs ?? 0
+        case GET_NODE_TYPES:
+            result.data = {}
+            for (const type of params.types) {
+                const def = this.RED.nodes.getType(type)
+                if (!def) {
+                    result.data[type] = { installed: false }
+                    continue
+                }
+                const rawDefaults = def.defaults || {}
+                result.data[type] = {
+                    defaults: JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
+                        typeof value === 'function' ? value.toString() : value
+                    )),
+                    label: typeof def.label === 'function' ? def.label.toString() : (def.label || type),
+                    category: def.category || null,
+                    color: typeof def.color === 'function' ? def.color.call({}) : (def.color || null),
+                    inputs: def.inputs ?? 0,
+                    outputs: def.outputs ?? 0
+                }
             }
             result.success = true
-        }
             break
         default:
             result.handled = false

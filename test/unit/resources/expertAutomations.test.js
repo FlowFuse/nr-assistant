@@ -91,7 +91,7 @@ describeMain('expertAutomations', () => {
                 'automation/set-links',
                 'automation/import-flow',
                 'automation/close-editor-tray',
-                'automation/get-node-type'
+                'automation/get-node-types'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -1811,6 +1811,64 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/import-flow', {
                     params: { flow: flowArray }
                 }, {})).rejectedWith(/importNodes failed: duplicate node id/)
+            })
+        })
+
+        describe('getNodeTypes action', () => {
+            it('should return type info for installed types', async () => {
+                mockRED.nodes.getType = sinon.stub()
+                mockRED.nodes.getType.withArgs('function').returns({ inputs: 1, outputs: 1, category: 'function', defaults: { name: { value: '' } } })
+                mockRED.nodes.getType.withArgs('inject').returns({ inputs: 0, outputs: 1, category: 'input', defaults: {} })
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-node-types', {
+                    params: { types: ['function', 'inject'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('data')
+                result.data.should.have.property('function')
+                result.data.function.should.have.property('inputs', 1)
+                result.data.function.should.have.property('outputs', 1)
+                result.data.function.should.have.property('category', 'function')
+                result.data.function.should.have.property('defaults')
+                result.data.should.have.property('inject')
+                result.data.inject.should.have.property('inputs', 0)
+            })
+            it('should mark types not installed with installed: false', async () => {
+                mockRED.nodes.getType = sinon.stub().returns(null)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-node-types', {
+                    params: { types: ['unknown-type'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data.should.have.property('unknown-type').which.deepEqual({ installed: false })
+            })
+            it('should handle a mix of installed and not installed types', async () => {
+                mockRED.nodes.getType = sinon.stub()
+                mockRED.nodes.getType.withArgs('function').returns({ inputs: 1, outputs: 1, category: 'function', defaults: {} })
+                mockRED.nodes.getType.withArgs('not-installed').returns(null)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-node-types', {
+                    params: { types: ['function', 'not-installed'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data.should.have.property('function')
+                result.data.function.should.not.have.property('installed')
+                result.data.should.have.property('not-installed').which.deepEqual({ installed: false })
+            })
+            it('should resolve function-typed color without throwing', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({
+                    inputs: 1,
+                    outputs: 1,
+                    category: 'function',
+                    defaults: {},
+                    color: function () { return '#aabbcc' }
+                })
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-node-types', {
+                    params: { types: ['function'] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data.function.should.have.property('color', '#aabbcc')
             })
         })
     })
