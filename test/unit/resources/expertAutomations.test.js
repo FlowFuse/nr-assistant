@@ -806,6 +806,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n1').returns(addedNode) // post-import lookup
                 mockRED.view.importNodes = sinon.stub()
                 mockRED.nodes.dirty = sinon.stub()
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
                 const nodes = [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }]
                 const result = {}
                 await expertAutomations.invokeAction('automation/add-nodes', {
@@ -827,6 +828,28 @@ describeMain('expertAutomations', () => {
                 result.data[0].should.have.property('z', 'tab1')
                 result.data[0].should.have.property('x', 100)
                 result.data[0].should.have.property('y', 200)
+                result.should.have.property('validation').which.is.an.Array().with.lengthOf(0)
+            })
+            it('should return validation errors for invalid added nodes', async () => {
+                const addedNode = { id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: { repeat: { value: '' } } })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.node = sinon.stub()
+                mockRED.nodes.node.withArgs('n1').onFirstCall().returns(null)
+                mockRED.nodes.node.withArgs('n1').returns(addedNode)
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = false; n.validationErrors = ['repeat'] }) }
+                const nodes = [{ id: 'n1', type: 'inject', z: 'tab1', x: 100, y: 200 }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('validation').which.is.an.Array().with.lengthOf(1)
+                result.validation[0].should.have.property('id', 'n1')
+                result.validation[0].should.have.property('valid', false)
+                result.validation[0].should.have.property('validationErrors').which.deepEqual(['repeat'])
             })
             it('should throw if node type is unknown', async () => {
                 mockRED.nodes.getType = sinon.stub().returns(null)
@@ -1166,7 +1189,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED.history = { push: sinon.stub() }
-                mockRED.editor = { validateNode: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
                 mockRED.view.redraw = sinon.stub()
                 const result = {}
                 await expertAutomations.invokeAction('automation/update-node', {
@@ -1187,6 +1210,21 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('data').which.is.an.Object()
                 result.data.should.have.property('id', 'n1')
                 result.data.should.have.property('name', 'new')
+                result.should.have.property('validation').which.deepEqual({ valid: true })
+            })
+            it('should return validation errors after update', async () => {
+                const mockNode = { id: 'n1', repeat: 'bad', changed: false }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = false; n.validationErrors = ['repeat'] }) }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { repeat: 'bad' } }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('validation').which.deepEqual({ valid: false, validationErrors: ['repeat'] })
             })
             it('should capture old values correctly before applying changes', async () => {
                 const mockNode = { id: 'n1', name: 'original', x: 100, changed: true }
@@ -1685,6 +1723,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.dirty = sinon.stub()
                 mockRED._ = sinon.stub().returns('error')
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
             })
             it('should import flow JSON string', async () => {
                 const flowJson = JSON.stringify([{ id: 'n1', type: 'inject' }])
@@ -1699,6 +1738,20 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
                 result.data[0].should.have.property('id', 'n1')
                 result.data[0].should.have.property('type', 'inject')
+                result.should.have.property('validation').which.is.an.Array().with.lengthOf(0)
+            })
+            it('should return validation errors for invalid imported nodes', async () => {
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = false; n.validationErrors = ['repeat'] }) }
+                const flowJson = JSON.stringify([{ id: 'n1', type: 'inject' }])
+                const result = {}
+                await expertAutomations.invokeAction('automation/import-flow', {
+                    params: { flow: flowJson }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('validation').which.is.an.Array().with.lengthOf(1)
+                result.validation[0].should.have.property('id', 'n1')
+                result.validation[0].should.have.property('valid', false)
+                result.validation[0].should.have.property('validationErrors').which.deepEqual(['repeat'])
             })
             it('should import flow array and validate via redOps.validateFlow', async () => {
                 sinon.stub(expertAutomations.redOps, 'validateFlow').returns([{ id: 'n1', type: 'inject' }])
