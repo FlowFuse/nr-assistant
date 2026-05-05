@@ -381,7 +381,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
-                result.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
+                result.should.have.property('data').which.deepEqual({ removed: ['n1'] })
             })
             it('should collect removed links for history', async () => {
                 const mockNode = { id: 'n1' }
@@ -458,7 +458,7 @@ describeMain('expertAutomations', () => {
                 mockRED.view.updateActive.calledOnce.should.be.true()
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('wires').which.deepEqual({ mode: 'add', source: 'n1', output: undefined, target: 'n2' })
+                result.should.have.property('data').which.deepEqual({ mode: 'add', source: 'n1', output: undefined, target: 'n2' })
             })
             it('should remove a wire with history', async () => {
                 const source = { id: 'n1', z: 'tab1', outputs: 1, dirty: false, changed: false }
@@ -614,7 +614,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.dirty.calledWith(true).should.be.true()
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('links').which.deepEqual({ mode: 'add', source: 'lo1', target: 'li1' })
+                result.should.have.property('data').which.deepEqual({ mode: 'add', source: 'lo1', target: 'li1' })
             })
             it('should remove a bidirectional link between link out and link in', async () => {
                 const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['li1'], dirty: false, changed: false }
@@ -824,8 +824,12 @@ describeMain('expertAutomations', () => {
                 importArgs[1].should.have.property('applyNodeDefaults', true)
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
-                result.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
-                result.nodes[0].should.equal(addedNode)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
+                result.data[0].should.have.property('id', 'n1')
+                result.data[0].should.have.property('type', 'inject')
+                result.data[0].should.have.property('z', 'tab1')
+                result.data[0].should.have.property('x', 100)
+                result.data[0].should.have.property('y', 200)
                 result.should.have.property('validation').which.is.an.Array().with.lengthOf(0)
             })
             it('should return validation errors for invalid added nodes', async () => {
@@ -995,7 +999,7 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('tab').which.is.an.Object()
+                result.should.have.property('data').which.deepEqual({ removed: 'tab1' })
             })
             it('should throw if tab not found', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
@@ -1050,8 +1054,8 @@ describeMain('expertAutomations', () => {
                 historyArg.should.have.property('workspaces').which.is.an.Array().with.lengthOf(1)
                 mockRED.nodes.dirty.calledWith(true).should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('tab').which.is.an.Object()
-                result.tab.should.have.property('label', 'My Tab')
+                result.should.have.property('data').which.is.an.Object()
+                result.data.should.have.property('label', 'My Tab')
             })
             it('should use defaults when optional fields omitted', async () => {
                 const result = {}
@@ -1191,7 +1195,9 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.dirty.calledWith(true).should.be.true()
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('node', mockNode)
+                result.should.have.property('data').which.is.an.Object()
+                result.data.should.have.property('id', 'n1')
+                result.data.should.have.property('name', 'new')
                 result.should.have.property('validation').which.deepEqual({ valid: true })
             })
             it('should return validation errors after update', async () => {
@@ -1679,7 +1685,7 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.workspaces.show.calledWith('tab1').should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('workspace').which.deepEqual({ id: 'tab1', label: 'My Tab' })
+                result.should.have.property('data').which.deepEqual({ id: 'tab1', label: 'My Tab' })
             })
             it('should throw if workspace does not exist', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
@@ -1708,7 +1714,9 @@ describeMain('expertAutomations', () => {
                 const args = mockRED.view.importNodes.firstCall.args
                 args[1].should.have.property('touchImport', true)
                 result.should.have.property('success', true)
-                result.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
+                result.data[0].should.have.property('id', 'n1')
+                result.data[0].should.have.property('type', 'inject')
                 result.should.have.property('validation').which.is.an.Array().with.lengthOf(0)
             })
             it('should return validation errors for invalid imported nodes', async () => {
@@ -1774,6 +1782,13 @@ describeMain('expertAutomations', () => {
                 }, result)
                 mockRED.view.importNodes.calledOnce.should.be.true()
                 result.should.have.property('success', true)
+            })
+            it('should rethrow importNodes errors with a descriptive message', async () => {
+                mockRED.view.importNodes = sinon.stub().throws(new Error('duplicate node id'))
+                const flowArray = [{ id: 'n1', type: 'inject' }]
+                await should(expertAutomations.invokeAction('automation/import-flow', {
+                    params: { flow: flowArray }
+                }, {})).rejectedWith(/importNodes failed: duplicate node id/)
             })
         })
     })
