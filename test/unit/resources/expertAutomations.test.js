@@ -1853,7 +1853,7 @@ describeMain('expertAutomations', () => {
                     params: {}
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(3)
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(3)
             })
 
             it('should filter config nodes by type', async () => {
@@ -1868,8 +1868,8 @@ describeMain('expertAutomations', () => {
                     params: { type: 'mqtt-broker' }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
-                result.configNodes[0].should.have.property('type', 'mqtt-broker')
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.data.configNodes[0].should.have.property('type', 'mqtt-broker')
             })
 
             it('should return empty array when no config nodes exist', async () => {
@@ -1879,7 +1879,7 @@ describeMain('expertAutomations', () => {
                     params: {}
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
             })
 
             it('should return empty array when type filter matches nothing', async () => {
@@ -1892,7 +1892,7 @@ describeMain('expertAutomations', () => {
                     params: { type: 'nonexistent-type' }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(0)
             })
 
             it('should work with no params', async () => {
@@ -1903,7 +1903,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/list-config-nodes', {}, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
             })
 
             it('should return only global config nodes when tabId is "global"', async () => {
@@ -1917,8 +1917,8 @@ describeMain('expertAutomations', () => {
                     params: { tabId: 'global' }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
-                result.configNodes[0].should.have.property('id', 'cfg1')
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.data.configNodes[0].should.have.property('id', 'cfg1')
             })
 
             it('should return only config nodes scoped to a specific tab', async () => {
@@ -1933,8 +1933,8 @@ describeMain('expertAutomations', () => {
                     params: { tabId: 'tab1' }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
-                result.configNodes[0].should.have.property('id', 'cfg2')
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.data.configNodes[0].should.have.property('id', 'cfg2')
             })
 
             it('should combine type and tabId filters', async () => {
@@ -1949,8 +1949,8 @@ describeMain('expertAutomations', () => {
                     params: { type: 'mqtt-broker', tabId: 'global' }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
-                result.configNodes[0].should.have.property('id', 'cfg2')
+                result.data.should.have.property('configNodes').which.is.an.Array().with.lengthOf(1)
+                result.data.configNodes[0].should.have.property('id', 'cfg2')
             })
         })
 

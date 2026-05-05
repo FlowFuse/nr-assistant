@@ -1313,7 +1313,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 if (params?.tabId && params.tabId !== 'global' && configNode.z !== params.tabId) return
                 configNodes.push(configNode)
             })
-            result.configNodes = this._formatNodes(configNodes, false)
+            result.data = { configNodes: this._formatNodes(configNodes, false) }
             result.success = true
         }
             break
