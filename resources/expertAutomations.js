@@ -22,6 +22,7 @@ const SET_LINKS = 'automation/set-links'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPES = 'automation/get-node-types'
+const GET_PALETTE = 'automation/get-palette'
 
 /**
  * @typedef {SELECT_NODES
@@ -44,7 +45,8 @@ const GET_NODE_TYPES = 'automation/get-node-types'
  *   |SET_LINKS
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
- *   |GET_NODE_TYPES} ExpertAutomationsActionsEnum
+ *   |GET_NODE_TYPES
+ *   |GET_PALETTE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -327,6 +329,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
+        },
+        [GET_PALETTE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    typedModules: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Module names that have pre-built schemas. When provided, each palette entry includes a hasSchema flag.'
+                    }
+                }
+            }
         }
     })
 
@@ -530,6 +544,63 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
+    }
+
+    async getPalette (typedModules = null) {
+        const typedSet = !typedModules || !Array.isArray(typedModules) || !typedModules.length ? null : new Set(typedModules)
+        const palette = {}
+        const plugins = await $.ajax({
+            url: 'plugins',
+            method: 'GET',
+            headers: {
+                Accept: 'application/json'
+            }
+        })
+        const nodes = await $.ajax({
+            url: 'nodes',
+            method: 'GET',
+            headers: {
+                Accept: 'application/json'
+            }
+        })
+
+        plugins.forEach(plugin => {
+            if (Object.prototype.hasOwnProperty.call(palette, plugin.module)) {
+                palette[plugin.module].plugins.push(plugin)
+            } else {
+                const entry = {
+                    version: plugin.version,
+                    enabled: plugin.enabled,
+                    module: plugin.module,
+                    plugins: [
+                        plugin
+                    ],
+                    nodes: []
+                }
+                if (typedSet) entry.hasSchema = typedSet.has(plugin.module)
+                palette[plugin.module] = entry
+            }
+        })
+
+        nodes.forEach(node => {
+            if (Object.prototype.hasOwnProperty.call(palette, node.module)) {
+                palette[node.module].nodes.push(node)
+            } else {
+                const entry = {
+                    version: node.version,
+                    enabled: node.enabled,
+                    module: node.module,
+                    plugins: [],
+                    nodes: [
+                        node
+                    ]
+                }
+                if (typedSet) entry.hasSchema = typedSet.has(node.module)
+                palette[node.module] = entry
+            }
+        })
+
+        return palette
     }
 
     async closeEditorTray () {
@@ -1212,6 +1283,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
+        case GET_PALETTE:
+            result.palette = await this.getPalette(params?.typedModules ?? null)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false
