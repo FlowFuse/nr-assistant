@@ -422,8 +422,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!addFlow && this.RED.workspaces.isLocked()) {
             throw new Error('Cannot import into a locked workspace')
         }
-        this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
+        let imported
+        try {
+            imported = this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
+        } catch (err) {
+            const e = new Error(`importNodes failed: ${err.message}`)
+            e.code = 'NODE_RED'
+            throw e
+        }
         this.RED.nodes.dirty(true)
+        return imported
     }
 
     async addFlowTab (title) {
@@ -745,6 +753,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.history.push({ t: 'add', workspaces: [ws], dirty: this.RED.nodes.dirty() })
         this.RED.nodes.dirty(true)
         this.showWorkspace(ws.id)
+        return this.RED.nodes.workspace(ws.id)
     }
 
     /**
@@ -1020,7 +1029,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case EDIT_NODE: {
             const selectedNode = this.editNode(params.id || '')
-            result.node = this._formatNodes([selectedNode], false)[0] || null
+            result.node = this._formatNodes([selectedNode], params.options?.includeModuleConfig)[0] || null
             result.success = true
         }
             break
@@ -1030,7 +1039,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.results = []
                 for (let index = 0; index < searchResults.length; index++) {
                     const searchResult = searchResults[index]
-                    searchResult.node = this._formatNodes([searchResult.node], false)[0] || null
+                    searchResult.node = this._formatNodes([searchResult.node], params.options?.includeModuleConfig)[0] || null
                     result.results.push(searchResult)
                 }
             }
@@ -1039,19 +1048,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case ADD_FLOW_TAB: {
             const newFlowTab = await this.addFlowTab(params?.title || undefined)
-            result.tab = this._formatNodes([newFlowTab], false)[0] || null
+            result.tab = this._formatNodes([newFlowTab], params.options?.includeModuleConfig)[0] || null
             result.success = true
         }
             break
 
         case UPDATE_NODE:
             await this.updateNode(params.id, params.properties, params.patches)
+            result.data = this._summarizeNode(this.RED.nodes.node(params.id))
             result.success = true
             break
 
-        case SHOW_WORKSPACE:
+        case SHOW_WORKSPACE: {
             this.showWorkspace(params.id)
+            const ws = this.RED.nodes.workspace(params.id)
+            result.data = this._summarizeWorkspace(ws)
             result.success = true
+        }
             break
 
         case GET_FLOW:
@@ -1069,19 +1082,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
 
-        case LIST_WORKSPACES: {
-            const workspaceIds = this.RED.nodes.getWorkspaceOrder()
-            const tabs = workspaceIds.map(id => this.RED.nodes.workspace(id))
-            const sanitized = tabs.map(t => ({ id: t.id, label: t.label, disabled: t.disabled, info: t.info, locked: t.locked, contentsChanged: t.contentsChanged }))
-            const selectedWorkspaces = this.RED.workspaces.selection() || []
-            sanitized.forEach(t => {
-                t.hidden = this.RED.workspaces.isHidden(t.id)
-                t.isActiveWorkspace = this.RED.workspaces.active() === t.id
-                t.isSelected = t.isActiveWorkspace || selectedWorkspaces.includes(t.id)
-            })
-            result.workspaces = sanitized
+        case LIST_WORKSPACES:
+            result.workspaces = this._listWorkspaces()
             result.success = true
-        }
             break
 
         case CLOSE_SEARCH:
@@ -1099,39 +1102,53 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
 
-        case ADD_TAB:
-            this.addTab(params)
+        case ADD_TAB: {
+            const newTab = this.addTab(params)
+            result.data = this._summarizeNode(newTab)
             result.success = true
+        }
             break
 
         case REMOVE_TAB:
             this.removeTab(params.id)
+            result.data = {
+                removed: params.id,
+                remainingTabs: this._listWorkspaces()
+            }
             result.success = true
             break
 
-        case ADD_NODES:
+        case ADD_NODES: {
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
+            const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
+            result.data = addedNodes.map(n => this._summarizeNode(n))
             result.success = true
+        }
             break
 
         case REMOVE_NODES:
             this.removeNodes(params.ids)
+            result.data = { removed: params.ids }
             result.success = true
             break
 
         case SET_WIRES:
             this.setWires(params)
+            result.data = { mode: params.mode, source: params.source, output: params.output, target: params.target }
             result.success = true
             break
 
         case SET_LINKS:
             this.setLinks(params)
+            result.data = { mode: params.mode, source: params.source, target: params.target }
             result.success = true
             break
 
-        case IMPORT_FLOW:
-            this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
+        case IMPORT_FLOW: {
+            const imported = this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
+            result.data = Array.isArray(imported) ? imported.map(n => this._summarizeNode(n)) : []
             result.success = true
+        }
             break
 
         case CLOSE_EDITOR_TRAY:
@@ -1147,5 +1164,39 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     _formatNodes (nodes, includeModuleConfig = true) {
         return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+    }
+
+    _listWorkspaces () {
+        return this.RED.nodes.getWorkspaceOrder().map(id => this._summarizeWorkspace(this.RED.nodes.workspace(id)))
+    }
+
+    _summarizeWorkspace (ws) {
+        if (!ws) return null
+        const selectedWorkspaces = this.RED.workspaces.selection() || []
+        const isActiveWorkspace = this.RED.workspaces.active() === ws.id
+        return {
+            id: ws.id,
+            label: typeof ws.label === 'function' ? ws.label() : ws.label,
+            disabled: ws.disabled,
+            info: ws.info,
+            locked: ws.locked,
+            contentsChanged: ws.contentsChanged,
+            hidden: this.RED.workspaces.isHidden(ws.id),
+            isActiveWorkspace,
+            isSelected: isActiveWorkspace || selectedWorkspaces.includes(ws.id)
+        }
+    }
+
+    _summarizeNode (node) {
+        if (!node) return null
+        const s = { id: node.id }
+        if (node.type !== undefined) s.type = node.type
+        if (node.name !== undefined) s.name = node.name
+        if (node.label !== undefined && typeof node.label !== 'function') s.label = node.label
+        if (node.x !== undefined) s.x = node.x
+        if (node.y !== undefined) s.y = node.y
+        if (node.z !== undefined) s.z = node.z
+        if (node.valid !== undefined) s.valid = node.valid
+        return s
     }
 }
