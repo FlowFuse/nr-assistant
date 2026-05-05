@@ -422,7 +422,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!addFlow && this.RED.workspaces.isLocked()) {
             throw new Error('Cannot import into a locked workspace')
         }
-        const imported = this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
+        let imported
+        try {
+            imported = this.RED.view.importNodes(newNodes, { generateIds, addFlow, touchImport: true, applyNodeDefaults: true })
+        } catch (err) {
+            const e = new Error(`importNodes failed: ${err.message}`)
+            e.code = 'NODE_RED'
+            throw e
+        }
         this.RED.nodes.dirty(true)
         return imported
     }
@@ -1048,14 +1055,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case UPDATE_NODE:
             await this.updateNode(params.id, params.properties, params.patches)
-            result.node = this._formatNodes([this.RED.nodes.node(params.id)], params.options?.includeModuleConfig)[0] || null
+            result.data = this._summarizeNode(this.RED.nodes.node(params.id))
             result.success = true
             break
 
         case SHOW_WORKSPACE: {
             this.showWorkspace(params.id)
             const ws = this.RED.nodes.workspace(params.id)
-            result.workspace = ws ? { id: ws.id, label: ws.label } : null
+            result.data = ws ? { id: ws.id, label: ws.label } : null
             result.success = true
         }
             break
@@ -1107,52 +1114,46 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case ADD_TAB: {
             const newTab = this.addTab(params)
-            result.tab = this._formatNodes([newTab], params.options?.includeModuleConfig)[0] || null
+            result.data = this._summarizeNode(newTab)
             result.success = true
         }
             break
 
-        case REMOVE_TAB: {
-            const ws = this.RED.nodes.workspace(params.id)
-            const tab = ws ? this._formatNodes([ws], params.options?.includeModuleConfig)[0] : null
+        case REMOVE_TAB:
             this.removeTab(params.id)
-            result.tab = tab
+            result.data = { removed: params.id }
             result.success = true
-        }
             break
 
         case ADD_NODES: {
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
-            result.nodes = this._formatNodes(addedNodes, params.options?.includeModuleConfig)
+            result.data = addedNodes.map(n => this._summarizeNode(n))
             result.success = true
         }
             break
 
-        case REMOVE_NODES: {
-            const nodesToRemove = params.ids.map(id => this.RED.nodes.node(id)).filter(Boolean)
-            const nodes = this._formatNodes(nodesToRemove, params.options?.includeModuleConfig)
+        case REMOVE_NODES:
             this.removeNodes(params.ids)
-            result.nodes = nodes
+            result.data = { removed: params.ids }
             result.success = true
-        }
             break
 
         case SET_WIRES:
             this.setWires(params)
-            result.wires = { mode: params.mode, source: params.source, output: params.output, target: params.target }
+            result.data = { mode: params.mode, source: params.source, output: params.output, target: params.target }
             result.success = true
             break
 
         case SET_LINKS:
             this.setLinks(params)
-            result.links = { mode: params.mode, source: params.source, target: params.target }
+            result.data = { mode: params.mode, source: params.source, target: params.target }
             result.success = true
             break
 
         case IMPORT_FLOW: {
             const imported = this.importFlow(params.flow, { addFlow: params.addFlowTab, generateIds: params.generateIds ?? true })
-            result.nodes = Array.isArray(imported) ? this._formatNodes(imported, params.options?.includeModuleConfig) : []
+            result.data = Array.isArray(imported) ? imported.map(n => this._summarizeNode(n)) : []
             result.success = true
         }
             break
@@ -1170,5 +1171,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     _formatNodes (nodes, includeModuleConfig = true) {
         return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+    }
+
+    _summarizeNode (node) {
+        if (!node) return null
+        const s = { id: node.id }
+        if (node.type !== undefined) s.type = node.type
+        if (node.name !== undefined) s.name = node.name
+        if (node.label !== undefined) s.label = node.label
+        if (node.x !== undefined) s.x = node.x
+        if (node.y !== undefined) s.y = node.y
+        if (node.z !== undefined) s.z = node.z
+        if (node.valid !== undefined) s.valid = node.valid
+        return s
     }
 }
