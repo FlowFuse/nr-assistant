@@ -1215,7 +1215,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.closed = await this.closeEditorTray()
             result.success = true
             break
-        case GET_NODE_TYPES:
+        case GET_NODE_TYPES: {
+            const nrEncode = (value) => {
+                if (typeof value === 'function') return { __enc__: true, type: 'function', data: value.toString() }
+                if (typeof value === 'bigint') return { __enc__: true, type: 'bigint', data: value.toString() }
+                if (typeof value === 'number' && (isNaN(value) || !isFinite(value))) return { __enc__: true, type: 'number', data: String(value) }
+                if (value instanceof RegExp) return { __enc__: true, type: 'regexp', data: value.toString() }
+                if (value instanceof Set) return { __enc__: true, type: 'set', data: Array.from(value), length: value.size }
+                if (value instanceof Map) return { __enc__: true, type: 'map', data: Object.fromEntries(value.entries()), length: value.size }
+                return value
+            }
             result.data = {}
             for (const type of params.types) {
                 const def = this.RED.nodes.getType(type)
@@ -1223,20 +1232,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     result.data[type] = { installed: false }
                     continue
                 }
-                const rawDefaults = def.defaults || {}
                 result.data[type] = {
-                    defaults: JSON.parse(JSON.stringify(rawDefaults, (key, value) =>
-                        typeof value === 'function' ? value.toString() : value
-                    )),
-                    label: typeof def.label === 'function' ? def.label.toString() : (def.label || type),
+                    defaults: JSON.parse(JSON.stringify(def.defaults || {}, (key, value) => nrEncode(value))),
+                    label: def.label ? nrEncode(def.label) : type,
                     category: def.category || null,
-                    color: typeof def.color === 'function' ? def.color.call({}) : (def.color || null),
+                    color: def.color ? nrEncode(def.color) : null,
                     inputs: def.inputs ?? 0,
                     outputs: def.outputs ?? 0
                 }
             }
             result.success = true
             break
+        }
         case LIST_NODE_PACKAGES: {
             const typedSet = new Set(Array.isArray(params?.typedModules) ? params.typedModules : [])
             const packages = {}
