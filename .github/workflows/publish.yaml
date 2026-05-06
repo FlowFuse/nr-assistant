@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    uses: 'flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml@v0.76.0'
+    uses: 'flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml@build_node_package/v1'
     with:
       node: '[
               {"version": "16", "tests": true, "lint": false},
@@ -29,7 +29,7 @@ jobs:
     if: |
       ( github.event_name == 'push' && github.ref == 'refs/heads/main' ) ||
       ( github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' )
-    uses: 'flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml@v0.76.0'
+    uses: 'flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml@publish_node_package/v1'
     with:
       package_name: nr-assistant
       publish_package: true
@@ -45,7 +45,7 @@ jobs:
         id: generate_token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
-          app-id: ${{ secrets.GH_BOT_APP_ID }}
+          client-id: ${{ secrets.GH_BOT_APP_ID }}
           private-key: ${{ secrets.GH_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: nr-launcher
