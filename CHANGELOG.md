@@ -6,6 +6,14 @@
  - chore(deps): bump hono from 4.12.14 to 4.12.18 (#308) @app/dependabot
  - build(deps): bump protobufjs from 7.5.3 to 7.5.5 (#272) @app/dependabot
 
+## [0.14.0](https://github.com/FlowFuse/nr-assistant/compare/v0.13.1...v0.14.0) (2026-05-07)
+
+
+### Features
+
+* **actions:** add automation/open-palette-manager action ([923e461](https://github.com/FlowFuse/nr-assistant/commit/923e46115a4d4613b00208e9f51b175eb12d0b03))
+* **actions:** add automation/open-palette-manager action ([#314](https://github.com/FlowFuse/nr-assistant/issues/314)) ([1b56ab0](https://github.com/FlowFuse/nr-assistant/commit/1b56ab0971315c886c3efe52a70ffbb4c00c7477))
+
 ## 0.13.0
 
  - ci: Use new project-automation workflow (#303)
