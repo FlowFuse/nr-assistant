@@ -41,6 +41,14 @@
  - Update lint scripts to include all subdirectories (#255) @Steve-Mcl
  - Use git ref_name for version instead of npm info (#252) @allthedoll
 
+## [0.13.1](https://github.com/FlowFuse/nr-assistant/compare/v0.13.0...v0.13.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* **actions:** add-nodes respects z, update-node redraws correctly ([45b870d](https://github.com/FlowFuse/nr-assistant/commit/45b870d725450e5da4a2ac135af40a61cd4babd1))
+* **actions:** add-nodes respects z, update-node redraws correctly ([#311](https://github.com/FlowFuse/nr-assistant/issues/311)) ([eabba18](https://github.com/FlowFuse/nr-assistant/commit/eabba18f49c92769f69fb840f1d406dd3399cf6c))
+
 ## 0.12.0
 
  - Bump actions/create-github-app-token from 2.2.1 to 3.0.0 (#191)
