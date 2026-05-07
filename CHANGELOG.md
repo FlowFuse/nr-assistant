@@ -1,3 +1,11 @@
+## [0.13.1](https://github.com/FlowFuse/nr-assistant/compare/v0.13.0...v0.13.1) (2026-05-07)
+
+ - ci: Pin internal GitHub Actions reusable workflows to the new tagging approach (#307)
+ - fix(actions): add-nodes respects z, update-node redraws correctly (#311) @andypalmi
+ - chore(deps): bump ip-address and express-rate-limit (#309) @app/dependabot
+ - chore(deps): bump hono from 4.12.14 to 4.12.18 (#308) @app/dependabot
+ - build(deps): bump protobufjs from 7.5.3 to 7.5.5 (#272) @app/dependabot
+
 ## 0.13.0
 
  - ci: Use new project-automation workflow (#303)
@@ -40,14 +48,6 @@
  - feat: add automation/update-node action (#237) @andypalmi
  - Update lint scripts to include all subdirectories (#255) @Steve-Mcl
  - Use git ref_name for version instead of npm info (#252) @allthedoll
-
-## [0.13.1](https://github.com/FlowFuse/nr-assistant/compare/v0.13.0...v0.13.1) (2026-05-07)
-
-
-### Bug Fixes
-
-* **actions:** add-nodes respects z, update-node redraws correctly ([45b870d](https://github.com/FlowFuse/nr-assistant/commit/45b870d725450e5da4a2ac135af40a61cd4babd1))
-* **actions:** add-nodes respects z, update-node redraws correctly ([#311](https://github.com/FlowFuse/nr-assistant/issues/311)) ([eabba18](https://github.com/FlowFuse/nr-assistant/commit/eabba18f49c92769f69fb840f1d406dd3399cf6c))
 
 ## 0.12.0
 
