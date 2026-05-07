@@ -95,7 +95,8 @@ describeMain('expertAutomations', () => {
                 'automation/close-editor-tray',
                 'automation/get-node-types',
                 'automation/get-palette',
-                'automation/list-config-nodes'
+                'automation/list-config-nodes',
+                'automation/open-palette-manager'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -2092,6 +2093,38 @@ describeMain('expertAutomations', () => {
                 result.palette['node-red'].plugins.should.have.length(1)
                 result.palette['node-red'].nodes.should.have.length(1)
                 result.palette['node-red-contrib-test'].nodes.should.have.length(1)
+            })
+        })
+        describe('automation/open-palette-manager', () => {
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+            })
+            it('should open palette manager with default install view when no view param given', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/open-palette-manager', { params: {} }, result)
+                mockRED.actions.invoke.calledOnce.should.be.true()
+                mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: '' }).should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should pass view param through to RED.actions.invoke', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/open-palette-manager', { params: { view: 'nodes' } }, result)
+                mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'nodes', filter: '' }).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should pass filter param through to RED.actions.invoke', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/open-palette-manager', { params: { filter: 'node-red-contrib-s7' } }, result)
+                mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: 'node-red-contrib-s7' }).should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should succeed even without params', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/open-palette-manager', {}, result)
+                mockRED.actions.invoke.calledOnce.should.be.true()
+                mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: '' }).should.be.true()
+                result.should.have.property('success', true)
             })
         })
     })

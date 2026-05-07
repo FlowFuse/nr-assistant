@@ -24,6 +24,7 @@ const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
+const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 
 /**
  * @typedef {SELECT_NODES
@@ -48,7 +49,8 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
  *   |CLOSE_EDITOR_TRAY
  *   |GET_NODE_TYPES
  *   |GET_PALETTE
- *   |LIST_CONFIG_NODES} ExpertAutomationsActionsEnum
+ *   |LIST_CONFIG_NODES
+ *   |OPEN_PALETTE_MANAGER} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -355,6 +357,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     tabId: {
                         type: 'string',
                         description: 'Scope filter: "global" for config nodes not attached to any tab, a tab ID for config nodes scoped to that tab, or omit to return all'
+                    }
+                }
+            }
+        },
+        [OPEN_PALETTE_MANAGER]: {
+            params: {
+                type: 'object',
+                properties: {
+                    view: {
+                        type: 'string',
+                        enum: ['nodes', 'install'],
+                        default: 'install',
+                        description: 'Which tab to show in the palette manager'
+                    },
+                    filter: {
+                        type: 'string',
+                        description: 'Optional package name or search term to pre-filter the palette manager'
                     }
                 }
             }
@@ -1335,6 +1354,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.data = { configNodes: this._formatNodes(configNodes, false) }
             result.success = true
         }
+            break
+        case OPEN_PALETTE_MANAGER:
+            this.RED.actions.invoke('core:manage-palette', {
+                view: params?.view || 'install',
+                filter: params?.filter || ''
+            })
+            result.success = true
             break
         default:
             result.handled = false

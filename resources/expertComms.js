@@ -570,6 +570,18 @@ export class ExpertComms {
                 this.postReply({ type, error: err?.message, correlationId }, event)
             }
             return
+        case 'core:manage-palette': {
+            // Delegate to automation for centralised handling
+            const result = { handled: false, success: false, noReply: false, correlationId }
+            try {
+                await this.nrAutomations.invokeAction('automation/open-palette-manager', { event, params }, result)
+                this.postReply({ type, action, success: true, ...result }, event)
+            } catch (err) {
+                result.error = err.message
+                this.postReply({ type, action, ...result, success: false }, event)
+            }
+            return
+        }
         default: {
             const result = { handled: false, success: false, noReply: false, correlationId }
             try {
