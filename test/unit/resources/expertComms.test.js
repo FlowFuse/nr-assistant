@@ -892,7 +892,7 @@ describeMain('expertComms', function () {
             consoleWarnStub.restore()
         })
 
-        it('should handle valid core:manage-palette action', () => {
+        it('should handle valid core:manage-palette action', async () => {
             const eventSource = { postMessage: sinon.stub() }
             const event = {
                 source: eventSource,
@@ -912,7 +912,7 @@ describeMain('expertComms', function () {
 
             mockRED.actions.invoke.returns(true)
 
-            messageHandler(event)
+            await messageHandler(event)
 
             mockRED.actions.invoke.calledOnce.should.be.true()
             mockRED.actions.invoke.firstCall.args[0].should.equal('core:manage-palette')
@@ -1039,7 +1039,7 @@ describeMain('expertComms', function () {
             reply.should.have.property('acknowledged', true)
         })
 
-        it('should handle errors in action invocation', () => {
+        it('should handle errors in action invocation', async () => {
             const eventSource = { postMessage: sinon.stub() }
             const event = {
                 source: eventSource,
@@ -1059,7 +1059,7 @@ describeMain('expertComms', function () {
             const error = new Error('Action failed')
             mockRED.actions.invoke.throws(error)
 
-            messageHandler(event)
+            await messageHandler(event)
 
             eventSource.postMessage.calledOnce.should.be.true()
             const reply = eventSource.postMessage.firstCall.args[0]
