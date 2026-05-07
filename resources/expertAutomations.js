@@ -555,6 +555,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.editor?.validateNode) {
             this.RED.editor.validateNode(node)
         }
+        this.RED.view.updateActive()
         this.RED.view.redraw()
         this.RED.sidebar?.info?.refresh()
 
@@ -909,7 +910,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw new Error(`Node ID(s) already exist: ${existing.map(n => n.id).join(', ')} — use generateIds: true to auto-assign new IDs`)
             }
         }
-        this.RED.view.importNodes(prepared, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        // importNodes places nodes on the active tab regardless of z — switch to each
+        // target tab before importing so nodes land on the correct workspace.
+        const originalActiveId = this.RED.workspaces.active()
+        const configNodes = prepared.filter(n => !n.z)
+        const byTab = new Map()
+        for (const node of prepared.filter(n => n.z)) {
+            if (!byTab.has(node.z)) byTab.set(node.z, [])
+            byTab.get(node.z).push(node)
+        }
+        if (configNodes.length > 0) {
+            this.RED.view.importNodes(configNodes, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        }
+        for (const [tabId, tabNodes] of byTab) {
+            this.RED.workspaces.show(tabId)
+            this.RED.view.importNodes(tabNodes, { generateIds, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        }
+        if (originalActiveId) {
+            this.RED.workspaces.show(originalActiveId)
+        }
         this.RED.nodes.dirty(true)
     }
 

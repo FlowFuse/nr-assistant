@@ -28,7 +28,9 @@ describeMain('expertAutomations', () => {
                 addFlowTab: sinon.stub(),
                 reveal: sinon.stub(),
                 select: sinon.stub(),
-                state: sinon.stub().returns(1) // default to default state
+                state: sinon.stub().returns(1), // default to default state
+                updateActive: sinon.stub(),
+                redraw: sinon.stub()
             },
             nodes: {
                 node: sinon.stub(),
@@ -1226,6 +1228,7 @@ describeMain('expertAutomations', () => {
                 historyArg.should.have.property('changes').which.deepEqual({ name: 'old' })
                 historyArg.should.have.property('changed', false)
                 mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.updateActive.calledOnce.should.be.true()
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('data').which.is.an.Object()
