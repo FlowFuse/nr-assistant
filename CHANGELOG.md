@@ -1,3 +1,7 @@
+## [0.14.0](https://github.com/FlowFuse/nr-assistant/compare/v0.13.1...v0.14.0) (2026-05-07)
+
+ - feat(actions): add automation/open-palette-manager action (#314) @andypalmi
+
 ## [0.13.1](https://github.com/FlowFuse/nr-assistant/compare/v0.13.0...v0.13.1) (2026-05-07)
 
  - ci: Pin internal GitHub Actions reusable workflows to the new tagging approach (#307)
