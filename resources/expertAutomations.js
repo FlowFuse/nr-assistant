@@ -1470,14 +1470,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case GET_FLOW:
             result.flows = this.getFlow()
             if (result.flows && Array.isArray(result.flows) && result.flows.length > 0) {
-                if (params.type) {
+                if (params && params.type) {
                     // filter by type if specified (e.g. "tab", "subflow", or any node type)
                     result.flows = result.flows.filter(f => f.type === params.type)
                 }
-                if (params.tabId) {
+                if (params && params.tabId) {
                     // filter by parent tab ID if specified (for nodes/config nodes)
                     result.flows = result.flows.filter(f => f.z === params.tabId)
                 }
+            }
+            if (!params || !params.full) {
+                result.flows = (result.flows || []).map(f => this._summarizeFlowItem(f))
             }
             result.success = true
             break
@@ -1716,6 +1719,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (node.z !== undefined) s.z = node.z
         if (node.valid !== undefined) s.valid = node.valid
         return s
+    }
+
+    _summarizeFlowItem (item) {
+        if (!item) return null
+        if (item.type === 'tab') {
+            const tab = { id: item.id, type: item.type, label: item.label }
+            if (item.disabled !== undefined) tab.disabled = item.disabled
+            return tab
+        }
+        if (item.type === 'subflow') return { id: item.id, type: item.type, name: item.name, info: item.info }
+        if (item.type === 'group') return this._summarizeGroup(item)
+        return this._summarizeNode(item)
     }
 
     _summarizeGroup (group) {
