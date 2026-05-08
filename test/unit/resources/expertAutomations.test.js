@@ -1688,6 +1688,41 @@ describeMain('expertAutomations', () => {
                     }, result)).rejectedWith(/resolved to/)
                 })
             })
+            it('should return reconnectionPlan when moving node to new tab', async () => {
+                const nodeA = { id: 'a1', type: 'inject', z: 'tab1' }
+                const nodeB = { id: 'b1', type: 'function', z: 'tab1' }
+                const nodeC = { id: 'c1', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('b1').returns(nodeB)
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.workspace.withArgs('tab2').returns({ id: 'tab2', locked: false })
+                mockRED.workspaces.isLocked = sinon.stub().returns(false)
+                mockRED.workspaces.active = sinon.stub().returns('tab1')
+                mockRED.workspaces.show = sinon.stub()
+                mockRED.nodes.getNodeLinks = sinon.stub().withArgs('b1').returns([
+                    { source: nodeA, sourcePort: 0, target: nodeB }, // inbound: a1 → b1
+                    { source: nodeB, sourcePort: 0, target: nodeC } // outbound: b1 → c1
+                ])
+                mockRED.nodes.createExportableNodeSet = sinon.stub().returns([{ id: 'b1', type: 'function', z: 'tab1' }])
+                mockRED.nodes.remove = sinon.stub().returns({ links: [] })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.updateActive = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'b1', properties: { z: 'tab2' } }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('reconnectionPlan').which.is.an.Object()
+                const plan = result.reconnectionPlan
+                plan.should.have.property('sourceTabId', 'tab1')
+                plan.should.have.property('targetTabId', 'tab2')
+                plan.inboundConnections.should.have.lengthOf(1)
+                plan.inboundConnections[0].should.deepEqual({ fromNodeId: 'a1', fromOutputIndex: 0, fromTabId: 'tab1' })
+                plan.outboundConnections.should.have.lengthOf(1)
+                plan.outboundConnections[0].should.deepEqual({ fromOutputIndex: 0, toNodeId: 'c1', toTabId: 'tab1' })
+            })
             it('should reject group ID and return error directing to manage-groups', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
                 const result = {}

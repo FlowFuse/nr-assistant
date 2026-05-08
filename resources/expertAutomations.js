@@ -680,6 +680,32 @@ export class ExpertAutomations extends ExpertActionsInterface {
             target: l.target?.id
         }))
 
+        // Build structured reconnection plan: classify each wire as inbound (→ moved node)
+        // or outbound (moved node →), capturing tab IDs so the agent knows where to place link nodes
+        const inboundConnections = []
+        const outboundConnections = []
+        for (const l of links) {
+            if (l.target?.id === node.id) {
+                inboundConnections.push({
+                    fromNodeId: l.source?.id,
+                    fromOutputIndex: l.sourcePort,
+                    fromTabId: l.source?.z ?? null
+                })
+            } else {
+                outboundConnections.push({
+                    fromOutputIndex: l.sourcePort,
+                    toNodeId: l.target?.id,
+                    toTabId: l.target?.z ?? null
+                })
+            }
+        }
+        const reconnectionPlan = {
+            sourceTabId: node.z,
+            targetTabId: targetZ,
+            inboundConnections,
+            outboundConnections
+        }
+
         // Build the exportable snapshot BEFORE removing (createExportableNodeSet
         // needs the node in the live registry to produce complete data)
         const exportable = this.RED.nodes.createExportableNodeSet([node])
@@ -714,7 +740,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.updateActive()
         this.RED.view.redraw()
 
-        return { removedWires }
+        return { removedWires, reconnectionPlan }
     }
 
     /**
@@ -1458,7 +1484,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.validation = this._getNodeValidation(updatedNode)
             if (updateResult?.removedWires?.length > 0) {
                 result.removedWires = updateResult.removedWires
-                result.message = 'Node moved to new tab. All wires were removed (cross-tab wires are invalid). Use set_wires or link nodes to reconnect.'
+                result.reconnectionPlan = updateResult.reconnectionPlan
+                result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
+                    'Use reconnectionPlan to restore connections via link nodes. ' +
+                    'For each inboundConnection: add link-out on fromTabId, add link-in on targetTabId, wire fromNode→link-out, link-in→moved node, set link. ' +
+                    'For each outboundConnection: add link-out on targetTabId, add link-in on fromTabId, wire moved node→link-out, link-in→toNode, set link.'
             }
             result.success = true
         }
