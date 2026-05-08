@@ -681,25 +681,36 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }))
 
         // Build structured reconnection plan: classify each wire as inbound (→ moved node)
-        // or outbound (moved node →), capturing tab IDs so the agent knows where to place link nodes
+        // or outbound (moved node →). Pre-compute linkOutTabId/linkInTabId so the caller
+        // knows exactly which tab to place each link node on without reasoning from text.
+        //
+        // Inbound (X → moved node):  link-out on X's tab, link-in on target tab (where moved node is now)
+        // Outbound (moved node → Y): link-out on target tab (where moved node is now), link-in on Y's tab
         const inboundConnections = []
         const outboundConnections = []
         for (const l of links) {
             if (l.target?.id === node.id) {
+                const fromTabId = l.source?.z ?? null
                 inboundConnections.push({
                     fromNodeId: l.source?.id,
                     fromOutputIndex: l.sourcePort,
-                    fromTabId: l.source?.z ?? null
+                    fromTabId,
+                    linkOutTabId: fromTabId, // place link-out where X lives (source side)
+                    linkInTabId: targetZ // place link-in where moved node now lives
                 })
             } else {
+                const toTabId = l.target?.z ?? null
                 outboundConnections.push({
                     fromOutputIndex: l.sourcePort,
                     toNodeId: l.target?.id,
-                    toTabId: l.target?.z ?? null
+                    toTabId,
+                    linkOutTabId: targetZ, // place link-out where moved node now lives
+                    linkInTabId: toTabId // place link-in where Y lives (target side)
                 })
             }
         }
         const reconnectionPlan = {
+            movedNodeId: node.id,
             sourceTabId: node.z,
             targetTabId: targetZ,
             inboundConnections,
@@ -1486,9 +1497,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.removedWires = updateResult.removedWires
                 result.reconnectionPlan = updateResult.reconnectionPlan
                 result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
-                    'Use reconnectionPlan to restore connections via link nodes. ' +
-                    'For each inboundConnection: add link-out on fromTabId, add link-in on targetTabId, wire fromNode→link-out, link-in→moved node, set link. ' +
-                    'For each outboundConnection: add link-out on targetTabId, add link-in on fromTabId, wire moved node→link-out, link-in→toNode, set link.'
+                    'Restore connections using reconnectionPlan: for each entry add a link-out node on linkOutTabId and a link-in node on linkInTabId. ' +
+                    'Wire the upstream/moved node to the link-out using set_wires (same-tab wire). ' +
+                    'Wire the link-in to the downstream node using set_wires (same-tab wire). ' +
+                    'Connect link-out → link-in using set_links (cross-tab virtual link, NOT set_wires).'
             }
             result.success = true
         }

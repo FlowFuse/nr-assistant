@@ -1719,9 +1719,9 @@ describeMain('expertAutomations', () => {
                 plan.should.have.property('sourceTabId', 'tab1')
                 plan.should.have.property('targetTabId', 'tab2')
                 plan.inboundConnections.should.have.lengthOf(1)
-                plan.inboundConnections[0].should.deepEqual({ fromNodeId: 'a1', fromOutputIndex: 0, fromTabId: 'tab1' })
+                plan.inboundConnections[0].should.deepEqual({ fromNodeId: 'a1', fromOutputIndex: 0, fromTabId: 'tab1', linkOutTabId: 'tab1', linkInTabId: 'tab2' })
                 plan.outboundConnections.should.have.lengthOf(1)
-                plan.outboundConnections[0].should.deepEqual({ fromOutputIndex: 0, toNodeId: 'c1', toTabId: 'tab1' })
+                plan.outboundConnections[0].should.deepEqual({ fromOutputIndex: 0, toNodeId: 'c1', toTabId: 'tab1', linkOutTabId: 'tab2', linkInTabId: 'tab1' })
             })
             it('should reject group ID and return error directing to manage-groups', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
