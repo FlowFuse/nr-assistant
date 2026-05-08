@@ -1279,14 +1279,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case GET_FLOW:
             result.flows = this.getFlow()
             if (result.flows && Array.isArray(result.flows) && result.flows.length > 0) {
-                if (params.type) {
+                if (params && params.type) {
                     // filter by type if specified (e.g. "tab", "subflow", or any node type)
                     result.flows = result.flows.filter(f => f.type === params.type)
                 }
-                if (params.tabId) {
+                if (params && params.tabId) {
                     // filter by parent tab ID if specified (for nodes/config nodes)
                     result.flows = result.flows.filter(f => f.z === params.tabId)
                 }
+            }
+            if (!params || !params.full) {
+                result.flows = (result.flows || []).map(f => this._summarizeFlowItem(f))
             }
             result.success = true
             break

@@ -1189,18 +1189,32 @@ describeMain('expertAutomations', () => {
             })
         })
         describe('getWorkspaceNodes action', () => {
-            it('should delegate to RED.nodes.createCompleteNodeSet', async () => {
+            it('should return slim summaries by default', async () => {
                 const mockFlows = [
-                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false },
                     { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
                 ]
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('flows').which.deepEqual(mockFlows)
+                result.flows.should.deepEqual([
+                    { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false },
+                    { id: 'n1', type: 'inject', z: 'tab1' }
+                ])
                 mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
                 mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
+            })
+            it('should return full data when params.full is true', async () => {
+                const mockFlows = [
+                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: { full: true } }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('flows').which.deepEqual(mockFlows)
             })
             it('should return empty array when no flows exist', async () => {
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns([])
