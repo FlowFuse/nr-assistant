@@ -680,41 +680,49 @@ export class ExpertAutomations extends ExpertActionsInterface {
             target: l.target?.id
         }))
 
-        // Build structured reconnection plan: classify each wire as inbound (→ moved node)
-        // or outbound (moved node →). Pre-compute linkOutTabId/linkInTabId so the caller
-        // knows exactly which tab to place each link node on without reasoning from text.
+        // Build a flat linkPairs array: each entry = one link-out + one link-in + the wires
+        // to add on each side. Flat so callers process every entry without skipping an array.
         //
-        // Inbound (X → moved node):  link-out on X's tab, link-in on target tab (where moved node is now)
-        // Outbound (moved node → Y): link-out on target tab (where moved node is now), link-in on Y's tab
-        const inboundConnections = []
-        const outboundConnections = []
+        // Inbound (X → moved node):  one entry per upstream wire (own link-out, shared link-in concept)
+        // Outbound (moved node → Y): entries grouped by (outputIndex, toTabId) so connections
+        //   from the same output port to the same tab share ONE link-out/link-in pair (fan-out via wires)
+        const linkPairMap = new Map()
+        const linkPairs = []
         for (const l of links) {
             if (l.target?.id === node.id) {
+                // INBOUND: upstream node X → moved node
+                // link-out lives on X's tab; link-in lives on target tab (moved node's new home)
                 const fromTabId = l.source?.z ?? null
-                inboundConnections.push({
-                    fromNodeId: l.source?.id,
-                    fromOutputIndex: l.sourcePort,
-                    fromTabId,
-                    linkOutTabId: fromTabId, // place link-out where X lives (source side)
-                    linkInTabId: targetZ // place link-in where moved node now lives
+                linkPairs.push({
+                    linkOutTabId: fromTabId,
+                    linkInTabId: targetZ,
+                    wiresToLinkOut: [{ fromNodeId: l.source?.id, fromOutputIndex: l.sourcePort }],
+                    wiresFromLinkIn: [{ toNodeId: node.id }]
                 })
             } else {
+                // OUTBOUND: moved node → downstream node Y
+                // link-out lives on target tab; link-in lives on Y's tab
+                // Group by (outputIndex, toTabId): same port to same tab shares one link pair
                 const toTabId = l.target?.z ?? null
-                outboundConnections.push({
-                    fromOutputIndex: l.sourcePort,
-                    toNodeId: l.target?.id,
-                    toTabId,
-                    linkOutTabId: targetZ, // place link-out where moved node now lives
-                    linkInTabId: toTabId // place link-in where Y lives (target side)
-                })
+                const key = `${l.sourcePort}:${toTabId}`
+                if (!linkPairMap.has(key)) {
+                    const pair = {
+                        linkOutTabId: targetZ,
+                        linkInTabId: toTabId,
+                        wiresToLinkOut: [{ fromNodeId: node.id, fromOutputIndex: l.sourcePort }],
+                        wiresFromLinkIn: []
+                    }
+                    linkPairMap.set(key, pair)
+                    linkPairs.push(pair)
+                }
+                linkPairMap.get(key).wiresFromLinkIn.push({ toNodeId: l.target?.id })
             }
         }
         const reconnectionPlan = {
             movedNodeId: node.id,
             sourceTabId: node.z,
             targetTabId: targetZ,
-            inboundConnections,
-            outboundConnections
+            linkPairs
         }
 
         // Build the exportable snapshot BEFORE removing (createExportableNodeSet
@@ -1497,10 +1505,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.removedWires = updateResult.removedWires
                 result.reconnectionPlan = updateResult.reconnectionPlan
                 result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
-                    'Restore connections using reconnectionPlan: for each entry add a link-out node on linkOutTabId and a link-in node on linkInTabId. ' +
-                    'Wire the upstream/moved node to the link-out using set_wires (same-tab wire). ' +
-                    'Wire the link-in to the downstream node using set_wires (same-tab wire). ' +
-                    'Connect link-out → link-in using set_links (cross-tab virtual link, NOT set_wires).'
+                    'Process EVERY entry in reconnectionPlan.linkPairs — do not skip any. ' +
+                    'For each linkPair: (1) add ONE link-out node on linkOutTabId, (2) add ONE link-in node on linkInTabId, ' +
+                    '(3) for each wiresToLinkOut entry: set_wires fromNode[fromOutputIndex] → link-out (same tab, set_wires), ' +
+                    '(4) for each wiresFromLinkIn entry: set_wires link-in → toNode (same tab, set_wires), ' +
+                    '(5) set_links link-out → link-in (cross-tab virtual connection, NOT set_wires).'
             }
             result.success = true
         }
