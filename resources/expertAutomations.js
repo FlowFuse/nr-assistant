@@ -672,13 +672,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error(`Source workspace tab ${node.z} is locked`)
         }
 
-        // Collect all wires to/from this node before removal
-        const links = this.RED.nodes.getNodeLinks(node.id)
-        const removedWires = links.map(l => ({
-            source: l.source?.id,
-            sourcePort: l.sourcePort,
-            target: l.target?.id
-        }))
+        // Collect all wires to/from this node before removal.
+        // getNodeLinks requires portType: 1 = inbound, 0/omitted = outbound.
+        const inboundLinks = this.RED.nodes.getNodeLinks(node.id, 1)
+        const outboundLinks = this.RED.nodes.getNodeLinks(node.id, 0)
+        const links = [...inboundLinks, ...outboundLinks]
 
         // Build a flat linkPairs array: each entry = one link-out + one link-in + the wires
         // to add on each side. Flat so callers process every entry without skipping an array.
@@ -759,7 +757,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.updateActive()
         this.RED.view.redraw()
 
-        return { removedWires, reconnectionPlan }
+        return { reconnectionPlan }
     }
 
     /**
@@ -1501,8 +1499,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
             result.validation = this._getNodeValidation(updatedNode)
-            if (updateResult?.removedWires?.length > 0) {
-                result.removedWires = updateResult.removedWires
+            if (updateResult?.reconnectionPlan?.linkPairs?.length > 0) {
                 result.reconnectionPlan = updateResult.reconnectionPlan
                 result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
                     'Process EVERY entry in reconnectionPlan.linkPairs — do not skip any. ' +

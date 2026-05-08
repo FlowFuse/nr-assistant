@@ -1698,8 +1698,11 @@ describeMain('expertAutomations', () => {
                 mockRED.workspaces.isLocked = sinon.stub().returns(false)
                 mockRED.workspaces.active = sinon.stub().returns('tab1')
                 mockRED.workspaces.show = sinon.stub()
-                mockRED.nodes.getNodeLinks = sinon.stub().withArgs('b1').returns([
-                    { source: nodeA, sourcePort: 0, target: nodeB }, // inbound: a1 → b1
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('b1', 1).returns([
+                    { source: nodeA, sourcePort: 0, target: nodeB } // inbound: a1 → b1
+                ])
+                mockRED.nodes.getNodeLinks.withArgs('b1', 0).returns([
                     { source: nodeB, sourcePort: 0, target: nodeC } // outbound: b1 → c1
                 ])
                 mockRED.nodes.createExportableNodeSet = sinon.stub().returns([{ id: 'b1', type: 'function', z: 'tab1' }])
