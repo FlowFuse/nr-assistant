@@ -680,13 +680,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
             target: l.target?.id
         }))
 
+        // Build the exportable snapshot BEFORE removing (createExportableNodeSet
+        // needs the node in the live registry to produce complete data)
+        const exportable = this.RED.nodes.createExportableNodeSet([node])
+        const nodeData = exportable[0] || {}
+
         // Remove the node (also removes its links)
         const removed = this.RED.nodes.remove(node.id)
         const removedLinks = removed.links || []
-
-        // Build the node object for re-import on the target tab
-        const exportable = this.RED.nodes.createExportableNodeSet([node])
-        const nodeData = exportable[0] || {}
 
         // Apply property changes (except z which we handle separately)
         const { z: _z, wires: _w, ...otherProps } = properties
