@@ -6,7 +6,7 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
-const UPDATE_NODE = 'automation/update-node'
+const UPDATE_NODES = 'automation/update-nodes'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 const GET_FLOW = 'automation/get-workspace-nodes'
 const LIST_WORKSPACES = 'automation/list-workspaces'
@@ -33,7 +33,7 @@ const MANAGE_GROUPS = 'automation/manage-groups'
  *   |EDIT_NODE
  *   |SEARCH
  *   |ADD_FLOW_TAB
- *   |UPDATE_NODE
+ *   |UPDATE_NODES
  *   |SHOW_WORKSPACE
  *   |GET_FLOW
  *   |LIST_WORKSPACES
@@ -140,33 +140,43 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [UPDATE_NODE]: {
+        [UPDATE_NODES]: {
             params: {
                 type: 'object',
                 properties: {
-                    id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
-                    patches: {
+                    nodes: {
                         type: 'array',
-                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                        description: 'Array of node updates',
                         items: {
                             type: 'object',
                             properties: {
-                                property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
-                                op: {
-                                    type: 'string',
-                                    enum: ['replace', 'insert', 'delete'],
-                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
-                                },
-                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
-                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                id: { type: 'string', description: 'ID of the node to update' },
+                                properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
+                                patches: {
+                                    type: 'array',
+                                    description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
+                                            op: {
+                                                type: 'string',
+                                                enum: ['replace', 'insert', 'delete'],
+                                                description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                            },
+                                            start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                            end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
+                                            content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                        },
+                                        required: ['property', 'op', 'start']
+                                    }
+                                }
                             },
-                            required: ['property', 'op', 'start']
+                            required: ['id']
                         }
                     }
                 },
-                required: ['id']
+                required: ['nodes']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -592,40 +602,51 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Supports full property replacement via `properties` and/or line-based
      * partial edits via `patches`. At least one must be provided.
      * @param {string} id - node ID
-     * @param {Object} [properties] - key-value pairs to merge into the node
-     * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
+     * @param {Array} updates - array of { id, properties?, patches? }
      */
-    async updateNode (id, properties, patches) {
-        const hasProperties = properties !== undefined && properties !== null
-        const hasPatches = Array.isArray(patches) && patches.length > 0
-        if (hasProperties && Object.keys(properties).length === 0) {
-            throw new Error('"properties" must not be empty')
+    async updateNodes (updates) {
+        const entries = []
+        for (const update of updates) {
+            const { id, properties, patches } = update
+            const hasProperties = properties !== undefined && properties !== null
+            const hasPatches = Array.isArray(patches) && patches.length > 0
+            if (hasProperties && Object.keys(properties).length === 0) {
+                throw new Error(`Node ${id}: "properties" must not be empty`)
+            }
+            if (!hasProperties && !hasPatches) {
+                throw new Error(`Node ${id}: at least one of "properties" or "patches" must be provided`)
+            }
+            if (hasProperties && 'wires' in properties) {
+                throw new Error(`Node ${id}: cannot set "wires" via update_nodes — use set_wires to manage connections`)
+            }
+            const node = this.RED.nodes.node(id)
+            if (!node) throw new Error(`Node ${id} not found`)
+            const newZ = hasProperties ? properties.z : undefined
+            const isTabMove = newZ !== undefined && newZ !== node.z
+            entries.push({ id, properties, patches, hasProperties, hasPatches, node, isTabMove })
         }
-        if (!hasProperties && !hasPatches) {
-            throw new Error('At least one of "properties" or "patches" must be provided')
-        }
-        if (hasProperties && 'wires' in properties) {
-            throw new Error('Cannot set "wires" via update_node — use set_wires to manage connections')
-        }
-        const node = this.RED.nodes.node(id)
-        if (!node) throw new Error(`Node ${id} not found`)
 
-        // Detect tab move: z is changing to a different tab
-        const newZ = hasProperties ? properties.z : undefined
-        const isTabMove = newZ !== undefined && newZ !== node.z
-        if (isTabMove) {
-            return this._moveNodeToTab(node, properties, patches, hasPatches)
+        const movers = entries.filter(e => e.isTabMove)
+        const stayers = entries.filter(e => !e.isTabMove)
+        let createdLinkNodes = []
+
+        if (movers.length > 0) {
+            const moveResult = this._moveNodesToTabs(movers)
+            createdLinkNodes = moveResult.createdLinkNodes
         }
 
+        for (const { node, properties, patches, hasProperties, hasPatches } of stayers) {
+            await this._applySingleNodeUpdate(node, properties, patches, hasProperties, hasPatches)
+        }
+
+        return { createdLinkNodes }
+    }
+
+    async _applySingleNodeUpdate (node, properties, patches, hasProperties, hasPatches) {
         const changes = {}
-
-        // Apply line-based patches first (before full property replacement)
-        // so that patches reference the original line numbers
         if (hasPatches) {
             this._applyPatches(node, patches, changes)
         }
-
-        // Apply full property replacement
         if (hasProperties) {
             for (const key in properties) {
                 if (Object.prototype.hasOwnProperty.call(properties, key)) {
@@ -636,7 +657,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             Object.assign(node, properties)
         }
-
         const wasChanged = node.changed
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
@@ -648,116 +668,191 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.updateActive()
         this.RED.view.redraw()
         this.RED.sidebar?.info?.refresh()
-
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
     }
 
-    /**
-     * Move a node to a different tab by removing it and re-importing on the target tab.
-     * All wires to/from the node are removed (cross-tab wires are invalid in Node-RED).
-     * Returns info about removed wires so the caller can reconnect via link nodes.
-     */
-    _moveNodeToTab (node, properties, patches, hasPatches) {
-        const targetZ = properties.z
-        if (!this.hasWorkspace(targetZ)) {
-            throw new Error(`Target workspace tab ${targetZ} not found`)
-        }
-        const targetWs = this.RED.nodes.workspace(targetZ)
-        if (targetWs.locked) {
-            throw new Error(`Target workspace tab ${targetZ} is locked`)
-        }
-        if (node.z && this.RED.workspaces.isLocked(node.z)) {
-            throw new Error(`Source workspace tab ${node.z} is locked`)
-        }
+    _moveNodesToTabs (movers) {
+        // movers: [{ id, node, properties, patches, hasPatches }]
 
-        // Collect all wires to/from this node before removal.
-        // getNodeLinks requires portType: 1 = inbound, 0/omitted = outbound.
-        const inboundLinks = this.RED.nodes.getNodeLinks(node.id, 1)
-        const outboundLinks = this.RED.nodes.getNodeLinks(node.id, 0)
-        const links = [...inboundLinks, ...outboundLinks]
-
-        // Build a flat linkPairs array: each entry = one link-out + one link-in + the wires
-        // to add on each side. Flat so callers process every entry without skipping an array.
-        //
-        // Inbound (X → moved node):  one entry per upstream wire (own link-out, shared link-in concept)
-        // Outbound (moved node → Y): entries grouped by (outputIndex, toTabId) so connections
-        //   from the same output port to the same tab share ONE link-out/link-in pair (fan-out via wires)
-        const linkPairMap = new Map()
-        const linkPairs = []
-        for (const l of links) {
-            if (l.target?.id === node.id) {
-                // INBOUND: upstream node X → moved node
-                // link-out lives on X's tab; link-in lives on target tab (moved node's new home)
-                const fromTabId = l.source?.z ?? null
-                linkPairs.push({
-                    linkOutTabId: fromTabId,
-                    linkInTabId: targetZ,
-                    wiresToLinkOut: [{ fromNodeId: l.source?.id, fromOutputIndex: l.sourcePort }],
-                    wiresFromLinkIn: [{ toNodeId: node.id }]
-                })
-            } else {
-                // OUTBOUND: moved node → downstream node Y
-                // link-out lives on target tab; link-in lives on Y's tab
-                // Group by (outputIndex, toTabId): same port to same tab shares one link pair
-                const toTabId = l.target?.z ?? null
-                const key = `${l.sourcePort}:${toTabId}`
-                if (!linkPairMap.has(key)) {
-                    const pair = {
-                        linkOutTabId: targetZ,
-                        linkInTabId: toTabId,
-                        wiresToLinkOut: [{ fromNodeId: node.id, fromOutputIndex: l.sourcePort }],
-                        wiresFromLinkIn: []
-                    }
-                    linkPairMap.set(key, pair)
-                    linkPairs.push(pair)
-                }
-                linkPairMap.get(key).wiresFromLinkIn.push({ toNodeId: l.target?.id })
+        // Validate all target tabs first
+        for (const { node, properties } of movers) {
+            const targetZ = properties.z
+            if (!this.hasWorkspace(targetZ)) {
+                throw new Error(`Target workspace tab ${targetZ} not found`)
+            }
+            const targetWs = this.RED.nodes.workspace(targetZ)
+            if (targetWs.locked) {
+                throw new Error(`Target workspace tab ${targetZ} is locked`)
+            }
+            if (node.z && this.RED.workspaces.isLocked(node.z)) {
+                throw new Error(`Source workspace tab ${node.z} is locked`)
             }
         }
-        const reconnectionPlan = {
-            movedNodeId: node.id,
-            sourceTabId: node.z,
-            targetTabId: targetZ,
-            linkPairs
+
+        // Build final-position map: mover id → target tab
+        const finalTabOf = new Map()
+        for (const { node, properties } of movers) {
+            finalTabOf.set(node.id, properties.z)
+        }
+        const getFinalTab = (id) => finalTabOf.get(id) ?? (this.RED.nodes.node(id)?.z ?? null)
+
+        // Collect all wires involving any mover, deduplicated by wire identity
+        const seenWireKeys = new Set()
+        const allWires = []
+        for (const { node } of movers) {
+            for (const l of [...this.RED.nodes.getNodeLinks(node.id, 1), ...this.RED.nodes.getNodeLinks(node.id, 0)]) {
+                const key = `${l.source?.id}:${l.sourcePort}:${l.target?.id}`
+                if (!seenWireKeys.has(key)) {
+                    seenWireKeys.add(key)
+                    allWires.push(l)
+                }
+            }
         }
 
-        // Build the exportable snapshot BEFORE removing (createExportableNodeSet
-        // needs the node in the live registry to produce complete data)
-        const exportable = this.RED.nodes.createExportableNodeSet([node])
-        const nodeData = exportable[0] || {}
-
-        // Remove the node (also removes its links)
-        const removed = this.RED.nodes.remove(node.id)
-        const removedLinks = removed.links || []
-
-        // Apply property changes (except z which we handle separately)
-        const { z: _z, wires: _w, ...otherProps } = properties
-        Object.assign(nodeData, otherProps)
-        nodeData.z = targetZ
-        nodeData.id = node.id
-        delete nodeData.wires
-
-        // Apply patches to the exported data if any
-        if (hasPatches) {
-            this._applyPatches(nodeData, patches, {})
+        // Classify: same final tab → re-create as direct wire; different final tabs → link pair
+        const intraGroupWires = []
+        const crossTabWires = []
+        for (const l of allWires) {
+            if (getFinalTab(l.source?.id) === getFinalTab(l.target?.id)) {
+                intraGroupWires.push(l)
+            } else {
+                crossTabWires.push(l)
+            }
         }
 
-        // Re-import on the target tab
+        // Export all mover nodes BEFORE removing any (createExportableNodeSet needs them in the registry)
+        const toImport = []
+        for (const { node, properties, patches, hasPatches } of movers) {
+            const targetZ = properties.z
+            const exportable = this.RED.nodes.createExportableNodeSet([node])
+            const nodeData = exportable[0] || {}
+            const { z: _z, wires: _w, ...otherProps } = properties
+            Object.assign(nodeData, otherProps)
+            nodeData.z = targetZ
+            nodeData.id = node.id
+            delete nodeData.wires
+            if (hasPatches) {
+                this._applyPatches(nodeData, patches, {})
+            }
+            toImport.push({ node, nodeData, targetZ })
+        }
+
+        // Remove all mover nodes (also removes their links)
+        const allRemovedLinks = []
+        const allRemovedNodes = []
+        for (const { node } of movers) {
+            const removed = this.RED.nodes.remove(node.id)
+            allRemovedLinks.push(...(removed.links || []))
+            allRemovedNodes.push(node)
+        }
+
+        // Re-import each node on its target tab, grouped by tab
         const originalActiveId = this.RED.workspaces.active()
-        this.RED.workspaces.show(targetZ)
-        this.RED.view.importNodes([nodeData], { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
-        if (originalActiveId && originalActiveId !== targetZ) {
+        const targetTabs = [...new Set(toImport.map(e => e.targetZ))]
+        for (const targetZ of targetTabs) {
+            this.RED.workspaces.show(targetZ)
+            const nodes = toImport.filter(e => e.targetZ === targetZ).map(e => e.nodeData)
+            this.RED.view.importNodes(nodes, { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        }
+        if (originalActiveId && !targetTabs.includes(originalActiveId)) {
             this.RED.workspaces.show(originalActiveId)
         }
 
-        this.RED.history.push({ t: 'multi', events: [{ t: 'delete', nodes: [node], links: removedLinks, dirty: this.RED.nodes.dirty() }], dirty: this.RED.nodes.dirty() })
+        this.RED.history.push({
+            t: 'multi',
+            events: [{ t: 'delete', nodes: allRemovedNodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() }],
+            dirty: this.RED.nodes.dirty()
+        })
+
+        // Re-create intra-group wires (both endpoints ended up on the same tab)
+        for (const l of intraGroupWires) {
+            this.setWires({ mode: 'add', source: l.source?.id, output: l.sourcePort, target: l.target?.id })
+        }
+
+        // Build link pairs for cross-tab wires
+        // Group by (sourceId:sourcePort:targetFinalTab) so same port to same tab shares one link pair
+        const linkPairMap = new Map()
+        const linkPairs = []
+        for (const l of crossTabWires) {
+            const sourceId = l.source?.id
+            const targetId = l.target?.id
+            const srcFinal = getFinalTab(sourceId)
+            const tgtFinal = getFinalTab(targetId)
+            const key = `${sourceId}:${l.sourcePort}:${tgtFinal}`
+            if (!linkPairMap.has(key)) {
+                const pair = {
+                    linkOut: { tabId: srcFinal, inboundWires: [{ fromNodeId: sourceId, fromOutput: l.sourcePort }] },
+                    linkIn: { tabId: tgtFinal, outboundWires: [] }
+                }
+                linkPairMap.set(key, pair)
+                linkPairs.push(pair)
+            }
+            linkPairMap.get(key).linkIn.outboundWires.push({ toNodeId: targetId })
+        }
+
+        const usedLinkNames = new Set()
+        const createdLinkNodes = []
+        for (const pair of linkPairs) {
+            createdLinkNodes.push(...this._createCrossTabLinkPair(pair, usedLinkNames))
+        }
+
         this.RED.nodes.dirty(true)
         this.RED.view.updateActive()
         this.RED.view.redraw()
 
-        return { reconnectionPlan }
+        return { createdLinkNodes }
+    }
+
+    _linkNodeName (node, usedNames) {
+        const base = (node?.name && node.name.trim()) ? node.name.trim() : (node?.type || 'link')
+        if (!usedNames.has(base)) {
+            usedNames.add(base)
+            return base
+        }
+        let i = 2
+        while (usedNames.has(`${base} ${i}`)) i++
+        const name = `${base} ${i}`
+        usedNames.add(name)
+        return name
+    }
+
+    _createCrossTabLinkPair (pair, usedNames = new Set()) {
+        const linkOutId = this._newId()
+        const linkInId = this._newId()
+
+        // Position link-out near its upstream node, link-in near its downstream node
+        const upstreamNode = this.RED.nodes.node(pair.linkOut.inboundWires[0]?.fromNodeId)
+        const downstreamNode = this.RED.nodes.node(pair.linkIn.outboundWires[0]?.toNodeId)
+        const linkOutX = upstreamNode ? upstreamNode.x + 160 : 400
+        const linkOutY = upstreamNode ? upstreamNode.y : 100
+        const linkInX = downstreamNode ? Math.max(downstreamNode.x - 160, 80) : 100
+        const linkInY = downstreamNode ? downstreamNode.y : 100
+
+        const linkOutName = this._linkNodeName(upstreamNode, usedNames)
+        const linkInName = this._linkNodeName(downstreamNode, usedNames)
+
+        this.addNodes([
+            { id: linkOutId, type: 'link out', name: linkOutName, mode: 'link', z: pair.linkOut.tabId, links: [], outputs: 0, x: linkOutX, y: linkOutY },
+            { id: linkInId, type: 'link in', name: linkInName, z: pair.linkIn.tabId, links: [], outputs: 1, x: linkInX, y: linkInY }
+        ])
+        for (const wire of pair.linkOut.inboundWires) {
+            this.setWires({ mode: 'add', source: wire.fromNodeId, output: wire.fromOutput, target: linkOutId })
+        }
+        for (const wire of pair.linkIn.outboundWires) {
+            this.setWires({ mode: 'add', source: linkInId, output: 0, target: wire.toNodeId })
+        }
+        this.setLinks({ mode: 'add', source: linkOutId, target: linkInId })
+
+        return [
+            { id: linkOutId, type: 'link out', z: pair.linkOut.tabId },
+            { id: linkInId, type: 'link in', z: pair.linkIn.tabId }
+        ]
+    }
+
+    _newId () {
+        return (1 + Math.random() * 4294967295).toString(16)
     }
 
     /**
@@ -1489,24 +1584,32 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case UPDATE_NODE: {
-            if (this.RED.nodes.group(params.id)) {
-                result.error = 'Groups cannot be modified via update-node. Use automation/manage-groups instead.'
+        case UPDATE_NODES: {
+            let groupError = null
+            for (const { id } of params.nodes) {
+                if (this.RED.nodes.group(id)) {
+                    groupError = `Node ${id} is a group — use automation/manage-groups instead.`
+                    break
+                }
+            }
+            if (groupError) {
+                result.error = groupError
                 result.success = false
                 break
             }
-            const updateResult = await this.updateNode(params.id, params.properties, params.patches)
-            const updatedNode = this.RED.nodes.node(params.id)
-            result.data = this._summarizeNode(updatedNode)
-            result.validation = this._getNodeValidation(updatedNode)
-            if (updateResult?.reconnectionPlan?.linkPairs?.length > 0) {
-                result.reconnectionPlan = updateResult.reconnectionPlan
-                result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
-                    'Process EVERY entry in reconnectionPlan.linkPairs — do not skip any. ' +
-                    'For each linkPair: (1) add ONE link-out node on linkOutTabId, (2) add ONE link-in node on linkInTabId, ' +
-                    '(3) for each wiresToLinkOut entry: set_wires fromNode[fromOutputIndex] → link-out (same tab, set_wires), ' +
-                    '(4) for each wiresFromLinkIn entry: set_wires link-in → toNode (same tab, set_wires), ' +
-                    '(5) set_links link-out → link-in (cross-tab virtual connection, NOT set_wires).'
+            const updateResult = await this.updateNodes(params.nodes)
+            const nodeResults = []
+            for (const { id } of params.nodes) {
+                const updatedNode = this.RED.nodes.node(id)
+                nodeResults.push({
+                    ...this._summarizeNode(updatedNode),
+                    validation: this._getNodeValidation(updatedNode)
+                })
+            }
+            result.nodes = nodeResults
+            if (updateResult?.createdLinkNodes?.length > 0) {
+                result.createdLinkNodes = updateResult.createdLinkNodes
+                result.message = 'Nodes moved to new tab(s). Cross-tab connections automatically restored using link nodes.'
             }
             result.success = true
         }
