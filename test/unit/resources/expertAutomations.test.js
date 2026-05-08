@@ -34,6 +34,7 @@ describeMain('expertAutomations', () => {
             },
             nodes: {
                 node: sinon.stub(),
+                group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
@@ -425,6 +426,16 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
                 }, result)).rejectedWith(/workspace locked-tab is locked/)
+                mockRED.nodes.remove.called.should.be.false()
+            })
+            it('should reject group IDs and return error directing to manage-groups', async () => {
+                mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['g1'] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('error').which.match(/manage-groups/)
                 mockRED.nodes.remove.called.should.be.false()
             })
         })
@@ -1015,6 +1026,14 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', z: 'tab1' }] }
                 }, result)).rejectedWith(/missing required property: type/)
+            })
+            it('should reject group type and return error directing to manage-groups', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'g1', type: 'group', z: 'tab1' }] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('error').which.match(/manage-groups/)
             })
         })
         describe('removeTab action', () => {
@@ -1668,6 +1687,15 @@ describeMain('expertAutomations', () => {
                         params: { id: 'n1', patches: [{ property: 'rules.5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }
                     }, result)).rejectedWith(/resolved to/)
                 })
+            })
+            it('should reject group ID and return error directing to manage-groups', async () => {
+                mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'g1', properties: { name: 'renamed' } }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('error').which.match(/manage-groups/)
             })
         })
         describe('closeEditorTray action', () => {

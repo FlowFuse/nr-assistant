@@ -1447,6 +1447,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE: {
+            if (this.RED.nodes.group(params.id)) {
+                result.error = 'Groups cannot be modified via update-node. Use automation/manage-groups instead.'
+                result.success = false
+                break
+            }
             const updateResult = await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
@@ -1522,6 +1527,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case ADD_NODES: {
+            const groupNodes = (params.nodes || []).filter(n => n.type === 'group')
+            if (groupNodes.length > 0) {
+                result.error = 'Groups cannot be created via add-nodes. Use automation/manage-groups instead.'
+                result.success = false
+                break
+            }
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
             if (this.RED.editor?.validateNode) {
@@ -1533,10 +1544,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case REMOVE_NODES:
+        case REMOVE_NODES: {
+            const groupIds = (params.ids || []).filter(id => !!this.RED.nodes.group(id))
+            if (groupIds.length > 0) {
+                result.error = `Groups cannot be removed via remove-nodes. Use automation/manage-groups with op: delete instead. Group IDs: ${groupIds.join(', ')}`
+                result.success = false
+                break
+            }
             this.removeNodes(params.ids)
             result.data = { removed: params.ids }
             result.success = true
+        }
             break
 
         case SET_WIRES:
