@@ -1721,6 +1721,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return s
     }
 
+    _summarizeSubflow (subflow) {
+        if (!subflow) return null
+        return {
+            id: subflow.id,
+            type: subflow.type,
+            name: subflow.name,
+            info: subflow.info,
+            inputs: Array.isArray(subflow.in) ? subflow.in.length : 0,
+            outputs: Array.isArray(subflow.out) ? subflow.out.length : 0
+        }
+    }
+
     _summarizeFlowItem (item) {
         if (!item) return null
         if (item.type === 'tab') {
@@ -1728,7 +1740,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (item.disabled !== undefined) tab.disabled = item.disabled
             return tab
         }
-        if (item.type === 'subflow') return { id: item.id, type: item.type, name: item.name, info: item.info }
+        if (item.type === 'subflow') return this._summarizeSubflow(item)
         if (item.type === 'group') return this._summarizeGroup(item)
         return this._summarizeNode(item)
     }
