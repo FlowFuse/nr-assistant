@@ -25,6 +25,7 @@ const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
+const MANAGE_GROUPS = 'automation/manage-groups'
 
 /**
  * @typedef {SELECT_NODES
@@ -50,7 +51,8 @@ const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
  *   |GET_NODE_TYPES
  *   |GET_PALETTE
  *   |LIST_CONFIG_NODES
- *   |OPEN_PALETTE_MANAGER} ExpertAutomationsActionsEnum
+ *   |OPEN_PALETTE_MANAGER
+ *   |MANAGE_GROUPS} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -377,6 +379,65 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
+        },
+        [MANAGE_GROUPS]: {
+            params: {
+                type: 'object',
+                properties: {
+                    operations: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                op: {
+                                    type: 'string',
+                                    enum: ['create', 'update', 'delete'],
+                                    description: 'Operation to perform'
+                                },
+                                id: {
+                                    type: 'string',
+                                    description: 'Group ID (required for update and delete)'
+                                },
+                                nodeIds: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Node IDs to include in the group (required for create)'
+                                },
+                                name: {
+                                    type: 'string',
+                                    description: 'Group display name (optional for create and update)'
+                                },
+                                addNodeIds: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Node IDs to add to the group (update only)'
+                                },
+                                removeNodeIds: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Node IDs to remove from the group (update only)'
+                                },
+                                style: {
+                                    type: 'object',
+                                    description: 'Visual style: { fill, stroke, color, fontSize, bold, italic, label }',
+                                    properties: {
+                                        fill: { type: 'string' },
+                                        stroke: { type: 'string' },
+                                        color: { type: 'string' },
+                                        fontSize: { type: 'number' },
+                                        bold: { type: 'boolean' },
+                                        italic: { type: 'boolean' },
+                                        label: { type: 'string' }
+                                    }
+                                }
+                            },
+                            required: ['op']
+                        },
+                        description: 'Array of group operations to execute sequentially'
+                    }
+                },
+                required: ['operations']
+            }
         }
     })
 
@@ -543,8 +604,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
+        if (hasProperties && 'wires' in properties) {
+            throw new Error('Cannot set "wires" via update_node — use set_wires to manage connections')
+        }
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
+
+        // Detect tab move: z is changing to a different tab
+        const newZ = hasProperties ? properties.z : undefined
+        const isTabMove = newZ !== undefined && newZ !== node.z
+        if (isTabMove) {
+            return this._moveNodeToTab(node, properties, patches, hasPatches)
+        }
 
         const changes = {}
 
@@ -581,6 +652,184 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
+    }
+
+    /**
+     * Move a node to a different tab by removing it and re-importing on the target tab.
+     * All wires to/from the node are removed (cross-tab wires are invalid in Node-RED).
+     * Returns info about removed wires so the caller can reconnect via link nodes.
+     */
+    _moveNodeToTab (node, properties, patches, hasPatches) {
+        const targetZ = properties.z
+        if (!this.hasWorkspace(targetZ)) {
+            throw new Error(`Target workspace tab ${targetZ} not found`)
+        }
+        const targetWs = this.RED.nodes.workspace(targetZ)
+        if (targetWs.locked) {
+            throw new Error(`Target workspace tab ${targetZ} is locked`)
+        }
+        if (node.z && this.RED.workspaces.isLocked(node.z)) {
+            throw new Error(`Source workspace tab ${node.z} is locked`)
+        }
+
+        // Collect all wires to/from this node before removal
+        const links = this.RED.nodes.getNodeLinks(node.id)
+        const removedWires = links.map(l => ({
+            source: l.source?.id,
+            sourcePort: l.sourcePort,
+            target: l.target?.id
+        }))
+
+        // Remove the node (also removes its links)
+        const removed = this.RED.nodes.remove(node.id)
+        const removedLinks = removed.links || []
+
+        // Build the node object for re-import on the target tab
+        const exportable = this.RED.nodes.createExportableNodeSet([node])
+        const nodeData = exportable[0] || {}
+
+        // Apply property changes (except z which we handle separately)
+        const { z: _z, wires: _w, ...otherProps } = properties
+        Object.assign(nodeData, otherProps)
+        nodeData.z = targetZ
+        nodeData.id = node.id
+        delete nodeData.wires
+
+        // Apply patches to the exported data if any
+        if (hasPatches) {
+            this._applyPatches(nodeData, patches, {})
+        }
+
+        // Re-import on the target tab
+        const originalActiveId = this.RED.workspaces.active()
+        this.RED.workspaces.show(targetZ)
+        this.RED.view.importNodes([nodeData], { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        if (originalActiveId && originalActiveId !== targetZ) {
+            this.RED.workspaces.show(originalActiveId)
+        }
+
+        this.RED.history.push({ t: 'multi', events: [{ t: 'delete', nodes: [node], links: removedLinks, dirty: this.RED.nodes.dirty() }], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
+
+        return { removedWires }
+    }
+
+    /**
+     * Create a group containing the specified nodes.
+     * Uses Node-RED's core:group-selection action after selecting the target nodes.
+     * @param {string[]} nodeIds - IDs of nodes to group
+     * @param {string} [name] - optional group display name
+     * @returns {object} the created group node
+     */
+    createGroup (nodeIds, name) {
+        if (!nodeIds || nodeIds.length === 0) {
+            throw new Error('nodeIds is required and must not be empty')
+        }
+        const nodes = nodeIds.map(id => {
+            const n = this.RED.nodes.node(id)
+            if (!n) throw new Error(`Node ${id} not found`)
+            return n
+        })
+        // All nodes must be on the same tab
+        const tabs = new Set(nodes.map(n => n.z).filter(Boolean))
+        if (tabs.size > 1) {
+            throw new Error('All nodes must be on the same tab to form a group')
+        }
+        // Select the nodes, then invoke the core group action
+        this.RED.view.select({ nodes })
+        this.RED.actions.invoke('core:group-selection')
+        // Find the newly created group — it should contain our node IDs
+        const allGroups = []
+        this.RED.nodes.eachGroup(g => allGroups.push(g))
+        const newGroup = allGroups.find(g =>
+            g.nodes && nodeIds.every(id => g.nodes.some(n => (n.id || n) === id))
+        )
+        if (!newGroup) {
+            throw new Error('Group creation failed — group not found after core:group-selection')
+        }
+        if (name) {
+            newGroup.name = name
+            newGroup.changed = true
+            newGroup.dirty = true
+        }
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
+        return newGroup
+    }
+
+    /**
+     * Update an existing group: rename, add/remove nodes, change style.
+     * @param {string} id - group ID
+     * @param {object} updates - { name?, addNodeIds?, removeNodeIds?, style? }
+     * @returns {object} the updated group node
+     */
+    updateGroup (id, { name, addNodeIds, removeNodeIds, style } = {}) {
+        const group = this.RED.nodes.group(id)
+        if (!group) throw new Error(`Group ${id} not found`)
+
+        const changes = {}
+
+        if (name !== undefined) {
+            changes.name = group.name
+            group.name = name
+        }
+
+        if (addNodeIds && addNodeIds.length > 0) {
+            for (const nodeId of addNodeIds) {
+                const node = this.RED.nodes.node(nodeId)
+                if (!node) throw new Error(`Node ${nodeId} not found`)
+                if (node.z !== group.z) {
+                    throw new Error(`Node ${nodeId} is on tab ${node.z} but group is on tab ${group.z}`)
+                }
+                if (!group.nodes) group.nodes = []
+                if (!group.nodes.some(n => (n.id || n) === nodeId)) {
+                    group.nodes.push(node)
+                    node.g = group.id
+                }
+            }
+        }
+
+        if (removeNodeIds && removeNodeIds.length > 0) {
+            for (const nodeId of removeNodeIds) {
+                const node = this.RED.nodes.node(nodeId)
+                if (node) {
+                    delete node.g
+                    node.dirty = true
+                }
+                if (group.nodes) {
+                    group.nodes = group.nodes.filter(n => (n.id || n) !== nodeId)
+                }
+            }
+        }
+
+        if (style) {
+            if (!group.style) group.style = {}
+            changes.style = { ...group.style }
+            Object.assign(group.style, style)
+        }
+
+        this.RED.history.push({ t: 'edit', node: group, changes, changed: group.changed, dirty: this.RED.nodes.dirty() })
+        group.changed = true
+        group.dirty = true
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
+        return group
+    }
+
+    /**
+     * Delete a group (ungroup its nodes).
+     * @param {string} id - group ID
+     */
+    deleteGroup (id) {
+        const group = this.RED.nodes.group(id)
+        if (!group) throw new Error(`Group ${id} not found`)
+        // Select the group and invoke core ungroup
+        this.RED.view.select({ nodes: [group] })
+        this.RED.actions.invoke('core:ungroup-selection')
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
     }
 
     async getPalette (typedModules = null) {
@@ -1197,10 +1446,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE: {
-            await this.updateNode(params.id, params.properties, params.patches)
+            const updateResult = await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
             result.validation = this._getNodeValidation(updatedNode)
+            if (updateResult?.removedWires?.length > 0) {
+                result.removedWires = updateResult.removedWires
+                result.message = 'Node moved to new tab. All wires were removed (cross-tab wires are invalid). Use set_wires or link nodes to reconnect.'
+            }
             result.success = true
         }
             break
@@ -1362,6 +1615,46 @@ export class ExpertAutomations extends ExpertActionsInterface {
             })
             result.success = true
             break
+        case MANAGE_GROUPS: {
+            const operations = params.operations
+            if (!Array.isArray(operations) || operations.length === 0) {
+                throw new Error('operations array is required and must not be empty')
+            }
+            const results = []
+            for (const entry of operations) {
+                const op = entry.op
+                if (!op) throw new Error('op is required for each manage-groups operation')
+                switch (op) {
+                case 'create': {
+                    const group = this.createGroup(entry.nodeIds, entry.name)
+                    results.push({ op: 'create', ...this._summarizeGroup(group) })
+                    break
+                }
+                case 'update': {
+                    if (!entry.id) throw new Error('id is required for update')
+                    const group = this.updateGroup(entry.id, {
+                        name: entry.name,
+                        addNodeIds: entry.addNodeIds,
+                        removeNodeIds: entry.removeNodeIds,
+                        style: entry.style
+                    })
+                    results.push({ op: 'update', ...this._summarizeGroup(group) })
+                    break
+                }
+                case 'delete': {
+                    if (!entry.id) throw new Error('id is required for delete')
+                    this.deleteGroup(entry.id)
+                    results.push({ op: 'delete', deleted: entry.id })
+                    break
+                }
+                default:
+                    throw new Error(`Unknown manage-groups op: ${op}`)
+                }
+            }
+            result.data = results
+            result.success = true
+            break
+        }
         default:
             result.handled = false
             result.success = false
@@ -1422,5 +1715,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (node.z !== undefined) s.z = node.z
         if (node.valid !== undefined) s.valid = node.valid
         return s
+    }
+
+    _summarizeGroup (group) {
+        if (!group) return null
+        return {
+            id: group.id,
+            name: group.name,
+            z: group.z,
+            nodes: (group.nodes || []).map(n => typeof n === 'string' ? n : n.id),
+            style: group.style || {}
+        }
     }
 }

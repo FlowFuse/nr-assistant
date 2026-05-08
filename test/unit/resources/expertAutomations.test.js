@@ -96,7 +96,8 @@ describeMain('expertAutomations', () => {
                 'automation/get-node-types',
                 'automation/get-palette',
                 'automation/list-config-nodes',
-                'automation/open-palette-manager'
+                'automation/open-palette-manager',
+                'automation/manage-groups'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
