@@ -429,14 +429,15 @@ describeMain('expertAutomations', () => {
                 }, result)).rejectedWith(/Workspace locked-tab is locked/)
                 mockRED.nodes.remove.called.should.be.false()
             })
-            it('should reject group IDs and return error directing to manage-groups', async () => {
+            it('should reject group IDs and return GROUP_OPERATION_REQUIRED error', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['g1'] }
                 }, result)
                 result.should.have.property('success', false)
-                result.should.have.property('error').which.match(/manage-groups/)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
                 mockRED.nodes.remove.called.should.be.false()
             })
         })
@@ -1029,13 +1030,14 @@ describeMain('expertAutomations', () => {
                     params: { nodes: [{ id: 'n1', z: 'tab1' }] }
                 }, result)).rejectedWith(/missing required property: type/)
             })
-            it('should reject group type and return error directing to manage-groups', async () => {
+            it('should reject group type and return GROUP_OPERATION_REQUIRED error', async () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'g1', type: 'group', z: 'tab1' }] }
                 }, result)
                 result.should.have.property('success', false)
-                result.should.have.property('error').which.match(/manage-groups/)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
             })
         })
         describe('removeTab action', () => {
@@ -1690,14 +1692,15 @@ describeMain('expertAutomations', () => {
                     }, result)).rejectedWith(/resolved to/)
                 })
             })
-            it('should reject group ID and return error directing to manage-groups', async () => {
+            it('should reject group ID and return GROUP_OPERATION_REQUIRED error', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
                 const result = {}
                 await expertAutomations.invokeAction('automation/update-node', {
                     params: { id: 'g1', properties: { name: 'renamed' } }
                 }, result)
                 result.should.have.property('success', false)
-                result.should.have.property('error').which.match(/manage-groups/)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
             })
         })
         describe('closeEditorTray action', () => {

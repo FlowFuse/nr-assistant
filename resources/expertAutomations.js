@@ -1265,7 +1265,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         case UPDATE_NODE: {
             if (this.RED.nodes.group(params.id)) {
-                result.error = 'Groups cannot be modified via update-node. Use automation/manage-groups instead.'
+                result.error = `Node ${params.id} is a group — group nodes cannot be updated via this action`
+                result.errorCode = 'GROUP_OPERATION_REQUIRED'
                 result.success = false
                 break
             }
@@ -1342,7 +1343,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case ADD_NODES: {
             const groupNodes = (params.nodes || []).filter(n => n.type === 'group')
             if (groupNodes.length > 0) {
-                result.error = 'Groups cannot be created via add-nodes. Use automation/manage-groups instead.'
+                result.error = `Nodes [${groupNodes.map(n => n.id).join(', ')}] are group nodes — group nodes cannot be added via this action`
+                result.errorCode = 'GROUP_OPERATION_REQUIRED'
                 result.success = false
                 break
             }
@@ -1360,7 +1362,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case REMOVE_NODES: {
             const groupIds = (params.ids || []).filter(id => !!this.RED.nodes.group(id))
             if (groupIds.length > 0) {
-                result.error = `Groups cannot be removed via remove-nodes. Use automation/manage-groups with op: delete instead. Group IDs: ${groupIds.join(', ')}`
+                result.error = `IDs [${groupIds.join(', ')}] are group nodes — group nodes cannot be removed via this action`
+                result.errorCode = 'GROUP_OPERATION_REQUIRED'
                 result.success = false
                 break
             }
