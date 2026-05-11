@@ -27,6 +27,11 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 
+const ERROR_CODES = Object.freeze({
+    GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
+    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
+})
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -611,12 +616,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (hasProperties && Object.keys(properties).length === 0) {
             throw new Error('"properties" must not be empty')
         }
-        if (hasProperties && 'wires' in properties) {
-            throw new Error(`Node ${id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
-        }
-        if (hasProperties && 'g' in properties) {
-            throw new Error(`Node ${id}: "g" cannot be set directly — group membership must be managed via a dedicated action`)
-        }
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
@@ -1001,8 +1000,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            if (rawNode.wires !== undefined) throw new Error(`Node ${rawNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
-            if (rawNode.g !== undefined) throw new Error(`Node ${rawNode.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`)
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             const isConfigNode = def.category === 'config'
@@ -1285,7 +1282,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const groupIds = (params.nodes || []).filter(n => this.RED.nodes.group(n.id)).map(n => n.id)
             if (groupIds.length > 0) {
                 result.error = `Groups [${groupIds.join(', ')}] are group nodes — group nodes cannot be updated via this action`
-                result.errorCode = 'GROUP_OPERATION_REQUIRED'
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            const wiresEntry = (params.nodes || []).find(n => n.properties && 'wires' in n.properties)
+            if (wiresEntry) {
+                result.error = `Node ${wiresEntry.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const gEntry = (params.nodes || []).find(n => n.properties && 'g' in n.properties)
+            if (gEntry) {
+                result.error = `Node ${gEntry.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
@@ -1366,7 +1377,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const groupNodes = (params.nodes || []).filter(n => n.type === 'group')
             if (groupNodes.length > 0) {
                 result.error = `Nodes [${groupNodes.map(n => n.id).join(', ')}] are group nodes — group nodes cannot be added via this action`
-                result.errorCode = 'GROUP_OPERATION_REQUIRED'
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            const wiresNode = (params.nodes || []).find(n => n.wires !== undefined)
+            if (wiresNode) {
+                result.error = `Node ${wiresNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const gNode = (params.nodes || []).find(n => n.g !== undefined)
+            if (gNode) {
+                result.error = `Node ${gNode.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
@@ -1385,7 +1410,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const groupIds = (params.ids || []).filter(id => !!this.RED.nodes.group(id))
             if (groupIds.length > 0) {
                 result.error = `IDs [${groupIds.join(', ')}] are group nodes — group nodes cannot be removed via this action`
-                result.errorCode = 'GROUP_OPERATION_REQUIRED'
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
                 result.success = false
                 break
             }
