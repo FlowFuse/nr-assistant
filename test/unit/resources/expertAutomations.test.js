@@ -1039,6 +1039,11 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
             })
+            it('should reject g property in add-nodes', async () => {
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', g: 'grp1' }] }
+                }, {})).rejectedWith(/"g" cannot be set directly/)
+            })
         })
         describe('removeTab action', () => {
             it('should remove an existing tab', async () => {
@@ -1701,6 +1706,14 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
+            })
+            it('should reject g property in update-node', async () => {
+                const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }
+                mockRED.nodes.node.withArgs('n1').returns(node)
+                mockRED.nodes.group.withArgs('n1').returns(null)
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { g: 'grp1' } }
+                }, {}).should.be.rejectedWith(/"g" cannot be set directly/)
             })
         })
         describe('closeEditorTray action', () => {
