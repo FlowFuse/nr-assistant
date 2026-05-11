@@ -1040,14 +1040,22 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('error').which.match(/group nodes/)
             })
             it('should reject wires property in add-nodes', async () => {
-                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }] }
-                }, {})).rejectedWith(/"wires" cannot be set directly/)
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
             it('should reject g property in add-nodes', async () => {
-                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', g: 'grp1' }] }
-                }, {})).rejectedWith(/"g" cannot be set directly/)
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"g" cannot be set directly/)
             })
         })
         describe('removeTab action', () => {
@@ -1716,17 +1724,25 @@ describeMain('expertAutomations', () => {
                 const node = { id: 'n1', type: 'inject', wires: [['n2']], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 mockRED.nodes.group.withArgs('n1').returns(null)
+                const result = {}
                 await expertAutomations.invokeAction('automation/update-node', {
                     params: { id: 'n1', properties: { wires: [['n3']] } }
-                }, {}).should.be.rejectedWith(/"wires" cannot be set directly/)
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
             it('should reject g property in update-node', async () => {
                 const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 mockRED.nodes.group.withArgs('n1').returns(null)
+                const result = {}
                 await expertAutomations.invokeAction('automation/update-node', {
                     params: { id: 'n1', properties: { g: 'grp1' } }
-                }, {}).should.be.rejectedWith(/"g" cannot be set directly/)
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"g" cannot be set directly/)
             })
         })
         describe('closeEditorTray action', () => {
