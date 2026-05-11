@@ -1037,6 +1037,11 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('error').which.match(/manage-groups/)
             })
+            it('should reject wires property and direct to set-wires', async () => {
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }] }
+                }, {})).rejectedWith(/set-wires/)
+            })
         })
         describe('removeTab action', () => {
             it('should remove an existing tab', async () => {

@@ -984,6 +984,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
+            if (rawNode.wires !== undefined) throw new Error(`Node ${rawNode.id}: cannot set "wires" via add-nodes — use automation/set-wires to manage connections`)
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             const isConfigNode = def.category === 'config'
