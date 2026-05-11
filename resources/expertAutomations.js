@@ -189,6 +189,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     tabId: {
                         type: 'string',
                         description: 'Optional parameter to only get nodes on a specific workspace. Exclude this parameter to get node from all workspaces.'
+                    },
+                    full: {
+                        type: 'boolean',
+                        description: 'When true, returns the raw node objects instead of condensed summaries.'
                     }
                 }
             }
