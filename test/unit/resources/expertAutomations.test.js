@@ -44,7 +44,8 @@ describeMain('expertAutomations', () => {
             state: { DEFAULT: 1 },
             workspaces: {
                 active: sinon.stub().returns('active-tab'),
-                show: sinon.stub()
+                show: sinon.stub(),
+                isLocked: sinon.stub().returns(false)
             }
         }
     }
@@ -96,7 +97,8 @@ describeMain('expertAutomations', () => {
                 'automation/get-node-types',
                 'automation/get-palette',
                 'automation/list-config-nodes',
-                'automation/open-palette-manager'
+                'automation/open-palette-manager',
+                'automation/manage-groups'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -423,7 +425,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
-                }, result)).rejectedWith(/workspace locked-tab is locked/)
+                }, result)).rejectedWith(/Workspace locked-tab is locked/)
                 mockRED.nodes.remove.called.should.be.false()
             })
         })
@@ -533,7 +535,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/set-wires', {
                     params: { mode: 'add', source: 'n1', target: 'n2' }
-                }, result)).rejectedWith(/workspace tab1 is locked/)
+                }, result)).rejectedWith(/Workspace tab1 is locked/)
             })
             it('should throw if source output port does not exist', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
@@ -713,7 +715,7 @@ describeMain('expertAutomations', () => {
                 mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
                 await should(expertAutomations.invokeAction('automation/set-links', {
                     params: { mode: 'add', source: 'lo1', target: 'li1' }
-                }, {})).rejectedWith(/workspace tab1 is locked/)
+                }, {})).rejectedWith(/Workspace tab1 is locked/)
             })
             it('should throw if target workspace is locked (cross-tab)', async () => {
                 mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [] })
@@ -721,7 +723,7 @@ describeMain('expertAutomations', () => {
                 mockRED.workspaces.isLocked.withArgs('tab2').returns(true)
                 await should(expertAutomations.invokeAction('automation/set-links', {
                     params: { mode: 'add', source: 'lo1', target: 'li1' }
-                }, {})).rejectedWith(/workspace tab2 is locked/)
+                }, {})).rejectedWith(/Workspace tab2 is locked/)
             })
             it('should throw if adding a link that already exists', async () => {
                 const linkOut = { id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: ['li1'] }
@@ -900,7 +902,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'nonexistent' }] }
-                }, result)).rejectedWith(/Workspace tab nonexistent not found/)
+                }, result)).rejectedWith(/Workspace nonexistent not found/)
             })
             it('should throw if any target tab does not exist (mixed z)', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
@@ -913,15 +915,16 @@ describeMain('expertAutomations', () => {
                 ]
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes }
-                }, result)).rejectedWith(/Workspace tab tab2 not found/)
+                }, result)).rejectedWith(/Workspace tab2 not found/)
             })
             it('should throw if target tab is locked', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
-                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab', locked: true })
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.workspaces.isLocked = sinon.stub().withArgs('tab1').returns(true)
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }] }
-                }, result)).rejectedWith(/Workspace tab tab1 is locked/)
+                }, result)).rejectedWith(/Workspace tab1 is locked/)
             })
             it('should throw if node IDs already exist on the canvas', async () => {
                 mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
@@ -2125,6 +2128,428 @@ describeMain('expertAutomations', () => {
                 mockRED.actions.invoke.calledOnce.should.be.true()
                 mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: '' }).should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+
+        describe('automation/manage-groups', () => {
+            function setupGroupMocks () {
+                mockRED.nodes.group = sinon.stub().returns(null)
+                mockRED.nodes.eachGroup = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.view.select = sinon.stub()
+                mockRED.view.selection = sinon.stub().callsFake(() => mockRED.view.select.lastCall?.args[0] || { nodes: [] })
+                mockRED.view.redraw = sinon.stub()
+                mockRED.actions = { invoke: sinon.stub() }
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
+            }
+
+            it('should create a group from a list of nodes', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', type: 'inject', z: 'tab1' }
+                const nodeB = { id: 'n2', type: 'function', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: nodeA, n2: nodeB }[id] || null))
+                const createdGroup = { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(createdGroup))
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1', 'n2'], name: 'My Group' }] }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.is.an.Array().with.lengthOf(1)
+                result.data[0].should.have.property('op', 'create')
+                result.data[0].should.have.property('id', 'g1')
+                result.data[0].should.have.property('type', 'group')
+                result.data[0].should.have.property('name', 'My Group')
+                mockRED.view.select.calledOnce.should.be.true()
+                mockRED.actions.invoke.calledWith('core:group-selection').should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+            })
+
+            it('should create a group with an explicit id when provided', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', type: 'inject', z: 'tab1', g: undefined }
+                const nodeB = { id: 'n2', type: 'function', z: 'tab1', g: undefined }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: nodeA, n2: nodeB }[id] || null))
+                // group created with auto-generated id 'g-auto', nodes have g set to it
+                const createdGroup = { id: 'g-auto', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
+                nodeA.g = 'g-auto'
+                nodeB.g = 'g-auto'
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(createdGroup))
+                // group() returns null for both IDs (neither exists before creation)
+                mockRED.nodes.group = sinon.stub().returns(null)
+                mockRED.nodes.remove = sinon.stub()
+                mockRED.nodes.add = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1', 'n2'], id: 'my-group-id' }] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data[0].should.have.property('id', 'my-group-id')
+                mockRED.nodes.remove.calledWith('g-auto').should.be.true()
+                mockRED.nodes.add.calledOnce.should.be.true()
+                createdGroup.id.should.equal('my-group-id')
+                nodeA.g.should.equal('my-group-id')
+                nodeB.g.should.equal('my-group-id')
+            })
+
+            it('should throw if explicit id for create is already in use', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', type: 'inject', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: nodeA }[id] || null))
+                const createdGroup = { id: 'g-auto', type: 'group', z: 'tab1', nodes: [nodeA] }
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(createdGroup))
+                // group() returns a group for the requested ID — already in use
+                mockRED.nodes.group = sinon.stub().callsFake(id => id === 'taken-id' ? { id: 'taken-id' } : null)
+                mockRED.nodes.remove = sinon.stub()
+                mockRED.nodes.add = sinon.stub()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1'], id: 'taken-id' }] }
+                }, result)).rejectedWith(/already in use/)
+            })
+
+            it('should throw if selection does not match after select (unexpected editor state)', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().returns(nodeA)
+                mockRED.nodes.eachGroup.callsFake(() => {})
+                // Simulate editor ignoring the select call (returns empty selection)
+                mockRED.view.selection = sinon.stub().returns({ nodes: [] })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1'] }] }
+                }, result)).rejectedWith(/Selection mismatch/)
+            })
+
+            it('should throw if workspace is locked for create', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().returns(nodeA)
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1'] }] }
+                }, result)).rejectedWith(/tab1 is locked/)
+            })
+
+            it('should throw if group creation produced no new group', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().returns(nodeA)
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(() => {})
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1'] }] }
+                }, result)).rejectedWith(/did not create a new group/)
+            })
+
+            it('should throw if new group is missing some of the requested nodes', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                const nodeB = { id: 'n2', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: nodeA, n2: nodeB }[id] || null))
+                const partialGroup = { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA] }
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(partialGroup))
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1', 'n2'] }] }
+                }, result)).rejectedWith(/missing nodes: n2/)
+            })
+
+            it('should apply style and env when creating a group', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().returns(nodeA)
+                const createdGroup = { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA], style: {} }
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(createdGroup))
+                const env = [{ name: 'HOST', value: 'localhost', type: 'str' }]
+                const style = { stroke: '#ff0000', fill: 'none' }
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1'], style, env }] }
+                }, result)
+                result.should.have.property('success', true)
+                createdGroup.style.should.have.property('stroke', '#ff0000')
+                createdGroup.style.should.have.property('fill', 'none')
+                createdGroup.env.should.deepEqual(env)
+                mockRED.history.push.calledOnce.should.be.true()
+            })
+
+            it('should throw if nodeIds is empty for create', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: [] }] }
+                }, result)).rejectedWith(/nodeIds is required/)
+            })
+
+            it('should throw if nodes are on different tabs for create', async () => {
+                setupGroupMocks()
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({
+                    n1: { id: 'n1', z: 'tab1' },
+                    n2: { id: 'n2', z: 'tab2' }
+                }[id] || null))
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1', 'n2'] }] }
+                }, result)).rejectedWith(/same tab/)
+            })
+
+            it('should throw if a node is not found for create', async () => {
+                setupGroupMocks()
+                mockRED.nodes.node = sinon.stub().returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['missing'] }] }
+                }, result)).rejectedWith(/Node missing not found/)
+            })
+
+            it('should update a group name', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1', name: 'Old', nodes: [], changed: false }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update', id: 'g1', name: 'New Name' }] }
+                }, result)
+                result.should.have.property('success', true)
+                group.name.should.equal('New Name')
+                group.changed.should.be.true()
+                result.data[0].should.have.property('op', 'update')
+                result.data[0].should.have.property('id', 'g1')
+            })
+
+            it('should update a group style', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [], changed: false, style: { stroke: '#000' } }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update', id: 'g1', style: { fill: '#ff0000' } }] }
+                }, result)
+                group.style.should.deepEqual({ stroke: '#000', fill: '#ff0000' })
+                result.data[0].should.have.property('style').which.deepEqual({ stroke: '#000', fill: '#ff0000' })
+            })
+
+            it('should replace group env vars', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [], changed: false, env: [] }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                const env = [{ name: 'HOST', value: 'localhost', type: 'str' }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update', id: 'g1', env }] }
+                }, result)
+                group.env.should.deepEqual(env)
+                group.changed.should.be.true()
+            })
+
+            it('should add nodes to a group via manage-members', async () => {
+                setupGroupMocks()
+                const nodeC = { id: 'n3', z: 'tab1' }
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [], changed: false }
+                const mergedGroup = { id: 'g2', type: 'group', z: 'tab1', nodes: [group.nodes[0], nodeC], changed: false }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.nodes.node = sinon.stub().withArgs('n3').returns(nodeC)
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(fn => fn(group))
+                    .onSecondCall().callsFake(fn => { fn(group); fn(mergedGroup) })
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', id: 'g1', nodeIds: ['n3'], mode: 'add' }] }
+                }, result)
+                result.should.have.property('success', true)
+                mockRED.view.select.calledOnce.should.be.true()
+                mockRED.view.select.firstCall.args[0].nodes.should.deepEqual([group, nodeC])
+                mockRED.actions.invoke.calledWith('core:merge-selection-to-group').should.be.true()
+                result.data[0].should.have.property('op', 'manage-members')
+                result.data[0].should.have.property('mode', 'add')
+                result.data[0].should.have.property('id', 'g2')
+            })
+
+            it('should remove nodes from a group via manage-members', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1', g: 'g1' }
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA], changed: false }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.nodes.node = sinon.stub().withArgs('n1').returns(nodeA)
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', id: 'g1', nodeIds: ['n1'], mode: 'remove' }] }
+                }, result)
+                result.should.have.property('success', true)
+                mockRED.view.select.calledOnce.should.be.true()
+                mockRED.view.select.firstCall.args[0].nodes.should.deepEqual([nodeA])
+                mockRED.actions.invoke.calledWith('core:remove-selection-from-group').should.be.true()
+                result.data[0].should.have.property('op', 'manage-members')
+                result.data[0].should.have.property('mode', 'remove')
+                result.data[0].should.have.property('id', 'g1')
+            })
+
+            it('should throw if node being removed is not in the group', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1', g: 'other-group' }
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.nodes.node = sinon.stub().withArgs('n1').returns(nodeA)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', id: 'g1', nodeIds: ['n1'], mode: 'remove' }] }
+                }, result)).rejectedWith(/n1 is not in group g1/)
+            })
+
+            it('should throw if workspace is locked for update', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', z: 'tab1' }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update', id: 'g1', name: 'X' }] }
+                }, result)).rejectedWith(/tab1 is locked/)
+            })
+
+            it('should throw if group not found for update', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update', id: 'missing' }] }
+                }, result)).rejectedWith(/Group missing not found/)
+            })
+
+            it('should throw if id is missing for update', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'update' }] }
+                }, result)).rejectedWith(/id is required for update/)
+            })
+
+            it('should throw if node being added is on a different tab', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.nodes.node = sinon.stub().withArgs('n99').returns({ id: 'n99', z: 'tab2' })
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', id: 'g1', nodeIds: ['n99'], mode: 'add' }] }
+                }, result)).rejectedWith(/tab2/)
+            })
+
+            it('should throw if id is missing for manage-members', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', nodeIds: ['n1'], mode: 'add' }] }
+                }, result)).rejectedWith(/id is required for manage-members/)
+            })
+
+            it('should throw if mode is invalid for manage-members', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'manage-members', id: 'g1', nodeIds: ['n1'], mode: 'remove-all' }] }
+                }, result)).rejectedWith(/mode must be "add" or "remove"/)
+            })
+
+            it('should delete a group', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group' }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'delete', id: 'g1' }] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data[0].should.deepEqual({ op: 'delete', deleted: 'g1' })
+                mockRED.history.push.called.should.be.false()
+                mockRED.view.select.calledOnce.should.be.true()
+                mockRED.actions.invoke.calledWith('core:ungroup-selection').should.be.true()
+            })
+
+            it('should throw if workspace is locked for delete', async () => {
+                setupGroupMocks()
+                const group = { id: 'g1', type: 'group', z: 'tab1' }
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns(group)
+                mockRED.workspaces.isLocked.withArgs('tab1').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'delete', id: 'g1' }] }
+                }, result)).rejectedWith(/tab1 is locked/)
+            })
+
+            it('should throw if group not found for delete', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'delete', id: 'missing' }] }
+                }, result)).rejectedWith(/Group missing not found/)
+            })
+
+            it('should throw if id is missing for delete', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'delete' }] }
+                }, result)).rejectedWith(/id is required for delete/)
+            })
+
+            it('should throw on unknown op', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'explode' }] }
+                }, result)).rejectedWith(/Unknown manage-groups op: explode/)
+            })
+
+            it('should throw if operations array is empty', async () => {
+                setupGroupMocks()
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [] }
+                }, result)).rejectedWith(/operations array is required/)
+            })
+
+            it('should execute multiple operations sequentially', async () => {
+                setupGroupMocks()
+                const nodeA = { id: 'n1', z: 'tab1' }
+                const nodeB = { id: 'n2', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: nodeA, n2: nodeB }[id] || null))
+                const createdGroup = { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
+                const existingGroup = { id: 'g2', type: 'group', z: 'tab1', nodes: [], changed: false }
+                mockRED.nodes.eachGroup
+                    .onFirstCall().callsFake(() => {})
+                    .onSecondCall().callsFake(fn => fn(createdGroup))
+                mockRED.nodes.group = sinon.stub().callsFake(id => ({ g2: existingGroup }[id] || null))
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: {
+                        operations: [
+                            { op: 'create', nodeIds: ['n1', 'n2'] },
+                            { op: 'update', id: 'g2', name: 'Renamed' }
+                        ]
+                    }
+                }, result)
+                result.should.have.property('success', true)
+                result.data.should.have.lengthOf(2)
+                result.data[0].should.have.property('op', 'create')
+                result.data[1].should.have.property('op', 'update')
+                existingGroup.name.should.equal('Renamed')
             })
         })
     })

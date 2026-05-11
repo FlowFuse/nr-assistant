@@ -25,6 +25,7 @@ const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
+const MANAGE_GROUPS = 'automation/manage-groups'
 
 /**
  * @typedef {SELECT_NODES
@@ -50,7 +51,8 @@ const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
  *   |GET_NODE_TYPES
  *   |GET_PALETTE
  *   |LIST_CONFIG_NODES
- *   |OPEN_PALETTE_MANAGER} ExpertAutomationsActionsEnum
+ *   |OPEN_PALETTE_MANAGER
+ *   |MANAGE_GROUPS} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -376,6 +378,61 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional package name or search term to pre-filter the palette manager'
                     }
                 }
+            }
+        },
+        [MANAGE_GROUPS]: {
+            params: {
+                type: 'object',
+                properties: {
+                    operations: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                op: {
+                                    type: 'string',
+                                    enum: ['create', 'update', 'manage-members', 'delete'],
+                                    description: 'Operation to perform'
+                                },
+                                id: {
+                                    type: 'string',
+                                    description: 'Group ID (required for update, manage-members, and delete)'
+                                },
+                                nodeIds: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Node IDs: required for create and manage-members'
+                                },
+                                name: {
+                                    type: 'string',
+                                    description: 'Group display name (optional for create and update)'
+                                },
+                                mode: {
+                                    type: 'string',
+                                    enum: ['add', 'remove'],
+                                    description: 'manage-members only — "add" moves nodes into the group, "remove" takes them out'
+                                },
+                                style: {
+                                    type: 'object',
+                                    description: 'Visual style: stroke/border-color, fill, color, stroke-opacity, fill-opacity, label, label-position',
+                                    properties: {
+                                        stroke: { type: 'string' },
+                                        'border-color': { type: 'string' },
+                                        fill: { type: 'string' },
+                                        color: { type: 'string' },
+                                        'stroke-opacity': { type: 'number' },
+                                        'fill-opacity': { type: 'number' },
+                                        label: { type: 'boolean' },
+                                        'label-position': { type: 'string', enum: ['nw', 'n', 'ne', 'sw', 's', 'se'] }
+                                    }
+                                }
+                            },
+                            required: ['op']
+                        },
+                        description: 'Array of group operations to execute sequentially'
+                    }
+                },
+                required: ['operations']
             }
         }
     })
@@ -821,7 +878,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string} id - workspace ID to show
      */
     showWorkspace (id) {
-        if (!this.hasWorkspace(id)) throw new Error(`Workspace ${id} not found`)
+        this._assertWorkspaceExists(id)
         this.RED.workspaces.show(id)
     }
 
@@ -831,9 +888,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @returns {boolean} true if the workspace exists, false otherwise
      */
     hasWorkspace (id) {
-        const ws = this.RED.nodes.workspace(id)
-        if (ws) return true
-        return false
+        return !!this.RED.nodes.workspace(id)
+    }
+
+    /**
+     * Throw if the workspace does not exist.
+     * @param {string} id - workspace ID
+     */
+    _assertWorkspaceExists (id) {
+        if (!this.hasWorkspace(id)) throw new Error(`Workspace ${id} not found`)
+    }
+
+    /**
+     * Throw if the workspace tab is locked. No-op when tabId is falsy (e.g. config nodes).
+     * @param {string|null|undefined} tabId - workspace tab ID
+     */
+    _assertWorkspaceNotLocked (tabId) {
+        if (!tabId) return
+        if (this.RED.workspaces.isLocked(tabId)) throw new Error(`Workspace ${tabId} is locked`)
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -918,9 +990,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Validate all target tabs exist and are not locked
         const uniqueZs = [...new Set(prepared.map(n => n.z).filter(Boolean))]
         for (const z of uniqueZs) {
-            if (!this.hasWorkspace(z)) throw new Error(`Workspace tab ${z} not found`)
-            const ws = this.RED.nodes.workspace(z)
-            if (ws.locked) throw new Error(`Workspace tab ${z} is locked`)
+            this._assertWorkspaceExists(z)
+            this._assertWorkspaceNotLocked(z)
         }
         // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
@@ -964,9 +1035,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         })
         // Check if any node's workspace is locked
         for (const node of nodes) {
-            if (node.z && this.RED.workspaces.isLocked(node.z)) {
-                throw new Error(`Cannot remove node ${node.id} — workspace ${node.z} is locked`)
-            }
+            this._assertWorkspaceNotLocked(node.z)
         }
         const allRemovedLinks = []
         for (const node of nodes) {
@@ -998,9 +1067,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('Source and target nodes must be on the same tab')
         }
         // Check workspace is not locked
-        if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
-            throw new Error(`Cannot modify wires — workspace ${sourceNode.z} is locked`)
-        }
+        this._assertWorkspaceNotLocked(sourceNode.z)
         // Validate output port exists on source
         const port = output ?? 0
         if (port >= (sourceNode.outputs || 0)) {
@@ -1069,12 +1136,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error(`Source node ${source} is a link call in dynamic mode and cannot have static links`)
         }
         // Check workspace locks for both nodes
-        if (sourceNode.z && this.RED.workspaces.isLocked(sourceNode.z)) {
-            throw new Error(`Cannot modify links — workspace ${sourceNode.z} is locked`)
-        }
-        if (targetNode.z && targetNode.z !== sourceNode.z && this.RED.workspaces.isLocked(targetNode.z)) {
-            throw new Error(`Cannot modify links — workspace ${targetNode.z} is locked`)
-        }
+        this._assertWorkspaceNotLocked(sourceNode.z)
+        if (targetNode.z !== sourceNode.z) this._assertWorkspaceNotLocked(targetNode.z)
         const isBidirectional = sourceNode.type === 'link out'
         const sourceLinks = sourceNode.links || []
         const targetLinks = targetNode.links || []
@@ -1362,6 +1425,57 @@ export class ExpertAutomations extends ExpertActionsInterface {
             })
             result.success = true
             break
+        case MANAGE_GROUPS: {
+            const operations = params.operations
+            if (!Array.isArray(operations) || operations.length === 0) {
+                throw new Error('operations array is required and must not be empty')
+            }
+            const results = []
+            for (const entry of operations) {
+                const op = entry.op
+                if (!op) throw new Error('op is required for each manage-groups operation')
+                switch (op) {
+                case 'create': {
+                    const group = this.createGroup(entry.nodeIds, entry.name, { style: entry.style, env: entry.env, id: entry.id })
+                    results.push({ op: 'create', ...this._summarizeGroup(group) })
+                    break
+                }
+                case 'update': {
+                    if (!entry.id) throw new Error('id is required for update')
+                    const group = this.updateGroup(entry.id, {
+                        name: entry.name,
+                        style: entry.style,
+                        env: entry.env
+                    })
+                    results.push({ op: 'update', ...this._summarizeGroup(group) })
+                    break
+                }
+                case 'manage-members': {
+                    if (!entry.id) throw new Error('id is required for manage-members')
+                    if (!entry.nodeIds || entry.nodeIds.length === 0) throw new Error('nodeIds is required for manage-members')
+                    const mode = entry.mode
+                    if (mode !== 'add' && mode !== 'remove') throw new Error('mode must be "add" or "remove"')
+                    const group = this.updateGroup(entry.id, {
+                        nodeIds: entry.nodeIds,
+                        remove: mode === 'remove'
+                    })
+                    results.push({ op: 'manage-members', mode, ...this._summarizeGroup(group) })
+                    break
+                }
+                case 'delete': {
+                    if (!entry.id) throw new Error('id is required for delete')
+                    this.deleteGroup(entry.id)
+                    results.push({ op: 'delete', deleted: entry.id })
+                    break
+                }
+                default:
+                    throw new Error(`Unknown manage-groups op: ${op}`)
+                }
+            }
+            result.data = results
+            result.success = true
+            break
+        }
         default:
             result.handled = false
             result.success = false
@@ -1411,6 +1525,185 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     }
 
+    /**
+     * Create a group containing the specified nodes.
+     * Uses Node-RED's core:group-selection action after selecting the target nodes.
+     * @param {string[]} nodeIds - IDs of nodes to group
+     * @param {string} [name] - optional group display name
+     * @param {object} [opts]
+     * @param {object} [opts.style] - visual style overrides
+     * @param {Array}  [opts.env]   - environment variables for nodes inside the group
+     * @param {string} [opts.id]    - explicit group ID; auto-generated if omitted
+     * @returns {object} the created group node
+     */
+    createGroup (nodeIds, name, { style, env, id } = {}) {
+        if (!nodeIds || nodeIds.length === 0) {
+            throw new Error('nodeIds is required and must not be empty')
+        }
+        const nodes = nodeIds.map(id => {
+            const n = this.RED.nodes.node(id)
+            if (!n) throw new Error(`Node ${id} not found`)
+            return n
+        })
+        const tabs = new Set(nodes.map(n => n.z).filter(Boolean))
+        if (tabs.size > 1) {
+            throw new Error('All nodes must be on the same tab to form a group')
+        }
+        const tabId = tabs.size === 1 ? [...tabs][0] : null
+        this._assertWorkspaceNotLocked(tabId)
+
+        // Snapshot existing group IDs so we can identify the newly created one
+        const existingGroupIds = new Set()
+        this.RED.nodes.eachGroup(g => existingGroupIds.add(g.id))
+
+        this.RED.view.select({ nodes })
+        this._verifySelection(nodes)
+        this.RED.actions.invoke('core:group-selection')
+
+        const newGroups = []
+        this.RED.nodes.eachGroup(g => {
+            if (!existingGroupIds.has(g.id)) newGroups.push(g)
+        })
+
+        if (newGroups.length === 0) {
+            throw new Error('Group creation failed: core:group-selection did not create a new group')
+        }
+
+        const newGroup = newGroups[0]
+        const missingIds = nodeIds.filter(nid => !newGroup.nodes?.some(n => (n.id || n) === nid))
+        if (missingIds.length > 0) {
+            throw new Error(`Group created but missing nodes: ${missingIds.join(', ')}`)
+        }
+
+        // Rename to the requested ID if one was provided and differs from the auto-generated one
+        if (id !== undefined && id !== newGroup.id) {
+            if (this.RED.nodes.node(id) || this.RED.nodes.group(id)) {
+                throw new Error(`Group ID ${id} is already in use`)
+            }
+            const oldId = newGroup.id
+            this.RED.nodes.remove(oldId)
+            newGroup.id = id
+            ;(newGroup.nodes || []).forEach(n => {
+                const nodeRef = typeof n === 'object' ? n : this.RED.nodes.node(n)
+                if (nodeRef && nodeRef.g === oldId) nodeRef.g = id
+            })
+            this.RED.nodes.add(newGroup)
+        }
+
+        const changes = {}
+        if (name) {
+            changes.name = newGroup.name
+            newGroup.name = name
+        }
+        if (style) {
+            changes.style = { ...newGroup.style }
+            newGroup.style = Object.assign({}, newGroup.style || {}, style)
+        }
+        if (env !== undefined) {
+            changes.env = newGroup.env
+            newGroup.env = env
+        }
+        if (Object.keys(changes).length > 0) {
+            newGroup.changed = true
+            newGroup.dirty = true
+            this.RED.history.push({ t: 'edit', node: newGroup, changes, changed: false, dirty: this.RED.nodes.dirty() })
+        }
+
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
+        return newGroup
+    }
+
+    /**
+     * Update an existing group: rename, add/remove nodes, change style.
+     * @param {string} id - group ID
+     * @param {object} updates - { name?, addNodeIds?, removeNodeIds?, style? }
+     * @returns {object} the updated group node
+     */
+    updateGroup (id, { name, nodeIds, remove, style, env } = {}) {
+        let group = this.RED.nodes.group(id)
+        if (!group) throw new Error(`Group ${id} not found`)
+        this._assertWorkspaceNotLocked(group.z)
+
+        if (nodeIds && nodeIds.length > 0) {
+            if (remove) {
+                const nodes = nodeIds.map(nodeId => {
+                    const node = this.RED.nodes.node(nodeId)
+                    if (!node) throw new Error(`Node ${nodeId} not found`)
+                    if (node.g !== group.id) throw new Error(`Node ${nodeId} is not in group ${id}`)
+                    return node
+                })
+                this.RED.view.select({ nodes })
+                this._verifySelection(nodes)
+                this.RED.actions.invoke('core:remove-selection-from-group')
+            } else {
+                const existingGroupIds = new Set()
+                this.RED.nodes.eachGroup(g => existingGroupIds.add(g.id))
+
+                const newNodes = nodeIds.map(nodeId => {
+                    const node = this.RED.nodes.node(nodeId)
+                    if (!node) throw new Error(`Node ${nodeId} not found`)
+                    if (node.z !== group.z) throw new Error(`Node ${nodeId} is on tab ${node.z} but group is on tab ${group.z}`)
+                    return node
+                })
+                this.RED.view.select({ nodes: [group, ...newNodes] })
+                this._verifySelection([group, ...newNodes])
+                this.RED.actions.invoke('core:merge-selection-to-group')
+
+                const newGroups = []
+                this.RED.nodes.eachGroup(g => {
+                    if (!existingGroupIds.has(g.id)) newGroups.push(g)
+                })
+                if (newGroups.length === 0) {
+                    throw new Error('Add nodes failed: core:merge-selection-to-group did not create a new group')
+                }
+                group = newGroups[0]
+            }
+        }
+
+        const changes = {}
+
+        if (name !== undefined) {
+            changes.name = group.name
+            group.name = name
+        }
+
+        if (style) {
+            changes.style = { ...group.style }
+            group.style = Object.assign({}, group.style || {}, style)
+        }
+
+        if (env !== undefined) {
+            changes.env = group.env
+            group.env = env
+        }
+
+        if (Object.keys(changes).length > 0) {
+            group.changed = true
+            group.dirty = true
+            this.RED.history.push({ t: 'edit', node: group, changes, changed: false, dirty: this.RED.nodes.dirty() })
+        }
+
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
+        return group
+    }
+
+    /**
+     * Delete a group (ungroup its nodes).
+     * @param {string} id - group ID
+     */
+    deleteGroup (id) {
+        const group = this.RED.nodes.group(id)
+        if (!group) throw new Error(`Group ${id} not found`)
+        this._assertWorkspaceNotLocked(group.z)
+        this.RED.view.select({ nodes: [group] })
+        this._verifySelection([group])
+        this.RED.actions.invoke('core:ungroup-selection')
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw()
+    }
+
     _summarizeNode (node) {
         if (!node) return null
         const s = { id: node.id }
@@ -1421,6 +1714,37 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (node.y !== undefined) s.y = node.y
         if (node.z !== undefined) s.z = node.z
         if (node.valid !== undefined) s.valid = node.valid
+        return s
+    }
+
+    /**
+     * Defensive check: verify the view selection contains exactly the expected nodes.
+     * Guards against editor states where RED.view.select() is silently ignored,
+     * which would cause core actions to act on unintended nodes.
+     * @param {object[]} expectedNodes
+     */
+    _verifySelection (expectedNodes) {
+        const selection = this.RED.view.selection()
+        const selectedNodes = selection?.nodes || []
+        const expectedIds = expectedNodes.map(n => n.id)
+        const selectedIds = selectedNodes.map(n => n.id)
+        const expectedSet = new Set(expectedIds)
+        const selectedSet = new Set(selectedIds)
+        if (selectedSet.size !== expectedSet.size || ![...expectedSet].every(id => selectedSet.has(id))) {
+            throw new Error(
+                `Selection mismatch: expected [${expectedIds.join(', ')}] but selection is [${selectedIds.join(', ')}] — editor may be in an unexpected state`
+            )
+        }
+    }
+
+    _summarizeGroup (group) {
+        if (!group) return null
+        const s = { id: group.id, type: 'group' }
+        if (group.name !== undefined) s.name = group.name
+        if (group.z !== undefined) s.z = group.z
+        if (Array.isArray(group.nodes)) s.nodeCount = group.nodes.length
+        if (group.style !== undefined) s.style = group.style
+        if (Array.isArray(group.env) && group.env.length > 0) s.env = group.env
         return s
     }
 }
