@@ -1707,6 +1707,55 @@ describeMain('expertAutomations', () => {
                     params: { id: 'n1', properties: { wires: [['n3']] } }
                 }, {}).should.be.rejectedWith(/set-wires/)
             })
+            it('should automatically restore cross-tab connections when moving node to new tab', async () => {
+                const nodeA = { id: 'a1', type: 'inject', z: 'tab1' }
+                const nodeB = { id: 'b1', type: 'function', z: 'tab1' }
+                const nodeC = { id: 'c1', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('b1').returns(nodeB)
+                mockRED.nodes.group.withArgs('b1').returns(null)
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                mockRED.nodes.workspace.withArgs('tab2').returns({ id: 'tab2', locked: false })
+                mockRED.workspaces.isLocked = sinon.stub().returns(false)
+                mockRED.workspaces.active = sinon.stub().returns('tab1')
+                mockRED.workspaces.show = sinon.stub()
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('b1', 1).returns([
+                    { source: nodeA, sourcePort: 0, target: nodeB }
+                ])
+                mockRED.nodes.getNodeLinks.withArgs('b1', 0).returns([
+                    { source: nodeB, sourcePort: 0, target: nodeC }
+                ])
+                mockRED.nodes.createExportableNodeSet = sinon.stub().returns([{ id: 'b1', type: 'function', z: 'tab1' }])
+                mockRED.nodes.remove = sinon.stub().returns({ links: [] })
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.updateActive = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'b1', properties: { z: 'tab2' } }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('reconnectionPlan').which.is.an.Object()
+                const plan = result.reconnectionPlan
+                plan.should.have.property('movedNodeId', 'b1')
+                plan.should.have.property('sourceTabId', 'tab1')
+                plan.should.have.property('targetTabId', 'tab2')
+                plan.linkPairs.should.have.lengthOf(2)
+                plan.linkPairs[0].should.deepEqual({
+                    linkOutTabId: 'tab1',
+                    linkInTabId: 'tab2',
+                    wiresToLinkOut: [{ fromNodeId: 'a1', fromOutputIndex: 0 }],
+                    wiresFromLinkIn: [{ toNodeId: 'b1' }]
+                })
+                plan.linkPairs[1].should.deepEqual({
+                    linkOutTabId: 'tab2',
+                    linkInTabId: 'tab1',
+                    wiresToLinkOut: [{ fromNodeId: 'b1', fromOutputIndex: 0 }],
+                    wiresFromLinkIn: [{ toNodeId: 'c1' }]
+                })
+            })
         })
         describe('closeEditorTray action', () => {
             afterEach(() => {

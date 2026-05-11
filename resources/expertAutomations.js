@@ -606,6 +606,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
+        // Detect tab move: z is changing to a different tab
+        const newZ = hasProperties ? properties.z : undefined
+        const isTabMove = newZ !== undefined && newZ !== node.z
+        if (isTabMove) {
+            return this._moveNodeToTab(node, properties, patches, hasPatches)
+        }
+
         const changes = {}
 
         // Apply line-based patches first (before full property replacement)
@@ -641,6 +648,103 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()
         }
+    }
+
+    /**
+     * Move a node to a different tab by removing it and re-importing on the target tab.
+     * All wires to/from the node are removed (cross-tab wires are invalid in Node-RED).
+     * Returns a reconnectionPlan so the caller can reconnect via link nodes.
+     */
+    _moveNodeToTab (node, properties, patches, hasPatches) {
+        const targetZ = properties.z
+        if (!this.hasWorkspace(targetZ)) {
+            throw new Error(`Target workspace tab ${targetZ} not found`)
+        }
+        const targetWs = this.RED.nodes.workspace(targetZ)
+        if (targetWs.locked) {
+            throw new Error(`Target workspace tab ${targetZ} is locked`)
+        }
+        if (node.z && this.RED.workspaces.isLocked(node.z)) {
+            throw new Error(`Source workspace tab ${node.z} is locked`)
+        }
+
+        // Collect all wires to/from this node before removal.
+        // getNodeLinks portType: 1 = inbound, 0 = outbound.
+        const inboundLinks = this.RED.nodes.getNodeLinks(node.id, 1)
+        const outboundLinks = this.RED.nodes.getNodeLinks(node.id, 0)
+        const links = [...inboundLinks, ...outboundLinks]
+
+        // Build a flat linkPairs array — one entry per logical cross-tab connection needed.
+        // Inbound (X → moved node): link-out on X's tab, link-in on target tab.
+        // Outbound (moved node → Y): link-out on target tab, link-in on Y's tab.
+        //   Entries from the same output port to the same tab share ONE link pair (fan-out via wires).
+        const linkPairMap = new Map()
+        const linkPairs = []
+        for (const l of links) {
+            if (l.target?.id === node.id) {
+                const fromTabId = l.source?.z ?? null
+                linkPairs.push({
+                    linkOutTabId: fromTabId,
+                    linkInTabId: targetZ,
+                    wiresToLinkOut: [{ fromNodeId: l.source?.id, fromOutputIndex: l.sourcePort }],
+                    wiresFromLinkIn: [{ toNodeId: node.id }]
+                })
+            } else {
+                const toTabId = l.target?.z ?? null
+                const key = `${l.sourcePort}:${toTabId}`
+                if (!linkPairMap.has(key)) {
+                    const pair = {
+                        linkOutTabId: targetZ,
+                        linkInTabId: toTabId,
+                        wiresToLinkOut: [{ fromNodeId: node.id, fromOutputIndex: l.sourcePort }],
+                        wiresFromLinkIn: []
+                    }
+                    linkPairMap.set(key, pair)
+                    linkPairs.push(pair)
+                }
+                linkPairMap.get(key).wiresFromLinkIn.push({ toNodeId: l.target?.id })
+            }
+        }
+        const reconnectionPlan = {
+            movedNodeId: node.id,
+            sourceTabId: node.z,
+            targetTabId: targetZ,
+            linkPairs
+        }
+
+        // Snapshot BEFORE removing (createExportableNodeSet needs the node in the live registry)
+        const exportable = this.RED.nodes.createExportableNodeSet([node])
+        const nodeData = exportable[0] || {}
+
+        // Remove the node (also removes its links)
+        const removed = this.RED.nodes.remove(node.id)
+        const removedLinks = removed.links || []
+
+        // Apply property changes (except z which we handle explicitly)
+        const { z: _z, wires: _w, ...otherProps } = properties
+        Object.assign(nodeData, otherProps)
+        nodeData.z = targetZ
+        nodeData.id = node.id
+        delete nodeData.wires
+
+        if (hasPatches) {
+            this._applyPatches(nodeData, patches, {})
+        }
+
+        // Re-import on the target tab
+        const originalActiveId = this.RED.workspaces.active()
+        this.RED.workspaces.show(targetZ)
+        this.RED.view.importNodes([nodeData], { generateIds: false, addFlow: false, notify: false, touchImport: true, applyNodeDefaults: true })
+        if (originalActiveId && originalActiveId !== targetZ) {
+            this.RED.workspaces.show(originalActiveId)
+        }
+
+        this.RED.history.push({ t: 'multi', events: [{ t: 'delete', nodes: [node], links: removedLinks, dirty: this.RED.nodes.dirty() }], dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        this.RED.view.updateActive()
+        this.RED.view.redraw()
+
+        return { reconnectionPlan }
     }
 
     async getPalette (typedModules = null) {
@@ -1268,10 +1372,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            await this.updateNode(params.id, params.properties, params.patches)
+            const updateResult = await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
             result.validation = this._getNodeValidation(updatedNode)
+            if (updateResult?.reconnectionPlan?.linkPairs?.length > 0) {
+                result.reconnectionPlan = updateResult.reconnectionPlan
+                result.message = 'Node moved to new tab. All wires removed (cross-tab wires invalid). ' +
+                    'Process EVERY entry in reconnectionPlan.linkPairs — do not skip any. ' +
+                    'For each linkPair: (1) add ONE link-out node on linkOutTabId, (2) add ONE link-in node on linkInTabId, ' +
+                    '(3) for each wiresToLinkOut entry: set_wires fromNode[fromOutputIndex] → link-out (same tab, set_wires), ' +
+                    '(4) for each wiresFromLinkIn entry: set_wires link-in → toNode (same tab, set_wires), ' +
+                    '(5) set_links link-out → link-in (cross-tab virtual connection, NOT set_wires).'
+            }
             result.success = true
         }
             break
