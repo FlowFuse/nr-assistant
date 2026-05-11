@@ -1039,10 +1039,10 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
             })
-            it('should reject wires property and direct to set-wires', async () => {
+            it('should reject wires property in add-nodes', async () => {
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }] }
-                }, {})).rejectedWith(/set-wires/)
+                }, {})).rejectedWith(/"wires" cannot be set directly/)
             })
         })
         describe('removeTab action', () => {
@@ -1707,13 +1707,13 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
             })
-            it('should reject wires property and direct to set-wires', async () => {
+            it('should reject wires property in update-node', async () => {
                 const node = { id: 'n1', type: 'inject', wires: [['n2']], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 mockRED.nodes.group.withArgs('n1').returns(null)
                 await expertAutomations.invokeAction('automation/update-node', {
                     params: { id: 'n1', properties: { wires: [['n3']] } }
-                }, {}).should.be.rejectedWith(/set-wires/)
+                }, {}).should.be.rejectedWith(/"wires" cannot be set directly/)
             })
         })
         describe('closeEditorTray action', () => {

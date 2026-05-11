@@ -602,7 +602,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('"properties" must not be empty')
         }
         if (hasProperties && 'wires' in properties) {
-            throw new Error(`Node ${id}: cannot set "wires" via update-node — use automation/set-wires to manage connections`)
+            throw new Error(`Node ${id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
         }
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
@@ -988,7 +988,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            if (rawNode.wires !== undefined) throw new Error(`Node ${rawNode.id}: cannot set "wires" via add-nodes — use automation/set-wires to manage connections`)
+            if (rawNode.wires !== undefined) throw new Error(`Node ${rawNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             const isConfigNode = def.category === 'config'
