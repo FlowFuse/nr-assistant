@@ -604,6 +604,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (hasProperties && 'wires' in properties) {
             throw new Error(`Node ${id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
         }
+        if (hasProperties && 'g' in properties) {
+            throw new Error(`Node ${id}: "g" cannot be set directly — group membership must be managed via a dedicated action`)
+        }
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
@@ -989,6 +992,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
             if (rawNode.wires !== undefined) throw new Error(`Node ${rawNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`)
+            if (rawNode.g !== undefined) throw new Error(`Node ${rawNode.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`)
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
             const isConfigNode = def.category === 'config'
