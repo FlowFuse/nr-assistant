@@ -597,6 +597,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (hasProperties && Object.keys(properties).length === 0) {
             throw new Error('"properties" must not be empty')
         }
+        if (hasProperties && 'wires' in properties) {
+            throw new Error(`Node ${id}: cannot set "wires" via update-node — use automation/set-wires to manage connections`)
+        }
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }

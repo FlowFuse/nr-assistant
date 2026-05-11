@@ -1699,6 +1699,14 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('error').which.match(/manage-groups/)
             })
+            it('should reject wires property and direct to set-wires', async () => {
+                const node = { id: 'n1', type: 'inject', wires: [['n2']], changed: false, dirty: false }
+                mockRED.nodes.node.withArgs('n1').returns(node)
+                mockRED.nodes.group.withArgs('n1').returns(null)
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { wires: [['n3']] } }
+                }, {}).should.be.rejectedWith(/set-wires/)
+            })
         })
         describe('closeEditorTray action', () => {
             afterEach(() => {
