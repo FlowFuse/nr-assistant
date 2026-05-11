@@ -6,7 +6,7 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
-const UPDATE_NODE = 'automation/update-node'
+const UPDATE_NODES = 'automation/update-nodes'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 const GET_FLOW = 'automation/get-workspace-nodes'
 const LIST_WORKSPACES = 'automation/list-workspaces'
@@ -33,7 +33,7 @@ const MANAGE_GROUPS = 'automation/manage-groups'
  *   |EDIT_NODE
  *   |SEARCH
  *   |ADD_FLOW_TAB
- *   |UPDATE_NODE
+ *   |UPDATE_NODES
  *   |SHOW_WORKSPACE
  *   |GET_FLOW
  *   |LIST_WORKSPACES
@@ -140,33 +140,43 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [UPDATE_NODE]: {
+        [UPDATE_NODES]: {
             params: {
                 type: 'object',
                 properties: {
-                    id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
-                    patches: {
+                    nodes: {
                         type: 'array',
-                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                        description: 'Array of node updates to apply sequentially',
                         items: {
                             type: 'object',
                             properties: {
-                                property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
-                                op: {
-                                    type: 'string',
-                                    enum: ['replace', 'insert', 'delete'],
-                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
-                                },
-                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
-                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                id: { type: 'string', description: 'ID of the node to update' },
+                                properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
+                                patches: {
+                                    type: 'array',
+                                    description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
+                                            op: {
+                                                type: 'string',
+                                                enum: ['replace', 'insert', 'delete'],
+                                                description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                            },
+                                            start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
+                                            end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
+                                            content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                        },
+                                        required: ['property', 'op', 'start']
+                                    }
+                                }
                             },
-                            required: ['property', 'op', 'start']
+                            required: ['id']
                         }
                     }
                 },
-                required: ['id']
+                required: ['nodes']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -1263,16 +1273,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case UPDATE_NODE: {
-            if (this.RED.nodes.group(params.id)) {
-                result.error = 'Groups cannot be modified via update-node. Use automation/manage-groups instead.'
+        case UPDATE_NODES: {
+            const groupIds = (params.nodes || []).filter(n => this.RED.nodes.group(n.id)).map(n => n.id)
+            if (groupIds.length > 0) {
+                result.error = `Groups cannot be modified via update-nodes. Use automation/manage-groups instead. Group IDs: ${groupIds.join(', ')}`
                 result.success = false
                 break
             }
-            await this.updateNode(params.id, params.properties, params.patches)
-            const updatedNode = this.RED.nodes.node(params.id)
-            result.data = this._summarizeNode(updatedNode)
-            result.validation = this._getNodeValidation(updatedNode)
+            for (const { id, properties, patches } of params.nodes) {
+                await this.updateNode(id, properties, patches)
+            }
+            result.data = params.nodes.map(({ id }) => {
+                const updatedNode = this.RED.nodes.node(id)
+                return { ...this._summarizeNode(updatedNode), validation: this._getNodeValidation(updatedNode) }
+            })
             result.success = true
         }
             break
