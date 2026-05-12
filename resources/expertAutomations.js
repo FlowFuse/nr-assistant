@@ -608,6 +608,95 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Move a node to a different tab, creating link in/out pairs for any cross-tab wires.
+     * Uses core:split-wires-with-junctions first only for fan-in (multiple inbound) or fan-out
+     * (multiple wires from the same output port), then core:split-wire-with-link-nodes for the
+     * remaining single wires. The node and its adjacent link nodes are moved to the target tab.
+     * @param {string} id - node ID to move
+     * @param {string} targetTabId - target tab ID
+     * @param {Set<string>} [coMovingIds] - IDs of all nodes being moved to the same tab in this batch;
+     *   wires between co-moving nodes are kept intact (no splitting).
+     */
+    _moveNodeToTab (id, targetTabId, coMovingIds = new Set()) {
+        const node = this.RED.nodes.node(id)
+        if (!node) throw new Error(`Node ${id} not found`)
+
+        this._assertWorkspaceExists(targetTabId)
+        this._assertWorkspaceNotLocked(targetTabId)
+        this._assertWorkspaceNotLocked(node.z)
+
+        // Show source tab so link nodes are created on the correct workspace
+        this.RED.workspaces.show(node.z)
+
+        // Get wire objects for the core actions (PORT_TYPE_INPUT = 1, PORT_TYPE_OUTPUT = 0)
+        let inboundWires = this.RED.nodes.getNodeLinks(id, 1)
+        let outboundWires = this.RED.nodes.getNodeLinks(id, 0)
+
+        // Exclude wires to/from co-moving nodes — both ends land on the same tab, no cross-tab split needed.
+        const externalInbound = inboundWires.filter(l => !coMovingIds.has(l.source.id))
+        const externalOutbound = outboundWires.filter(l => !coMovingIds.has(l.target.id))
+
+        // Add junctions only where there is actual fan-in or fan-out on a single port.
+        // Fan-in: multiple external wires arriving at the input. Fan-out: multiple external wires from the same output port.
+        let junctionNodes = []
+        const outboundByPort = {}
+        for (const w of externalOutbound) {
+            const port = w.sourcePort ?? 0
+            if (!outboundByPort[port]) outboundByPort[port] = []
+            outboundByPort[port].push(w)
+        }
+        const wiresNeedingJunction = [
+            ...(externalInbound.length > 1 ? externalInbound : []),
+            ...Object.values(outboundByPort).filter(g => g.length > 1).flat()
+        ]
+        if (wiresNeedingJunction.length > 0) {
+            this.RED.actions.invoke('core:split-wires-with-junctions', {
+                wires: wiresNeedingJunction
+            })
+            // Re-fetch wires after junction insertion
+            inboundWires = this.RED.nodes.getNodeLinks(id, 1)
+            outboundWires = this.RED.nodes.getNodeLinks(id, 0)
+            // Collect newly created junction nodes (they stay on the source tab)
+            junctionNodes = [
+                ...inboundWires.filter(l => l.source.type === 'junction').map(l => l.source),
+                ...outboundWires.filter(l => l.target.type === 'junction').map(l => l.target)
+            ]
+        }
+
+        // Existing adjacent link nodes (from a previous tab move) are moved directly — no new pair needed
+        const existingLinkIns = inboundWires.filter(l => l.source.type === 'link in' && !coMovingIds.has(l.source.id)).map(l => l.source)
+        const existingLinkOuts = outboundWires.filter(l => l.target.type === 'link out' && !coMovingIds.has(l.target.id)).map(l => l.target)
+
+        // Only split external wires where the adjacent node is not already a link node
+        const wiresToSplit = [
+            ...inboundWires.filter(l => !coMovingIds.has(l.source.id) && l.source.type !== 'link in'),
+            ...outboundWires.filter(l => !coMovingIds.has(l.target.id) && l.target.type !== 'link out')
+        ]
+
+        const linkNodesToMove = [...existingLinkIns, ...existingLinkOuts]
+
+        if (wiresToSplit.length > 0) {
+            this.RED.view.select({ links: wiresToSplit })
+            this.RED.actions.invoke('core:split-wire-with-link-nodes')
+
+            // Collect the newly created link nodes adjacent to the moved node
+            const newInbound = this.RED.nodes.getNodeLinks(id, 1)
+            const newOutbound = this.RED.nodes.getNodeLinks(id, 0)
+            linkNodesToMove.push(...newInbound.map(l => l.source).filter(n => n.type === 'link in'))
+            linkNodesToMove.push(...newOutbound.map(l => l.target).filter(n => n.type === 'link out'))
+        }
+
+        for (const n of [node, ...linkNodesToMove]) {
+            this.RED.nodes.moveNodeToTab(n, targetTabId)
+        }
+
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw(true)
+
+        return { linkNodes: linkNodesToMove, junctionNodes }
+    }
+
+    /**
      * Update properties of an existing node in place.
      * Accepts a unified updates array where each item targets a property.
      * Omit start/end for full replacement; provide start for line-based edits.
@@ -1325,13 +1414,39 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
+            // Pre-compute co-moving sets: nodes being moved to the same target tab in this batch.
+            // Wires between co-moving nodes are kept intact — no splitting needed.
+            const tabMoveGroups = new Map()
             for (const { id, updates = [] } of params.nodes) {
-                await this.updateNode(id, updates)
+                const zUpdate = updates.find(u => u.property === 'z' && typeof u.content === 'string')
+                if (zUpdate) {
+                    if (!tabMoveGroups.has(zUpdate.content)) tabMoveGroups.set(zUpdate.content, new Set())
+                    tabMoveGroups.get(zUpdate.content).add(id)
+                }
             }
-            result.data = params.nodes.map(({ id }) => {
-                const updatedNode = this.RED.nodes.node(id)
-                return { ...this._summarizeNode(updatedNode), validation: this._getNodeValidation(updatedNode) }
-            })
+            const allLinkNodes = []
+            const allJunctionNodes = []
+            for (const { id, updates = [] } of params.nodes) {
+                const zUpdate = updates.find(u => u.property === 'z' && typeof u.content === 'string')
+                if (zUpdate) {
+                    const coMovingIds = tabMoveGroups.get(zUpdate.content)
+                    const { linkNodes, junctionNodes } = this._moveNodeToTab(id, zUpdate.content, coMovingIds)
+                    allLinkNodes.push(...linkNodes)
+                    allJunctionNodes.push(...junctionNodes)
+                    const remainingUpdates = updates.filter(u => u.property !== 'z')
+                    if (remainingUpdates.length > 0) {
+                        await this.updateNode(id, remainingUpdates)
+                    }
+                } else {
+                    await this.updateNode(id, updates)
+                }
+            }
+            const summarize = n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) })
+            result.data = [
+                ...params.nodes.map(({ id }) => summarize(this.RED.nodes.node(id))),
+                ...allLinkNodes.map(summarize),
+                ...allJunctionNodes.map(summarize)
+            ]
             result.success = true
         }
             break
