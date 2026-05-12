@@ -1,3 +1,5 @@
+# CHANGELOG
+
 ## [0.14.0](https://github.com/FlowFuse/nr-assistant/compare/v0.13.1...v0.14.0) (2026-05-07)
 
  - feat(actions): add automation/open-palette-manager action (#314) @andypalmi
@@ -10,7 +12,7 @@
  - chore(deps): bump hono from 4.12.14 to 4.12.18 (#308) @app/dependabot
  - build(deps): bump protobufjs from 7.5.3 to 7.5.5 (#272) @app/dependabot
 
-## 0.13.0
+## [0.13.0](https://github.com/FlowFuse/nr-assistant/compare/v0.12.0...v0.13.0) (2026-05-06)
 
  - ci: Use new project-automation workflow (#303)
  - ci: Replace PAT with GitHub Application token in `Projects automations` workflow (#300)
@@ -53,7 +55,7 @@
  - Update lint scripts to include all subdirectories (#255) @Steve-Mcl
  - Use git ref_name for version instead of npm info (#252) @allthedoll
 
-## 0.12.0
+## [0.12.0](https://github.com/FlowFuse/nr-assistant/compare/v0.11.0...v0.12.0) (2026-04-08)
 
  - Bump actions/create-github-app-token from 2.2.1 to 3.0.0 (#191)
  - Bump actions/setup-node from 6.2.0 to 6.3.0 (#177)
@@ -85,7 +87,7 @@
  - Bump hono from 4.12.3 to 4.12.5 (#166) @app/dependabot
  - Bump minimatch from 3.1.2 to 3.1.5 (#161) @app/dependabot
 
-## 0.11.0
+## [0.11.0](https://github.com/FlowFuse/nr-assistant/compare/v0.10.2...v0.11.0) (2026-02-26)
 
  - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#149)
  - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml (#148)
@@ -98,7 +100,7 @@
  - Bump hono from 4.11.7 to 4.12.0 (#152) @app/dependabot
  - Bump qs from 6.14.1 to 6.14.2 (#146) @app/dependabot
 
-## 0.10.2
+## [0.10.2](https://github.com/FlowFuse/nr-assistant/compare/v0.10.1...v0.10.2) (2026-02-12)
 
  - Bump JS-DevTools/npm-publish from 4.1.4 to 4.1.5 (#136)
  - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#141)
@@ -107,13 +109,13 @@
  - Bump @modelcontextprotocol/sdk from 1.25.3 to 1.26.0 (#138) @app/dependabot
  - Update public catalouge on release (#144) @hardillb
 
-## 0.10.1
+## [0.10.1](https://github.com/FlowFuse/nr-assistant/compare/v0.10.0...v0.10.1) (2026-01-30)
 
  - Bump hono from 4.11.5 to 4.11.7 (#129) @app/dependabot
  - Improve discoverability of supported features (#131) @Steve-Mcl
  - Replace hard coded event mapping with dynamic registrations (#132) @Steve-Mcl
 
-## 0.10.0
+## [0.10.0](https://github.com/FlowFuse/nr-assistant/compare/v0.9.0...v0.10.0) (2026-01-27)
 
  - Bump JS-DevTools/npm-publish from 4.1.3 to 4.1.4 (#110)
  - Bump actions/checkout from 6.0.1 to 6.0.2 (#124)
@@ -122,7 +124,7 @@
  - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#121)
  - Add selection handling: `view:selection-changed` notifier and `get-selection` handler (#125) @cstns
 
-## 0.9.0
+## [0.9.0](https://github.com/FlowFuse/nr-assistant/compare/v0.8.0...v0.9.0) (2026-01-24)
 
  - Update dependencies (#119) @Steve-Mcl
  - Bump actions/setup-node from 6.1.0 to 6.2.0 (#113)
@@ -131,7 +133,7 @@
  - Expose installed packages to flowfuse expert (#114) @cstns
  - ci: Enable SAST (#109) @ppawlowski
 
-## 0.8.0
+## [0.8.0](https://github.com/FlowFuse/nr-assistant/compare/v0.7.0...v0.8.0) (2026-01-14)
 
 - Bump JS-DevTools/npm-publish from 4.1.1 to 4.1.3 (#105)
 - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml (#96)
@@ -143,7 +145,7 @@
 - Bump flowfuse/github-actions-workflows/.github/workflows/publish_node_package.yml from 0.44.0 to 0.45.0 (#98) @app/dependabot
 - Bump flowfuse/github-actions-workflows/.github/workflows/build_node_package.yml from 0.44.0 to 0.45.0 (#97) @app/dependabot
 
-## 0.7.0
+## [0.7.0](https://github.com/FlowFuse/nr-assistant/compare/v0.6.0...v0.7.0) (2025-12-09)
 
  - Allow the assistant to be installed in standalone Node-RED instances (#89) @knolleary
 
@@ -161,33 +163,33 @@
  - Bump body-parser from 2.2.0 to 2.2.1 (#88) @app/dependabot
  - Bump js-yaml from 4.1.0 to 4.1.1 (#86) @app/dependabot
 
-## 0.6.0
+## [0.6.0](https://github.com/FlowFuse/nr-assistant/compare/v0.5.0...v0.6.0) (2025-09-05)
  - Fix relative script source path (#77) @Steve-Mcl
  - Add inline completions feature (#75) @Steve-Mcl
 
-## 0.5.0
+## [0.5.0](https://github.com/FlowFuse/nr-assistant/compare/v0.4.0...v0.5.0) (2025-08-28)
  - Bump actions/checkout from 4.2.2 to 5.0.0 (#69)
  - Bump flowfuse/github-actions-workflows from 0.40.0 to 0.42.0 (#68)
  - Add tables codelens feature (#72) @Steve-Mcl
 
-## 0.4.0
+## [0.4.0](https://github.com/FlowFuse/nr-assistant/compare/v0.3.0...v0.4.0) (2025-07-30)
  - update package for 0.4.0 release
  - Bump flowfuse/github-actions-workflows from 0.39.0 to 0.40.0 (#60)
  - Update imports (#64) @Steve-Mcl
  - Implement node suggestions (#62) @Steve-Mcl
  - Add copy to clipboard and generate comment node to explain dialog (#61) @Steve-Mcl
 
-## 0.3.0
+## [0.3.0](https://github.com/FlowFuse/nr-assistant/compare/v0.2.1...v0.3.0) (2025-06-27)
  - Change assistant button to menu for exposing new Flows Explainer by @Steve-Mcl in #53
  - Add menu shortcuts for menu items by @Steve-Mcl in #54
  - Show flow explanation in dialog by @Steve-Mcl in #52
  - Add codelens for CSS and DB2 ui-template by @Steve-Mcl in #56
 
-## 0.2.1
+## [0.2.1](https://github.com/FlowFuse/nr-assistant/compare/v0.2.0...v0.2.1) (2025-06-12)
  - Improve README with visuals of what it does by @Steve-Mcl in #49
  - V0.2.1 by @Steve-Mcl in #50
 
-## 0.2.0
+## [0.2.0](https://github.com/FlowFuse/nr-assistant/compare/v0.1.3...v0.2.0) (2025-06-11)
 
  - Bump flowfuse/github-actions-workflows from 0.19.0 to 0.28.0 by @dependabot in #32
  - Bump flowfuse/github-actions-workflows from 0.28.0 to 0.29.0 by @dependabot in #33
@@ -202,17 +204,17 @@
  - Add initial MCP support by @Steve-Mcl in #44
  - V0.2.0 by @Steve-Mcl in #47
 
-## 0.1.3
+## [0.1.3](https://github.com/FlowFuse/nr-assistant/compare/v0.1.2...v0.1.3) (2024-07-17)
 
  - Fix icon on device agent by @Steve-Mcl in #29
  - bump for 0.1.3 by @Steve-Mcl in #30
 
-## 0.1.2
+## [0.1.2](https://github.com/FlowFuse/nr-assistant/compare/v0.1.1...v0.1.2) (2024-07-16)
 
  - Fix height of new icon on NR3.x by @Steve-Mcl in #26
  - bump for 0.1.2 by @Steve-Mcl in #27
 
-## 0.1.1
+## [0.1.1](https://github.com/FlowFuse/nr-assistant/compare/v0.1.0...v0.1.1) (2024-07-16)
 
  - ci: Add build and publish nightly package workflow by @ppawlowski in #7
  - Bump tibdex/github-app-token from 1 to 2 by @dependabot in #11
@@ -223,7 +225,7 @@
  - Add comma to settings.js by @kazuhitoyokoi in #22
  - Improved messaging for error responses by @Steve-Mcl in #24
 
-## 0.1.0
+## 0.1.0 (2024-07-03)
 
  - add automations by @Steve-Mcl in #1
  - Bump JS-DevTools/npm-publish from 2 to 3 by @dependabot in #5
