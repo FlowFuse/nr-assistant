@@ -609,13 +609,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Move a node to a different tab, creating link in/out pairs for any cross-tab wires.
-     * Uses core:split-wires-with-junctions first when multiple upstream or downstream nodes exist,
-     * then core:split-wire-with-link-nodes to create the link pairs. The node and its adjacent
-     * link nodes are moved to the target tab via RED.nodes.moveNodeToTab.
+     * Uses core:split-wires-with-junctions first only for fan-in (multiple inbound) or fan-out
+     * (multiple wires from the same output port), then core:split-wire-with-link-nodes for the
+     * remaining single wires. The node and its adjacent link nodes are moved to the target tab.
      * @param {string} id - node ID to move
      * @param {string} targetTabId - target tab ID
+     * @param {Set<string>} [coMovingIds] - IDs of all nodes being moved to the same tab in this batch;
+     *   wires between co-moving nodes are kept intact (no splitting).
      */
-    _moveNodeToTab (id, targetTabId) {
+    _moveNodeToTab (id, targetTabId, coMovingIds = new Set()) {
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
@@ -626,20 +628,30 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Show source tab so link nodes are created on the correct workspace
         this.RED.workspaces.show(node.z)
 
-        // Use getNodes for upstream/downstream counts (excludes self from upstream result)
-        const upstreamNodes = (this.getNodes(id, 'upstream') || []).filter(n => n.id !== id)
-        const downstreamNodeIds = (node.wires || []).flat()
-        const downstreamNodes = this.getNodes(downstreamNodeIds) || []
-
         // Get wire objects for the core actions (PORT_TYPE_INPUT = 1, PORT_TYPE_OUTPUT = 0)
         let inboundWires = this.RED.nodes.getNodeLinks(id, 1)
         let outboundWires = this.RED.nodes.getNodeLinks(id, 0)
 
-        // Add junctions first when multiple upstream or downstream nodes share a wire boundary
+        // Exclude wires to/from co-moving nodes — both ends land on the same tab, no cross-tab split needed.
+        const externalInbound = inboundWires.filter(l => !coMovingIds.has(l.source.id))
+        const externalOutbound = outboundWires.filter(l => !coMovingIds.has(l.target.id))
+
+        // Add junctions only where there is actual fan-in or fan-out on a single port.
+        // Fan-in: multiple external wires arriving at the input. Fan-out: multiple external wires from the same output port.
         let junctionNodes = []
-        if (upstreamNodes.length > 1 || downstreamNodes.length > 1) {
+        const outboundByPort = {}
+        for (const w of externalOutbound) {
+            const port = w.sourcePort ?? 0
+            if (!outboundByPort[port]) outboundByPort[port] = []
+            outboundByPort[port].push(w)
+        }
+        const wiresNeedingJunction = [
+            ...(externalInbound.length > 1 ? externalInbound : []),
+            ...Object.values(outboundByPort).filter(g => g.length > 1).flat()
+        ]
+        if (wiresNeedingJunction.length > 0) {
             this.RED.actions.invoke('core:split-wires-with-junctions', {
-                wires: [...inboundWires, ...outboundWires]
+                wires: wiresNeedingJunction
             })
             // Re-fetch wires after junction insertion
             inboundWires = this.RED.nodes.getNodeLinks(id, 1)
@@ -652,13 +664,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
 
         // Existing adjacent link nodes (from a previous tab move) are moved directly — no new pair needed
-        const existingLinkIns = inboundWires.filter(l => l.source.type === 'link in').map(l => l.source)
-        const existingLinkOuts = outboundWires.filter(l => l.target.type === 'link out').map(l => l.target)
+        const existingLinkIns = inboundWires.filter(l => l.source.type === 'link in' && !coMovingIds.has(l.source.id)).map(l => l.source)
+        const existingLinkOuts = outboundWires.filter(l => l.target.type === 'link out' && !coMovingIds.has(l.target.id)).map(l => l.target)
 
-        // Only split wires where the adjacent node is not already a link node
+        // Only split external wires where the adjacent node is not already a link node
         const wiresToSplit = [
-            ...inboundWires.filter(l => l.source.type !== 'link in'),
-            ...outboundWires.filter(l => l.target.type !== 'link out')
+            ...inboundWires.filter(l => !coMovingIds.has(l.source.id) && l.source.type !== 'link in'),
+            ...outboundWires.filter(l => !coMovingIds.has(l.target.id) && l.target.type !== 'link out')
         ]
 
         const linkNodesToMove = [...existingLinkIns, ...existingLinkOuts]
@@ -1402,12 +1414,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
+            // Pre-compute co-moving sets: nodes being moved to the same target tab in this batch.
+            // Wires between co-moving nodes are kept intact — no splitting needed.
+            const tabMoveGroups = new Map()
+            for (const { id, updates = [] } of params.nodes) {
+                const zUpdate = updates.find(u => u.property === 'z' && typeof u.content === 'string')
+                if (zUpdate) {
+                    if (!tabMoveGroups.has(zUpdate.content)) tabMoveGroups.set(zUpdate.content, new Set())
+                    tabMoveGroups.get(zUpdate.content).add(id)
+                }
+            }
             const allLinkNodes = []
             const allJunctionNodes = []
             for (const { id, updates = [] } of params.nodes) {
                 const zUpdate = updates.find(u => u.property === 'z' && typeof u.content === 'string')
                 if (zUpdate) {
-                    const { linkNodes, junctionNodes } = this._moveNodeToTab(id, zUpdate.content)
+                    const coMovingIds = tabMoveGroups.get(zUpdate.content)
+                    const { linkNodes, junctionNodes } = this._moveNodeToTab(id, zUpdate.content, coMovingIds)
                     allLinkNodes.push(...linkNodes)
                     allJunctionNodes.push(...junctionNodes)
                     const remainingUpdates = updates.filter(u => u.property !== 'z')

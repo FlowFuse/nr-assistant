@@ -1886,10 +1886,6 @@ describeMain('expertAutomations', () => {
                     const upstreamNode = { id: 'up1', type: 'inject', z: 'tab-a' }
                     const downstreamNode = { id: 'dn1', type: 'debug', z: 'tab-a' }
                     const node = setupTabChangeNode({ wires: [['dn1']] })
-                    // getNodes(id, 'upstream') via getAllFlowNodes: 1 upstream
-                    mockRED.nodes.getAllFlowNodes.withArgs(node, 'up').returns([node, upstreamNode])
-                    // getNodes(['dn1']) via node lookup
-                    mockRED.nodes.node.withArgs('dn1').returns(downstreamNode)
 
                     const inboundWire = { source: upstreamNode, sourcePort: 0, target: node }
                     const outboundWire = { source: node, sourcePort: 0, target: downstreamNode }
@@ -1935,8 +1931,6 @@ describeMain('expertAutomations', () => {
                     const linkIn = { id: 'li-existing', type: 'link in', z: 'tab-a', links: ['lo-existing'] }
                     const linkOut = { id: 'lo-existing', type: 'link out', z: 'tab-a', links: ['li-existing'] }
                     const node = setupTabChangeNode()
-                    // No upstream reachable via wires (link nodes break graph traversal)
-                    mockRED.nodes.getAllFlowNodes.withArgs(node, 'up').returns([node])
 
                     // Both adjacent nodes are already link nodes
                     mockRED.nodes.getNodeLinks.onCall(0).returns([{ source: linkIn, sourcePort: 0, target: node }])
@@ -1964,14 +1958,11 @@ describeMain('expertAutomations', () => {
                     dataIds.should.containEql('lo-existing')
                 })
 
-                it('should add junctions first when multiple upstream nodes share the node', async () => {
+                it('should add junctions only for fan-in wires when multiple upstream nodes share the input', async () => {
                     const up1 = { id: 'up1', type: 'inject', z: 'tab-a' }
                     const up2 = { id: 'up2', type: 'inject', z: 'tab-a' }
                     const dn1 = { id: 'dn1', type: 'debug', z: 'tab-a' }
                     const node = setupTabChangeNode({ wires: [['dn1']] })
-                    // getNodes(id, 'upstream'): 2 upstream nodes
-                    mockRED.nodes.getAllFlowNodes.withArgs(node, 'up').returns([node, up1, up2])
-                    mockRED.nodes.node.withArgs('dn1').returns(dn1)
 
                     const inboundWire1 = { source: up1, sourcePort: 0, target: node }
                     const inboundWire2 = { source: up2, sourcePort: 0, target: node }
@@ -1997,12 +1988,12 @@ describeMain('expertAutomations', () => {
                     }, result)
 
                     result.should.have.property('success', true)
-                    // Junctions invoked with original wires
+                    // Junction invoked only with the fan-in inbound wires, not the single outbound wire
                     const junctionCalls = mockRED.actions.invoke.args.filter(a => a[0] === 'core:split-wires-with-junctions')
                     junctionCalls.length.should.equal(1)
                     junctionCalls[0][1].wires.should.containEql(inboundWire1)
                     junctionCalls[0][1].wires.should.containEql(inboundWire2)
-                    junctionCalls[0][1].wires.should.containEql(outboundWire)
+                    junctionCalls[0][1].wires.should.not.containEql(outboundWire)
                     // Link split invoked after junctions
                     const linkCalls = mockRED.actions.invoke.args.filter(a => a[0] === 'core:split-wire-with-link-nodes')
                     linkCalls.length.should.equal(1)
@@ -2021,11 +2012,6 @@ describeMain('expertAutomations', () => {
                     const dn1 = { id: 'dn1', type: 'debug', z: 'tab-a' }
                     const dn2 = { id: 'dn2', type: 'debug', z: 'tab-a' }
                     const node = setupTabChangeNode({ wires: [['dn1', 'dn2']] })
-                    // getNodes(id, 'upstream'): 1 upstream
-                    mockRED.nodes.getAllFlowNodes.withArgs(node, 'up').returns([node, up1])
-                    // getNodes(['dn1','dn2']) via node lookup
-                    mockRED.nodes.node.withArgs('dn1').returns(dn1)
-                    mockRED.nodes.node.withArgs('dn2').returns(dn2)
 
                     const inboundWire = { source: up1, sourcePort: 0, target: node }
                     const outboundWire1 = { source: node, sourcePort: 0, target: dn1 }
@@ -2068,6 +2054,76 @@ describeMain('expertAutomations', () => {
                     await should(expertAutomations.invokeAction('automation/update-nodes', {
                         params: { nodes: [{ id: 'n1', updates: [{ property: 'z', op: 'replace', content: 'nonexistent' }] }] }
                     }, result)).rejectedWith(/Workspace nonexistent not found/)
+                })
+
+                it('should not split wires between nodes being moved to the same tab together', async () => {
+                    // n1 → n2, both moving to tab-b in one batch
+                    const n1 = {
+                        id: 'n1',
+                        type: 'function',
+                        z: 'tab-a',
+                        x: 100,
+                        y: 100,
+                        wires: [['n2']],
+                        changed: false,
+                        dirty: false
+                    }
+                    const n2 = {
+                        id: 'n2',
+                        type: 'debug',
+                        z: 'tab-a',
+                        x: 300,
+                        y: 100,
+                        wires: [],
+                        changed: false,
+                        dirty: false
+                    }
+                    mockRED.nodes.node.withArgs('n1').returns(n1)
+                    mockRED.nodes.node.withArgs('n2').returns(n2)
+                    mockRED.nodes.group.withArgs('n1').returns(null)
+                    mockRED.nodes.group.withArgs('n2').returns(null)
+                    mockRED.nodes.workspace = sinon.stub()
+                    mockRED.nodes.workspace.withArgs('tab-a').returns({ id: 'tab-a' })
+                    mockRED.nodes.workspace.withArgs('tab-b').returns({ id: 'tab-b' })
+                    mockRED.nodes.moveNodeToTab = sinon.stub()
+                    mockRED.actions = { invoke: sinon.stub() }
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.view.redraw = sinon.stub()
+
+                    const wire = { source: n1, sourcePort: 0, target: n2 }
+                    // For n1: inbound=[], outbound=[n1→n2]
+                    // For n2: inbound=[n1→n2], outbound=[]
+                    mockRED.nodes.getNodeLinks = sinon.stub()
+                    mockRED.nodes.getNodeLinks.onCall(0).returns([]) // n1 inbound
+                    mockRED.nodes.getNodeLinks.onCall(1).returns([wire]) // n1 outbound (co-moving → skipped)
+                    mockRED.nodes.getNodeLinks.onCall(2).returns([wire]) // n2 inbound (co-moving → skipped)
+                    mockRED.nodes.getNodeLinks.onCall(3).returns([]) // n2 outbound
+
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: {
+                            nodes: [
+                                { id: 'n1', updates: [{ property: 'z', op: 'replace', content: 'tab-b' }] },
+                                { id: 'n2', updates: [{ property: 'z', op: 'replace', content: 'tab-b' }] }
+                            ]
+                        }
+                    }, result)
+
+                    result.should.have.property('success', true)
+                    // No junctions or link nodes — both ends of the wire land on the same tab
+                    const junctionCalls = mockRED.actions.invoke.args.filter(a => a[0] === 'core:split-wires-with-junctions')
+                    junctionCalls.length.should.equal(0)
+                    const linkCalls = mockRED.actions.invoke.args.filter(a => a[0] === 'core:split-wire-with-link-nodes')
+                    linkCalls.length.should.equal(0)
+                    // Both nodes moved to tab-b, no extra link nodes
+                    const movedIds = mockRED.nodes.moveNodeToTab.args.map(a => a[0].id)
+                    movedIds.should.containEql('n1')
+                    movedIds.should.containEql('n2')
+                    mockRED.nodes.moveNodeToTab.callCount.should.equal(2)
+                    // Result data contains both nodes
+                    const dataIds = result.data.map(n => n.id)
+                    dataIds.should.containEql('n1')
+                    dataIds.should.containEql('n2')
                 })
 
                 it('should apply non-z updates alongside a tab change', async () => {
