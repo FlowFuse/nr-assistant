@@ -1051,7 +1051,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
-            it('should reject links property in add-nodes', async () => {
+            it('should reject links property in add-nodes for link node types', async () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'lo1', type: 'link out', z: 'tab1', links: ['li1'] }] }
@@ -1059,6 +1059,15 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"links" cannot be set directly/)
+            })
+            it('should not reject links property in add-nodes for non-link node types', async () => {
+                const result = {}
+                try {
+                    await expertAutomations.invokeAction('automation/add-nodes', {
+                        params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', links: ['something'] }] }
+                    }, result)
+                } catch (_) { /* may fail for unrelated reasons — only check no FORBIDDEN_PROPERTY */ }
+                result.should.not.have.property('errorCode', 'FORBIDDEN_PROPERTY')
             })
             it('should reject g property in add-nodes', async () => {
                 const result = {}
@@ -1779,7 +1788,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
-            it('should reject links property in update-node', async () => {
+            it('should reject links property in update-node for link node types', async () => {
                 const node = { id: 'lo1', type: 'link out', links: ['li1'], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('lo1').returns(node)
                 mockRED.nodes.group.withArgs('lo1').returns(null)
@@ -1790,6 +1799,21 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"links" cannot be set directly/)
+            })
+            it('should not reject links property in update-node for non-link node types', async () => {
+                const node = { id: 'n1', type: 'inject', links: ['something'], changed: false, dirty: false }
+                mockRED.nodes.node.withArgs('n1').returns(node)
+                mockRED.nodes.group.withArgs('n1').returns(null)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
+                mockRED.view.redraw = sinon.stub()
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { links: ['something-else'] } }
+                }, result)
+                result.should.not.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('success', true)
             })
             it('should reject g property in update-node', async () => {
                 const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }
