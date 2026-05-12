@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## [0.15.0](https://github.com/FlowFuse/nr-assistant/compare/v0.14.0...v0.15.0) (2026-05-12)
+
+
+### Features
+
+* **automation:** add _summarizeSubflow with port counts ([5abae8e](https://github.com/FlowFuse/nr-assistant/commit/5abae8eb69095b0f60ea0f9fb052870c121c83db))
+* **automation:** add automation/manage-groups action ([4fd1f68](https://github.com/FlowFuse/nr-assistant/commit/4fd1f6839b8d5cf797365a65457da328713d4026))
+* **automation:** add automation/manage-groups action ([#323](https://github.com/FlowFuse/nr-assistant/issues/323)) ([3766f80](https://github.com/FlowFuse/nr-assistant/commit/3766f8080173c715142c9adc38908d27e78449f9))
+* **automation:** declare full param in get-workspace-nodes schema ([4136556](https://github.com/FlowFuse/nr-assistant/commit/413655673f937a9d5ed69fb5c3772d7222e72417))
+* **automation:** handle tab move in update-nodes via _moveNodeToTab ([24e9e05](https://github.com/FlowFuse/nr-assistant/commit/24e9e057f1b928d76e0520c0d104b03b7a22b328))
+* **automation:** hard-reject group type in add-nodes, update-node, and remove-nodes ([#326](https://github.com/FlowFuse/nr-assistant/issues/326)) ([e131c36](https://github.com/FlowFuse/nr-assistant/commit/e131c366301d26dadf701b93f9cc3d72dd628835))
+* **automation:** hard-reject group type in add-nodes, update-node, remove-nodes ([e5fb30c](https://github.com/FlowFuse/nr-assistant/commit/e5fb30c06f4eb865bc8017b509548977dbdada6b)), closes [#321](https://github.com/FlowFuse/nr-assistant/issues/321)
+* **automation:** hard-reject links property in update-node and add-nodes ([dd82e36](https://github.com/FlowFuse/nr-assistant/commit/dd82e364bb6a0eda86fb1ad975b3722142604cc8))
+* **automation:** hard-reject wires property in add-nodes ([b79c183](https://github.com/FlowFuse/nr-assistant/commit/b79c183e547fb9c14bcf189eab06e245ece7bccd))
+* **automation:** hard-reject wires property in update-node ([86d8f83](https://github.com/FlowFuse/nr-assistant/commit/86d8f8377b81fe631874b4f73486258496cc9f16)), closes [#320](https://github.com/FlowFuse/nr-assistant/issues/320)
+* **automation:** hard-reject wires property in update-node ([#328](https://github.com/FlowFuse/nr-assistant/issues/328)) ([11df41b](https://github.com/FlowFuse/nr-assistant/commit/11df41b8973bd4113214ff4f490bd65cf2d6f91f))
+* **automation:** include wires, links, and group node IDs in slim flow summary ([54d2c37](https://github.com/FlowFuse/nr-assistant/commit/54d2c37b18e0997aad915eb5b9b7f9d3120aac13))
+* **automation:** migrate update-node to update-nodes (array params) ([#329](https://github.com/FlowFuse/nr-assistant/issues/329)) ([a95ee5e](https://github.com/FlowFuse/nr-assistant/commit/a95ee5e37c61bc105e058c80cc2d0fa11648f3ef))
+* **automation:** migrate update-node to update-nodes with array params ([391cd57](https://github.com/FlowFuse/nr-assistant/commit/391cd57559de7afa4dbe13dcaef834008c68e924))
+* **automation:** migrate update-nodes to unified updates schema ([7bd9c49](https://github.com/FlowFuse/nr-assistant/commit/7bd9c4942b62f95691aa8dd0d84c23bd19a853ea))
+* **automation:** reject direct g property in add-nodes and update-node ([c520293](https://github.com/FlowFuse/nr-assistant/commit/c5202932e04cddd5cdcd1d1765dc436d596888fa))
+* **automation:** restrict links rejection to link node types only ([a392980](https://github.com/FlowFuse/nr-assistant/commit/a392980adcaae28a045f630d62aa94d599be9f08))
+* **automation:** slim get-workspace-nodes response by default ([812f23a](https://github.com/FlowFuse/nr-assistant/commit/812f23a4107fd47dbb1c68595e0340de6d79c7cd))
+* **automation:** slim get-workspace-nodes response by default ([#327](https://github.com/FlowFuse/nr-assistant/issues/327)) ([5d7a461](https://github.com/FlowFuse/nr-assistant/commit/5d7a461a037c1e94a0edde46dd704a98baabdb31))
+* **automation:** structured error codes for group operation errors ([4fd7d78](https://github.com/FlowFuse/nr-assistant/commit/4fd7d782d36f22b412677bdc296b648b613a0176))
+* **automation:** update wire rejection messages to action-agnostic wording ([69e0535](https://github.com/FlowFuse/nr-assistant/commit/69e0535b376502b321331911bed20e821d4f89d3))
+* **automation:** use _summarizeWorkspace for tab items in _summarizeFlowItem ([d71183f](https://github.com/FlowFuse/nr-assistant/commit/d71183fedc7831afcf4249e501c2e0c1f4a2752a))
+
+
+### Bug Fixes
+
+* **automation:** move node to tab via link nodes instead of direct z change ([#336](https://github.com/FlowFuse/nr-assistant/issues/336)) ([b73b0e2](https://github.com/FlowFuse/nr-assistant/commit/b73b0e2631877d09390054b98c0c6a3d6039a7a9))
+* **automation:** skip junctions and link splits for co-moving nodes and single-wire connections ([37ffb7a](https://github.com/FlowFuse/nr-assistant/commit/37ffb7ad50da2617383c5113d0713f3826729e7d))
+* **automation:** use core:delete-selection for remove-nodes and reject grouped nodes ([b670ba5](https://github.com/FlowFuse/nr-assistant/commit/b670ba555ff3220f36b294633b44f127e76eb7de))
+
 ## [0.14.0](https://github.com/FlowFuse/nr-assistant/compare/v0.13.1...v0.14.0) (2026-05-07)
 
  - feat(actions): add automation/open-palette-manager action (#314) @andypalmi
