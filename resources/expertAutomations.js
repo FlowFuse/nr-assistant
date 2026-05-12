@@ -609,18 +609,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Update properties of an existing node in place.
-     * Supports full property replacement via `properties` and/or line-based
-     * partial edits via `patches`. At least one must be provided.
+     * Accepts a unified updates array where each item targets a property.
+     * Omit start/end for full replacement; provide start for line-based edits.
      * @param {string} id - node ID
-     * @param {Object} [properties] - key-value pairs to merge into the node
-     * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
+     * @param {Array} updates - [{ property, op, start?, end?, content? }]
      */
-    async updateNode (id, properties, patches) {
-        const hasProperties = properties !== undefined && properties !== null
-        const hasPatches = Array.isArray(patches) && patches.length > 0
-        if (hasProperties && Object.keys(properties).length === 0) {
-            throw new Error('"properties" must not be empty')
+    async updateNode (id, updates) {
+        const properties = {}
+        const patches = []
+        for (const update of updates) {
+            if (typeof update.start === 'number') {
+                patches.push({
+                    property: update.property,
+                    op: update.op,
+                    start: update.start,
+                    ...(update.end !== undefined ? { end: update.end } : {}),
+                    ...(update.content !== undefined ? { content: update.content } : {})
+                })
+            } else {
+                properties[update.property] = update.content
+            }
         }
+        const hasProperties = Object.keys(properties).length > 0
+        const hasPatches = patches.length > 0
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
@@ -1315,26 +1326,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
             for (const { id, updates = [] } of params.nodes) {
-                const properties = {}
-                const patches = []
-                for (const update of updates) {
-                    if (typeof update.start === 'number') {
-                        patches.push({
-                            property: update.property,
-                            op: update.op,
-                            start: update.start,
-                            ...(update.end !== undefined ? { end: update.end } : {}),
-                            ...(update.content !== undefined ? { content: update.content } : {})
-                        })
-                    } else {
-                        properties[update.property] = update.content
-                    }
-                }
-                await this.updateNode(
-                    id,
-                    Object.keys(properties).length > 0 ? properties : undefined,
-                    patches.length > 0 ? patches : undefined
-                )
+                await this.updateNode(id, updates)
             }
             result.data = params.nodes.map(({ id }) => {
                 const updatedNode = this.RED.nodes.node(id)
