@@ -6,7 +6,7 @@ const GET_NODES = 'automation/get-nodes'
 const EDIT_NODE = 'automation/open-node-edit'
 const SEARCH = 'automation/search'
 const ADD_FLOW_TAB = 'automation/add-flow-tab'
-const UPDATE_NODE = 'automation/update-node'
+const UPDATE_NODES = 'automation/update-nodes'
 const SHOW_WORKSPACE = 'automation/show-workspace'
 const GET_FLOW = 'automation/get-workspace-nodes'
 const LIST_WORKSPACES = 'automation/list-workspaces'
@@ -40,7 +40,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |EDIT_NODE
  *   |SEARCH
  *   |ADD_FLOW_TAB
- *   |UPDATE_NODE
+ *   |UPDATE_NODES
  *   |SHOW_WORKSPACE
  *   |GET_FLOW
  *   |LIST_WORKSPACES
@@ -147,33 +147,42 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [UPDATE_NODE]: {
+        [UPDATE_NODES]: {
             params: {
                 type: 'object',
                 properties: {
-                    id: { type: 'string', description: 'ID of the node to update' },
-                    properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
-                    patches: {
+                    nodes: {
                         type: 'array',
-                        description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                        description: 'Array of node updates to apply sequentially',
                         items: {
                             type: 'object',
                             properties: {
-                                property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
-                                op: {
-                                    type: 'string',
-                                    enum: ['replace', 'insert', 'delete'],
-                                    description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
-                                },
-                                start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
-                                content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                id: { type: 'string', description: 'ID of the node to update' },
+                                updates: {
+                                    type: 'array',
+                                    description: 'List of property updates. For full replacement omit start/end. For line-based edits provide start (and end for replace/delete). All line numbers reference the original content before any updates in the list are applied.',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            property: { type: 'string', description: 'Dot-separated property path (e.g. "func", "name", "rules.0.to")' },
+                                            op: {
+                                                type: 'string',
+                                                enum: ['replace', 'insert', 'delete'],
+                                                description: 'replace: set property value (omit start/end) or replace lines (with start/end). insert: insert lines before start. delete: remove lines start..end.'
+                                            },
+                                            start: { type: 'number', description: 'Start line (1-indexed, inclusive). Omit for full property replacement.' },
+                                            end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for line-based replace and delete.' },
+                                            content: { description: 'Value to set. For full replacement: any JSON type. For line-based edits: a string.' }
+                                        },
+                                        required: ['property', 'op']
+                                    }
+                                }
                             },
-                            required: ['property', 'op', 'start']
+                            required: ['id']
                         }
                     }
                 },
-                required: ['id']
+                required: ['nodes']
             }
         },
         [SHOW_WORKSPACE]: {
@@ -600,18 +609,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Update properties of an existing node in place.
-     * Supports full property replacement via `properties` and/or line-based
-     * partial edits via `patches`. At least one must be provided.
+     * Accepts a unified updates array where each item targets a property.
+     * Omit start/end for full replacement; provide start for line-based edits.
      * @param {string} id - node ID
-     * @param {Object} [properties] - key-value pairs to merge into the node
-     * @param {Array} [patches] - line-based partial edits: { property, op, start, end?, content? }
+     * @param {Array} updates - [{ property, op, start?, end?, content? }]
      */
-    async updateNode (id, properties, patches) {
-        const hasProperties = properties !== undefined && properties !== null
-        const hasPatches = Array.isArray(patches) && patches.length > 0
-        if (hasProperties && Object.keys(properties).length === 0) {
-            throw new Error('"properties" must not be empty')
+    async updateNode (id, updates) {
+        const properties = {}
+        const patches = []
+        for (const update of updates) {
+            if (typeof update.start === 'number') {
+                patches.push({
+                    property: update.property,
+                    op: update.op,
+                    start: update.start,
+                    ...(update.end !== undefined ? { end: update.end } : {}),
+                    ...(update.content !== undefined ? { content: update.content } : {})
+                })
+            } else {
+                properties[update.property] = update.content
+            }
         }
+        const hasProperties = Object.keys(properties).length > 0
+        const hasPatches = patches.length > 0
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
@@ -1276,35 +1296,42 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case UPDATE_NODE: {
-            if (this.RED.nodes.group(params.id)) {
-                result.error = `Node ${params.id} is a group — group nodes cannot be updated via this action`
+        case UPDATE_NODES: {
+            const groupIds = (params.nodes || []).filter(n => this.RED.nodes.group(n.id)).map(n => n.id)
+            if (groupIds.length > 0) {
+                result.error = `Groups [${groupIds.join(', ')}] are group nodes — group nodes cannot be updated via this action`
                 result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
                 result.success = false
                 break
             }
-            if (params.properties && 'wires' in params.properties) {
-                result.error = `Node ${params.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+            const wiresEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'wires'))
+            if (wiresEntry) {
+                result.error = `Node ${wiresEntry.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
-            if (params.properties && 'links' in params.properties && LINK_NODE_TYPES.includes(this.RED.nodes.node(params.id)?.type)) {
-                result.error = `Node ${params.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
+            const linksEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'links') && LINK_NODE_TYPES.includes(this.RED.nodes.node(n.id)?.type))
+            if (linksEntry) {
+                result.error = `Node ${linksEntry.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
-            if (params.properties && 'g' in params.properties) {
-                result.error = `Node ${params.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
+            const gEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'g'))
+            if (gEntry) {
+                result.error = `Node ${gEntry.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
-            await this.updateNode(params.id, params.properties, params.patches)
-            const updatedNode = this.RED.nodes.node(params.id)
-            result.data = this._summarizeNode(updatedNode)
-            result.validation = this._getNodeValidation(updatedNode)
+            for (const { id, updates = [] } of params.nodes) {
+                await this.updateNode(id, updates)
+            }
+            result.data = params.nodes.map(({ id }) => {
+                const updatedNode = this.RED.nodes.node(id)
+                return { ...this._summarizeNode(updatedNode), validation: this._getNodeValidation(updatedNode) }
+            })
             result.success = true
         }
             break

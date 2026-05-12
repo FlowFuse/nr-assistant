@@ -82,7 +82,7 @@ describeMain('expertAutomations', () => {
                 'automation/open-node-edit',
                 'automation/search',
                 'automation/add-flow-tab',
-                'automation/update-node',
+                'automation/update-nodes',
                 'automation/show-workspace',
                 'automation/get-workspace-nodes',
                 'automation/list-workspaces',
@@ -1319,7 +1319,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('flows').which.deepEqual([])
             })
         })
-        describe('updateNode action', () => {
+        describe('updateNodes action', () => {
             it('should update node properties with history and changed flag', async () => {
                 const mockNode = { id: 'n1', name: 'old', changed: false }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
@@ -1328,8 +1328,8 @@ describeMain('expertAutomations', () => {
                 mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
                 mockRED.view.redraw = sinon.stub()
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { name: 'new' } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'name', op: 'replace', content: 'new' }] }] }
                 }, result)
                 mockNode.name.should.equal('new')
                 mockNode.changed.should.be.true()
@@ -1344,10 +1344,10 @@ describeMain('expertAutomations', () => {
                 mockRED.view.updateActive.calledOnce.should.be.true()
                 mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
-                result.should.have.property('data').which.is.an.Object()
-                result.data.should.have.property('id', 'n1')
-                result.data.should.have.property('name', 'new')
-                result.should.have.property('validation').which.deepEqual({ valid: true })
+                result.should.have.property('data').which.is.an.Array()
+                result.data[0].should.have.property('id', 'n1')
+                result.data[0].should.have.property('name', 'new')
+                result.data[0].should.have.property('validation').which.deepEqual({ valid: true })
             })
             it('should return validation errors after update', async () => {
                 const mockNode = { id: 'n1', repeat: 'bad', changed: false }
@@ -1357,11 +1357,11 @@ describeMain('expertAutomations', () => {
                 mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = false; n.validationErrors = ['repeat'] }) }
                 mockRED.view.redraw = sinon.stub()
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { repeat: 'bad' } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'repeat', op: 'replace', content: 'bad' }] }] }
                 }, result)
                 result.should.have.property('success', true)
-                result.should.have.property('validation').which.deepEqual({ valid: false, validationErrors: ['repeat'] })
+                result.data[0].should.have.property('validation').which.deepEqual({ valid: false, validationErrors: ['repeat'] })
             })
             it('should capture old values correctly before applying changes', async () => {
                 const mockNode = { id: 'n1', name: 'original', x: 100, changed: true }
@@ -1370,8 +1370,8 @@ describeMain('expertAutomations', () => {
                 mockRED.history = { push: sinon.stub() }
                 mockRED.view.redraw = sinon.stub()
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { name: 'updated', x: 200 } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'name', op: 'replace', content: 'updated' }, { property: 'x', op: 'replace', content: 200 }] }] }
                 }, result)
                 const historyArg = mockRED.history.push.firstCall.args[0]
                 historyArg.changes.should.deepEqual({ name: 'original', x: 100 })
@@ -1379,19 +1379,19 @@ describeMain('expertAutomations', () => {
                 mockNode.name.should.equal('updated')
                 mockNode.x.should.equal(200)
             })
-            it('should throw if properties is empty object', async () => {
+            it('should throw if updates is empty array', async () => {
                 const mockNode = { id: 'n1', changed: false }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: {} }
-                }, result)).rejectedWith(/"properties" must not be empty/)
+                await should(expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [] }] }
+                }, result)).rejectedWith(/At least one of/)
             })
             it('should throw if node not found', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'missing', properties: { name: 'x' } }
+                await should(expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'missing', updates: [{ property: 'name', op: 'replace', content: 'x' }] }] }
                 }, result)).rejectedWith(/Node missing not found/)
             })
             describe('patches', () => {
@@ -1413,8 +1413,8 @@ describeMain('expertAutomations', () => {
                 it('should replace a single line', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb\nc' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'B' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'B' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nB\nc')
                     result.should.have.property('success', true)
@@ -1422,37 +1422,39 @@ describeMain('expertAutomations', () => {
                 it('should replace a range with fewer lines', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb\nc\nd' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 3, content: 'X' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 2, end: 3, content: 'X' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nX\nd')
                 })
                 it('should replace a range with more lines', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb\nc' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'X\nY\nZ' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'X\nY\nZ' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nX\nY\nZ\nc')
                 })
                 it('should delete lines with op delete', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb\nc\nd' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'delete', start: 2, end: 3 }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'delete', start: 2, end: 3 }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nd')
                 })
                 it('should apply multiple non-overlapping patches bottom-up', async () => {
                     const mockNode = setupPatchNode()
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'func', op: 'replace', start: 1, end: 1, content: 'TOP' },
-                                { property: 'func', op: 'replace', start: 4, end: 5, content: 'BOTTOM' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'func', op: 'replace', start: 1, end: 1, content: 'TOP' },
+                                    { property: 'func', op: 'replace', start: 4, end: 5, content: 'BOTTOM' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.func.should.equal('TOP\nline2\nline3\nBOTTOM')
@@ -1460,26 +1462,32 @@ describeMain('expertAutomations', () => {
                 it('should patch different properties independently', async () => {
                     const mockNode = setupPatchNode({ template: 'h1\nh2\nh3' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'func', op: 'replace', start: 1, end: 1, content: 'FUNC' },
-                                { property: 'template', op: 'replace', start: 2, end: 2, content: 'H2' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'func', op: 'replace', start: 1, end: 1, content: 'FUNC' },
+                                    { property: 'template', op: 'replace', start: 2, end: 2, content: 'H2' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.func.should.equal('FUNC\nline2\nline3\nline4\nline5')
                     mockNode.template.should.equal('h1\nH2\nh3')
                 })
-                it('should support patches together with properties', async () => {
+                it('should support full replacement and line edits in the same node', async () => {
                     const mockNode = setupPatchNode()
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            properties: { name: 'Patched' },
-                            patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'FIRST' }]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'name', op: 'replace', content: 'Patched' },
+                                    { property: 'func', op: 'replace', start: 1, end: 1, content: 'FIRST' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.name.should.equal('Patched')
@@ -1491,8 +1499,8 @@ describeMain('expertAutomations', () => {
                 it('should record original value in history for undo', async () => {
                     const mockNode = setupPatchNode({ func: 'old\ncode' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'new' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'new' }] }] }
                     }, result)
                     mockNode.func.should.equal('new\ncode')
                     const historyArg = mockRED.history.push.firstCall.args[0]
@@ -1501,37 +1509,39 @@ describeMain('expertAutomations', () => {
                 it('should insert lines after the last line (append)', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 3, content: 'c\nd' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 3, content: 'c\nd' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nb\nc\nd')
                 })
                 it('should insert lines before the first line (prepend)', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 1, content: 'z' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 1, content: 'z' }] }] }
                     }, result)
                     mockNode.func.should.equal('z\na\nb')
                 })
                 it('should insert lines between existing lines', async () => {
                     const mockNode = setupPatchNode({ func: 'a\nb\nc' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 3, content: 'inserted' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 3, content: 'inserted' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\nb\ninserted\nc')
                 })
                 it('should replace last line and append new lines in one call', async () => {
                     const mockNode = setupPatchNode()
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'func', op: 'replace', start: 5, end: 5, content: 'return [msg, null];' },
-                                { property: 'func', op: 'insert', start: 6, content: '// appended' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'func', op: 'replace', start: 5, end: 5, content: 'return [msg, null];' },
+                                    { property: 'func', op: 'insert', start: 6, content: '// appended' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.func.should.equal('line1\nline2\nline3\nline4\nreturn [msg, null];\n// appended')
@@ -1539,13 +1549,15 @@ describeMain('expertAutomations', () => {
                 it('should prepend new lines and replace first line in one call', async () => {
                     const mockNode = setupPatchNode()
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'func', op: 'insert', start: 1, content: '// header' },
-                                { property: 'func', op: 'replace', start: 1, end: 1, content: 'FIRST' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'func', op: 'insert', start: 1, content: '// header' },
+                                    { property: 'func', op: 'replace', start: 1, end: 1, content: 'FIRST' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.func.should.equal('// header\nFIRST\nline2\nline3\nline4\nline5')
@@ -1553,40 +1565,40 @@ describeMain('expertAutomations', () => {
                 it('should patch a single-line property', async () => {
                     const mockNode = setupPatchNode({ func: 'only line' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'replaced' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'replaced' }] }] }
                     }, result)
                     mockNode.func.should.equal('replaced')
                 })
                 it('should auto-detect tab separator and preserve it', async () => {
                     const mockNode = setupPatchNode({ func: '$sum(items.price)\t* discount\t+ shipping' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: '* (discount + loyalty)' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 2, end: 2, content: '* (discount + loyalty)' }] }] }
                     }, result)
                     mockNode.func.should.equal('$sum(items.price)\t* (discount + loyalty)\t+ shipping')
                 })
                 it('should insert with tab separator when target uses tabs', async () => {
                     const mockNode = setupPatchNode({ func: 'a\tb\tc' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 4, content: 'd' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 4, content: 'd' }] }] }
                     }, result)
                     mockNode.func.should.equal('a\tb\tc\td')
                 })
                 it('should delete with tab separator when target uses tabs', async () => {
                     const mockNode = setupPatchNode({ func: 'a\tb\tc\td' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'delete', start: 2, end: 3 }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'delete', start: 2, end: 3 }] }] }
                     }, result)
                     mockNode.func.should.equal('a\td')
                 })
                 it('should use newline when value contains both tabs and newlines', async () => {
                     const mockNode = setupPatchNode({ func: 'line1\nline2\twith tab\nline3' })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'replaced' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 2, end: 2, content: 'replaced' }] }] }
                     }, result)
                     mockNode.func.should.equal('line1\nreplaced\nline3')
                 })
@@ -1595,10 +1607,12 @@ describeMain('expertAutomations', () => {
                         rules: [{ from: 'msg.payload', to: '$sum(items.price)\n* 1.0', type: 'jsonata' }]
                     })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [{ property: 'rules.0.to', op: 'replace', start: 2, end: 2, content: '* 1.2' }]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [{ property: 'rules.0.to', op: 'replace', start: 2, end: 2, content: '* 1.2' }]
+                            }]
                         }
                     }, result)
                     mockNode.rules[0].to.should.equal('$sum(items.price)\n* 1.2')
@@ -1613,13 +1627,15 @@ describeMain('expertAutomations', () => {
                         ]
                     })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
+                    await expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'rules.0.to', op: 'replace', start: 1, end: 1, content: 'LINE1' },
-                                { property: 'rules.1.to', op: 'replace', start: 2, end: 2, content: 'BBB' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'rules.0.to', op: 'replace', start: 1, end: 1, content: 'LINE1' },
+                                    { property: 'rules.1.to', op: 'replace', start: 2, end: 2, content: 'BBB' }
+                                ]
+                            }]
                         }
                     }, result)
                     mockNode.rules[0].to.should.equal('LINE1\nline2')
@@ -1629,8 +1645,8 @@ describeMain('expertAutomations', () => {
                     setupPatchNode()
                     mockRED.sidebar = { info: { refresh: sinon.stub() } }
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }] }
                     }, result)
                     mockRED.sidebar.info.refresh.calledOnce.should.be.true()
                 })
@@ -1644,8 +1660,8 @@ describeMain('expertAutomations', () => {
                     })
                     global.$ = sinon.stub().returns({ trigger: triggerStub })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }] }
                     }, result)
                     triggerStub.calledWith('click').should.be.true()
                     result.should.have.property('success', true)
@@ -1655,8 +1671,8 @@ describeMain('expertAutomations', () => {
                     setupPatchNode()
                     global.$ = sinon.stub().returns({ trigger: sinon.stub() })
                     const result = {}
-                    await expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'X' }] }] }
                     }, result)
                     global.$.called.should.be.false()
                     delete global.$
@@ -1664,143 +1680,143 @@ describeMain('expertAutomations', () => {
                 it('should throw if start > end for replace', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 5, end: 2, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 5, end: 2, content: 'x' }] }] }
                     }, result)).rejectedWith(/Invalid patch range/)
                 })
                 it('should throw if end exceeds line count', async () => {
                     setupPatchNode({ func: 'a\nb' })
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 999, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 999, content: 'x' }] }] }
                     }, result)).rejectedWith(/exceeds line count/)
                 })
                 it('should throw if property is not a string', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'x', op: 'replace', start: 1, end: 1, content: '100' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'x', op: 'replace', start: 1, end: 1, content: '100' }] }] }
                     }, result)).rejectedWith(/not a string/)
                 })
                 it('should throw on overlapping replace patches', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
                         params: {
-                            id: 'n1',
-                            patches: [
-                                { property: 'func', op: 'replace', start: 1, end: 3, content: 'a' },
-                                { property: 'func', op: 'replace', start: 2, end: 4, content: 'b' }
-                            ]
+                            nodes: [{
+                                id: 'n1',
+                                updates: [
+                                    { property: 'func', op: 'replace', start: 1, end: 3, content: 'a' },
+                                    { property: 'func', op: 'replace', start: 2, end: 4, content: 'b' }
+                                ]
+                            }]
                         }
                     }, result)).rejectedWith(/Overlapping patches/)
                 })
-                it('should throw if neither properties nor patches provided', async () => {
+                it('should throw if no updates provided', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1' }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1' }] }
                     }, result)).rejectedWith(/At least one of/)
                 })
-                it('should throw if node not found with patches', async () => {
+                it('should throw if node not found with line edits', async () => {
                     mockRED.nodes.node.returns(null)
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'missing', patches: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'missing', updates: [{ property: 'func', op: 'replace', start: 1, end: 1, content: 'x' }] }] }
                     }, result)).rejectedWith(/Node missing not found/)
                 })
                 it('should throw if start is not a positive integer', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 0, end: 1, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 0, end: 1, content: 'x' }] }] }
                     }, result)).rejectedWith(/must be a positive integer/)
                 })
                 it('should throw if insert position exceeds line count + 1', async () => {
                     setupPatchNode({ func: 'a\nb' })
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 4, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 4, content: 'x' }] }] }
                     }, result)).rejectedWith(/exceeds line count/)
                 })
                 it('should throw if replace is missing end', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, content: 'x' }] }] }
                     }, result)).rejectedWith(/requires "end"/)
                 })
                 it('should throw if replace is missing content', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'replace', start: 1, end: 1 }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'replace', start: 1, end: 1 }] }] }
                     }, result)).rejectedWith(/requires "content"/)
                 })
                 it('should throw if delete is missing end', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'delete', start: 1 }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'delete', start: 1 }] }] }
                     }, result)).rejectedWith(/requires "end"/)
                 })
                 it('should throw if insert is missing content', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'insert', start: 1 }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'insert', start: 1 }] }] }
                     }, result)).rejectedWith(/requires "content"/)
                 })
                 it('should throw on unknown op', async () => {
                     setupPatchNode()
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'func', op: 'move', start: 1 }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'func', op: 'move', start: 1 }] }] }
                     }, result)).rejectedWith(/Unknown patch op/)
                 })
                 it('should throw if nested path cannot be resolved', async () => {
                     setupPatchNode({ rules: [{ to: 'value' }] })
                     const result = {}
-                    await should(expertAutomations.invokeAction('automation/update-node', {
-                        params: { id: 'n1', patches: [{ property: 'rules.5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'rules.5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }] }
                     }, result)).rejectedWith(/resolved to/)
                 })
             })
             it('should reject group ID and return GROUP_OPERATION_REQUIRED error', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'g1', properties: { name: 'renamed' } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'g1', updates: [{ property: 'name', op: 'replace', content: 'renamed' }] }] }
                 }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
             })
-            it('should reject wires property in update-node', async () => {
-                const node = { id: 'n1', type: 'inject', wires: [['n2']], changed: false, dirty: false }
-                mockRED.nodes.node.withArgs('n1').returns(node)
+            it('should reject wires property in update-nodes', async () => {
                 mockRED.nodes.group.withArgs('n1').returns(null)
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { wires: [['n3']] } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'wires', op: 'replace', content: [['n3']] }] }] }
                 }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
-            it('should reject links property in update-node for link node types', async () => {
+            it('should reject links property in update-nodes for link node types', async () => {
                 const node = { id: 'lo1', type: 'link out', links: ['li1'], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('lo1').returns(node)
                 mockRED.nodes.group.withArgs('lo1').returns(null)
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'lo1', properties: { links: ['li2'] } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'lo1', updates: [{ property: 'links', op: 'replace', content: ['li2'] }] }] }
                 }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"links" cannot be set directly/)
             })
-            it('should not reject links property in update-node for non-link node types', async () => {
+            it('should not reject links property in update-nodes for non-link node types', async () => {
                 const node = { id: 'n1', type: 'inject', links: ['something'], changed: false, dirty: false }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 mockRED.nodes.group.withArgs('n1').returns(null)
@@ -1809,19 +1825,17 @@ describeMain('expertAutomations', () => {
                 mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
                 mockRED.view.redraw = sinon.stub()
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { links: ['something-else'] } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'links', op: 'replace', content: ['something-else'] }] }] }
                 }, result)
                 result.should.not.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('success', true)
             })
-            it('should reject g property in update-node', async () => {
-                const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }
-                mockRED.nodes.node.withArgs('n1').returns(node)
+            it('should reject g property in update-nodes', async () => {
                 mockRED.nodes.group.withArgs('n1').returns(null)
                 const result = {}
-                await expertAutomations.invokeAction('automation/update-node', {
-                    params: { id: 'n1', properties: { g: 'grp1' } }
+                await expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'g', op: 'replace', content: 'grp1' }] }] }
                 }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
