@@ -1231,10 +1231,35 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.flows.should.deepEqual([
                     { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false },
-                    { id: 'n1', type: 'inject', z: 'tab1' }
+                    { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
                 ])
                 mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
                 mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
+            })
+            it('should include links in slim summaries for link-type nodes', async () => {
+                const mockFlows = [
+                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    { id: 'lo1', type: 'link out', z: 'tab1', wires: [[]], links: ['li1'] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.flows[1].should.have.property('links').which.deepEqual(['li1'])
+                result.flows[1].should.have.property('wires').which.deepEqual([[]])
+            })
+            it('should include node ids in group summaries', async () => {
+                const nodeA = { id: 'n1', type: 'inject', z: 'tab1' }
+                const nodeB = { id: 'n2', type: 'function', z: 'tab1' }
+                const mockFlows = [
+                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.flows[1].should.have.property('nodes').which.deepEqual(['n1', 'n2'])
             })
             it('should return full data when params.full is true', async () => {
                 const mockFlows = [

@@ -1772,6 +1772,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (node.x !== undefined) s.x = node.x
         if (node.y !== undefined) s.y = node.y
         if (node.z !== undefined) s.z = node.z
+        if (node.wires !== undefined) s.wires = node.wires
+        if (node.links !== undefined) s.links = node.links
         if (node.valid !== undefined) s.valid = node.valid
         return s
     }
@@ -1825,7 +1827,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const s = { id: group.id, type: 'group' }
         if (group.name !== undefined) s.name = group.name
         if (group.z !== undefined) s.z = group.z
-        if (Array.isArray(group.nodes)) s.nodeCount = group.nodes.length
+        if (Array.isArray(group.nodes)) {
+            s.nodes = group.nodes.filter(Boolean).map(n => (typeof n === 'string' ? n : n.id))
+        }
         if (group.style !== undefined) s.style = group.style
         if (Array.isArray(group.env) && group.env.length > 0) s.env = group.env
         return s
