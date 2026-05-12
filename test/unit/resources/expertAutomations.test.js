@@ -1051,6 +1051,15 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"wires" cannot be set directly/)
             })
+            it('should reject links property in add-nodes', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'lo1', type: 'link out', z: 'tab1', links: ['li1'] }] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"links" cannot be set directly/)
+            })
             it('should reject g property in add-nodes', async () => {
                 const result = {}
                 await expertAutomations.invokeAction('automation/add-nodes', {
@@ -1769,6 +1778,18 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/"wires" cannot be set directly/)
+            })
+            it('should reject links property in update-node', async () => {
+                const node = { id: 'lo1', type: 'link out', links: ['li1'], changed: false, dirty: false }
+                mockRED.nodes.node.withArgs('lo1').returns(node)
+                mockRED.nodes.group.withArgs('lo1').returns(null)
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'lo1', properties: { links: ['li2'] } }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"links" cannot be set directly/)
             })
             it('should reject g property in update-node', async () => {
                 const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }

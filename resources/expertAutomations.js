@@ -1287,6 +1287,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
+            if (params.properties && 'links' in params.properties) {
+                result.error = `Node ${params.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
             if (params.properties && 'g' in params.properties) {
                 result.error = `Node ${params.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
@@ -1374,6 +1380,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const wiresNode = (params.nodes || []).find(n => n.wires !== undefined)
             if (wiresNode) {
                 result.error = `Node ${wiresNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const linksNode = (params.nodes || []).find(n => n.links !== undefined)
+            if (linksNode) {
+                result.error = `Node ${linksNode.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
