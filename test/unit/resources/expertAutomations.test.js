@@ -34,6 +34,7 @@ describeMain('expertAutomations', () => {
             },
             nodes: {
                 node: sinon.stub(),
+                group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
@@ -45,7 +46,9 @@ describeMain('expertAutomations', () => {
             workspaces: {
                 active: sinon.stub().returns('active-tab'),
                 show: sinon.stub(),
-                isLocked: sinon.stub().returns(false)
+                isLocked: sinon.stub().returns(false),
+                selection: sinon.stub().returns([]),
+                isHidden: sinon.stub().returns(false)
             }
         }
     }
@@ -362,45 +365,34 @@ describeMain('expertAutomations', () => {
         })
         describe('removeNodes action', () => {
             beforeEach(() => {
-                mockRED.nodes.remove = sinon.stub().returns({ nodes: [], links: [] })
                 mockRED.nodes.dirty = sinon.stub()
-                mockRED.history = { push: sinon.stub() }
-                mockRED.view.updateActive = sinon.stub()
-                mockRED.view.redraw = sinon.stub()
+                mockRED.actions = { invoke: sinon.stub() }
+                mockRED.view.select = sinon.stub()
+                mockRED.view.selection = sinon.stub().callsFake(() => mockRED.view.select.lastCall?.args[0] || { nodes: [] })
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
             })
-            it('should remove nodes by ID string and push history', async () => {
+            it('should remove nodes by delegating to core:delete-selection', async () => {
                 const mockNode = { id: 'n1' }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
                 }, result)
-                mockRED.nodes.remove.calledWith('n1').should.be.true()
-                mockRED.history.push.calledOnce.should.be.true()
-                const historyArg = mockRED.history.push.firstCall.args[0]
-                historyArg.should.have.property('t', 'delete')
-                historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
-                historyArg.nodes[0].should.equal(mockNode)
-                mockRED.nodes.dirty.calledWith(true).should.be.true()
-                mockRED.view.updateActive.calledOnce.should.be.true()
-                mockRED.view.redraw.calledOnce.should.be.true()
+                mockRED.view.select.calledWith({ nodes: [mockNode] }).should.be.true()
+                mockRED.actions.invoke.calledWith('core:delete-selection').should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
                 result.should.have.property('data').which.deepEqual({ removed: ['n1'] })
             })
-            it('should collect removed links for history', async () => {
+            it('should use core:delete-selection-and-reconnect when reconnectWires is true', async () => {
                 const mockNode = { id: 'n1' }
-                const mockLink = { source: { id: 'n1' }, target: { id: 'n2' } }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
-                mockRED.nodes.remove.returns({ nodes: [], links: [mockLink] })
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-nodes', {
-                    params: { ids: ['n1'] }
+                    params: { ids: ['n1'], reconnectWires: true }
                 }, result)
-                const historyArg = mockRED.history.push.firstCall.args[0]
-                historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
-                historyArg.links[0].should.equal(mockLink)
+                mockRED.actions.invoke.calledWith('core:delete-selection-and-reconnect').should.be.true()
+                result.should.have.property('success', true)
             })
             it('should throw if any node ID does not exist', async () => {
                 mockRED.nodes.node.returns(null)
@@ -408,7 +400,7 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['nonexistent'] }
                 }, result)).rejectedWith(/Node nonexistent not found/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
             })
             it('should throw without removing anything if mix of valid and invalid IDs', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
@@ -417,7 +409,7 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1', 'bad'] }
                 }, result)).rejectedWith(/Node bad not found/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
             })
             it('should throw if node workspace is locked', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'locked-tab' })
@@ -426,7 +418,30 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
                 }, result)).rejectedWith(/Workspace locked-tab is locked/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject group IDs and return GROUP_OPERATION_REQUIRED error', async () => {
+                mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['g1'] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject nodes that are members of a group', async () => {
+                const mockNode = { id: 'n1', g: 'grp1' }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/member of a group/)
+                mockRED.actions.invoke.called.should.be.false()
             })
         })
         describe('setWires action', () => {
@@ -1018,6 +1033,24 @@ describeMain('expertAutomations', () => {
                     params: { nodes: [{ id: 'n1', z: 'tab1' }] }
                 }, result)).rejectedWith(/missing required property: type/)
             })
+            it('should reject group type and return GROUP_OPERATION_REQUIRED error', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'g1', type: 'group', z: 'tab1' }] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
+            })
+            it('should reject g property in add-nodes', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1', g: 'grp1' }] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"g" cannot be set directly/)
+            })
         })
         describe('removeTab action', () => {
             it('should remove an existing tab', async () => {
@@ -1189,18 +1222,67 @@ describeMain('expertAutomations', () => {
             })
         })
         describe('getWorkspaceNodes action', () => {
-            it('should delegate to RED.nodes.createCompleteNodeSet', async () => {
+            it('should return slim summaries by default', async () => {
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false }
+                const mockFlows = [
+                    mockTab,
+                    { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                // tab is summarized via _summarizeWorkspace
+                result.flows[0].should.have.property('id', 'tab1')
+                result.flows[0].should.have.property('label', 'Flow 1')
+                result.flows[0].should.have.property('disabled', false)
+                result.flows[0].should.have.property('hidden', false)
+                result.flows[0].should.have.property('isActiveWorkspace', false)
+                result.flows[0].should.not.have.property('type')
+                result.flows[1].should.deepEqual({ id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] })
+                mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
+                mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
+            })
+            it('should include links in slim summaries for link-type nodes', async () => {
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1' }
+                const mockFlows = [
+                    mockTab,
+                    { id: 'lo1', type: 'link out', z: 'tab1', wires: [[]], links: ['li1'] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.flows[1].should.have.property('links').which.deepEqual(['li1'])
+                result.flows[1].should.have.property('wires').which.deepEqual([[]])
+            })
+            it('should include node ids in group summaries', async () => {
+                const nodeA = { id: 'n1', type: 'inject', z: 'tab1' }
+                const nodeB = { id: 'n2', type: 'function', z: 'tab1' }
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1' }
+                const mockFlows = [
+                    mockTab,
+                    { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
+                ]
+                mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.flows[1].should.have.property('nodes').which.deepEqual(['n1', 'n2'])
+            })
+            it('should return full data when params.full is true', async () => {
                 const mockFlows = [
                     { id: 'tab1', type: 'tab', label: 'Flow 1' },
                     { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
                 ]
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
                 const result = {}
-                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
+                await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: { full: true } }, result)
                 result.should.have.property('success', true)
                 result.should.have.property('flows').which.deepEqual(mockFlows)
-                mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
-                mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
             })
             it('should return empty array when no flows exist', async () => {
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns([])
@@ -1656,6 +1738,28 @@ describeMain('expertAutomations', () => {
                         params: { id: 'n1', patches: [{ property: 'rules.5.to', op: 'replace', start: 1, end: 1, content: 'x' }] }
                     }, result)).rejectedWith(/resolved to/)
                 })
+            })
+            it('should reject group ID and return GROUP_OPERATION_REQUIRED error', async () => {
+                mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'g1', properties: { name: 'renamed' } }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
+                result.should.have.property('error').which.match(/group nodes/)
+            })
+            it('should reject g property in update-node', async () => {
+                const node = { id: 'n1', type: 'inject', wires: [], changed: false, dirty: false }
+                mockRED.nodes.node.withArgs('n1').returns(node)
+                mockRED.nodes.group.withArgs('n1').returns(null)
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-node', {
+                    params: { id: 'n1', properties: { g: 'grp1' } }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/"g" cannot be set directly/)
             })
         })
         describe('closeEditorTray action', () => {

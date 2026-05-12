@@ -27,6 +27,11 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 
+const ERROR_CODES = Object.freeze({
+    GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
+    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
+})
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -189,6 +194,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     tabId: {
                         type: 'string',
                         description: 'Optional parameter to only get nodes on a specific workspace. Exclude this parameter to get node from all workspaces.'
+                    },
+                    full: {
+                        type: 'boolean',
+                        description: 'When true, returns the raw node objects instead of condensed summaries.'
                     }
                 }
             }
@@ -270,6 +279,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         description: 'IDs of nodes to remove from the canvas'
+                    },
+                    reconnectWires: {
+                        type: 'boolean',
+                        description: 'If true, reconnects wires around removed nodes (pass-through). Default: false'
                     }
                 },
                 required: ['ids']
@@ -1024,9 +1037,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Remove one or more nodes from the live NR4 canvas by ID.
+     * Delegates to Node-RED's core:delete-selection action to ensure all internal data
+     * structures (including group membership arrays) are properly cleaned up.
      * @param {string[]} ids - node IDs to remove
+     * @param {object} [options]
+     * @param {boolean} [options.reconnectWires=false] - reconnect wires around removed nodes
      */
-    removeNodes (ids) {
+    removeNodes (ids, { reconnectWires = false } = {}) {
         // Resolve all nodes once and check for missing
         const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
@@ -1037,15 +1054,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         for (const node of nodes) {
             this._assertWorkspaceNotLocked(node.z)
         }
-        const allRemovedLinks = []
-        for (const node of nodes) {
-            const removed = this.RED.nodes.remove(node.id)
-            allRemovedLinks.push(...(removed.links || []))
+        this.RED.view.select({ nodes })
+        this._verifySelection(nodes)
+        if (reconnectWires) {
+            this.RED.actions.invoke('core:delete-selection-and-reconnect')
+        } else {
+            this.RED.actions.invoke('core:delete-selection')
         }
-        this.RED.history.push({ t: 'delete', nodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
-        this.RED.nodes.dirty(true)
-        this.RED.view.updateActive()
-        this.RED.view.redraw()
     }
 
     /**
@@ -1260,6 +1275,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case UPDATE_NODE: {
+            if (this.RED.nodes.group(params.id)) {
+                result.error = `Node ${params.id} is a group — group nodes cannot be updated via this action`
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            if (params.properties && 'g' in params.properties) {
+                result.error = `Node ${params.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
             await this.updateNode(params.id, params.properties, params.patches)
             const updatedNode = this.RED.nodes.node(params.id)
             result.data = this._summarizeNode(updatedNode)
@@ -1279,14 +1306,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case GET_FLOW:
             result.flows = this.getFlow()
             if (result.flows && Array.isArray(result.flows) && result.flows.length > 0) {
-                if (params.type) {
+                if (params && params.type) {
                     // filter by type if specified (e.g. "tab", "subflow", or any node type)
                     result.flows = result.flows.filter(f => f.type === params.type)
                 }
-                if (params.tabId) {
+                if (params && params.tabId) {
                     // filter by parent tab ID if specified (for nodes/config nodes)
                     result.flows = result.flows.filter(f => f.z === params.tabId)
                 }
+            }
+            if (!params || !params.full) {
+                result.flows = (result.flows || []).map(f => this._summarizeFlowItem(f))
             }
             result.success = true
             break
@@ -1328,6 +1358,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case ADD_NODES: {
+            const groupNodes = (params.nodes || []).filter(n => n.type === 'group')
+            if (groupNodes.length > 0) {
+                result.error = `Nodes [${groupNodes.map(n => n.id).join(', ')}] are group nodes — group nodes cannot be added via this action`
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            const gNode = (params.nodes || []).find(n => n.g !== undefined)
+            if (gNode) {
+                result.error = `Node ${gNode.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
             const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
             if (this.RED.editor?.validateNode) {
@@ -1339,10 +1383,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case REMOVE_NODES:
-            this.removeNodes(params.ids)
+        case REMOVE_NODES: {
+            const groupIds = (params.ids || []).filter(id => !!this.RED.nodes.group(id))
+            if (groupIds.length > 0) {
+                result.error = `IDs [${groupIds.join(', ')}] are group nodes — group nodes cannot be removed via this action`
+                result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            const groupedNodes = (params.ids || []).map(id => this.RED.nodes.node(id)).filter(n => n && n.g)
+            if (groupedNodes.length > 0) {
+                result.error = `Node ${groupedNodes[0].id}: cannot be removed while it is a member of a group — group membership must be managed via a dedicated action first`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
             result.data = { removed: params.ids }
             result.success = true
+        }
             break
 
         case SET_WIRES:
@@ -1713,6 +1772,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (node.x !== undefined) s.x = node.x
         if (node.y !== undefined) s.y = node.y
         if (node.z !== undefined) s.z = node.z
+        if (node.wires !== undefined) s.wires = node.wires
+        if (node.links !== undefined) s.links = node.links
         if (node.valid !== undefined) s.valid = node.valid
         return s
     }
@@ -1737,12 +1798,37 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     }
 
+    _summarizeSubflow (subflow) {
+        if (!subflow) return null
+        return {
+            id: subflow.id,
+            type: subflow.type,
+            name: subflow.name,
+            info: subflow.info,
+            inputs: Array.isArray(subflow.in) ? subflow.in.length : 0,
+            outputs: Array.isArray(subflow.out) ? subflow.out.length : 0
+        }
+    }
+
+    _summarizeFlowItem (item) {
+        if (!item) return null
+        if (item.type === 'tab') {
+            const ws = this.RED.nodes.workspace(item.id)
+            return this._summarizeWorkspace(ws)
+        }
+        if (item.type === 'subflow') return this._summarizeSubflow(item)
+        if (item.type === 'group') return this._summarizeGroup(item)
+        return this._summarizeNode(item)
+    }
+
     _summarizeGroup (group) {
         if (!group) return null
         const s = { id: group.id, type: 'group' }
         if (group.name !== undefined) s.name = group.name
         if (group.z !== undefined) s.z = group.z
-        if (Array.isArray(group.nodes)) s.nodeCount = group.nodes.length
+        if (Array.isArray(group.nodes)) {
+            s.nodes = group.nodes.filter(Boolean).map(n => (typeof n === 'string' ? n : n.id))
+        }
         if (group.style !== undefined) s.style = group.style
         if (Array.isArray(group.env) && group.env.length > 0) s.env = group.env
         return s
