@@ -32,6 +32,8 @@ const ERROR_CODES = Object.freeze({
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
 })
 
+const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -156,24 +158,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
                             type: 'object',
                             properties: {
                                 id: { type: 'string', description: 'ID of the node to update' },
-                                properties: { type: 'object', description: 'Key-value pairs to merge into the node object' },
-                                patches: {
+                                updates: {
                                     type: 'array',
-                                    description: 'Line-based partial edits for string properties. All line numbers reference the original content before any patches are applied.',
+                                    description: 'List of property updates. For full replacement omit start/end. For line-based edits provide start (and end for replace/delete). All line numbers reference the original content before any updates in the list are applied.',
                                     items: {
                                         type: 'object',
                                         properties: {
-                                            property: { type: 'string', description: 'Dot-separated property path of the node to update. Use numeric segments to index arrays (e.g. "rules.0.to" for rules[0].to).' },
+                                            property: { type: 'string', description: 'Dot-separated property path (e.g. "func", "name", "rules.0.to")' },
                                             op: {
                                                 type: 'string',
                                                 enum: ['replace', 'insert', 'delete'],
-                                                description: 'replace: replace lines start..end. insert: insert content before line start. delete: remove lines start..end.'
+                                                description: 'replace: set property value (omit start/end) or replace lines (with start/end). insert: insert lines before start. delete: remove lines start..end.'
                                             },
-                                            start: { type: 'number', description: 'Start line (1-indexed, inclusive)' },
-                                            end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for replace and delete.' },
-                                            content: { type: 'string', description: 'Text to insert or replace with (\\n for multiple lines). Required for replace and insert.' }
+                                            start: { type: 'number', description: 'Start line (1-indexed, inclusive). Omit for full property replacement.' },
+                                            end: { type: 'number', description: 'End line (1-indexed, inclusive). Required for line-based replace and delete.' },
+                                            content: { description: 'Value to set. For full replacement: any JSON type. For line-based edits: a string.' }
                                         },
-                                        required: ['property', 'op', 'start']
+                                        required: ['property', 'op']
                                     }
                                 }
                             },
@@ -1292,22 +1293,48 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            const wiresEntry = (params.nodes || []).find(n => n.properties && 'wires' in n.properties)
+            const wiresEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'wires'))
             if (wiresEntry) {
                 result.error = `Node ${wiresEntry.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
-            const gEntry = (params.nodes || []).find(n => n.properties && 'g' in n.properties)
+            const linksEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'links') && LINK_NODE_TYPES.includes(this.RED.nodes.node(n.id)?.type))
+            if (linksEntry) {
+                result.error = `Node ${linksEntry.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const gEntry = (params.nodes || []).find(n => (n.updates || []).some(u => u.property === 'g'))
             if (gEntry) {
                 result.error = `Node ${gEntry.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
-            for (const { id, properties, patches } of params.nodes) {
-                await this.updateNode(id, properties, patches)
+            for (const { id, updates = [] } of params.nodes) {
+                const properties = {}
+                const patches = []
+                for (const update of updates) {
+                    if (typeof update.start === 'number') {
+                        patches.push({
+                            property: update.property,
+                            op: update.op,
+                            start: update.start,
+                            ...(update.end !== undefined ? { end: update.end } : {}),
+                            ...(update.content !== undefined ? { content: update.content } : {})
+                        })
+                    } else {
+                        properties[update.property] = update.content
+                    }
+                }
+                await this.updateNode(
+                    id,
+                    Object.keys(properties).length > 0 ? properties : undefined,
+                    patches.length > 0 ? patches : undefined
+                )
             }
             result.data = params.nodes.map(({ id }) => {
                 const updatedNode = this.RED.nodes.node(id)
@@ -1390,6 +1417,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const wiresNode = (params.nodes || []).find(n => n.wires !== undefined)
             if (wiresNode) {
                 result.error = `Node ${wiresNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const linksNode = (params.nodes || []).find(n => n.links !== undefined && LINK_NODE_TYPES.includes(n.type))
+            if (linksNode) {
+                result.error = `Node ${linksNode.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
