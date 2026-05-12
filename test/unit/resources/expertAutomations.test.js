@@ -46,7 +46,9 @@ describeMain('expertAutomations', () => {
             workspaces: {
                 active: sinon.stub().returns('active-tab'),
                 show: sinon.stub(),
-                isLocked: sinon.stub().returns(false)
+                isLocked: sinon.stub().returns(false),
+                selection: sinon.stub().returns([]),
+                isHidden: sinon.stub().returns(false)
             }
         }
     }
@@ -1221,27 +1223,35 @@ describeMain('expertAutomations', () => {
         })
         describe('getWorkspaceNodes action', () => {
             it('should return slim summaries by default', async () => {
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false }
                 const mockFlows = [
-                    { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false },
+                    mockTab,
                     { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
                 ]
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
                 result.should.have.property('success', true)
-                result.flows.should.deepEqual([
-                    { id: 'tab1', type: 'tab', label: 'Flow 1', disabled: false },
-                    { id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] }
-                ])
+                // tab is summarized via _summarizeWorkspace
+                result.flows[0].should.have.property('id', 'tab1')
+                result.flows[0].should.have.property('label', 'Flow 1')
+                result.flows[0].should.have.property('disabled', false)
+                result.flows[0].should.have.property('hidden', false)
+                result.flows[0].should.have.property('isActiveWorkspace', false)
+                result.flows[0].should.not.have.property('type')
+                result.flows[1].should.deepEqual({ id: 'n1', type: 'inject', z: 'tab1', wires: [['n2']] })
                 mockRED.nodes.createCompleteNodeSet.calledOnce.should.be.true()
                 mockRED.nodes.createCompleteNodeSet.firstCall.args[0].should.deepEqual({ credentials: false })
             })
             it('should include links in slim summaries for link-type nodes', async () => {
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1' }
                 const mockFlows = [
-                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    mockTab,
                     { id: 'lo1', type: 'link out', z: 'tab1', wires: [[]], links: ['li1'] }
                 ]
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
                 result.should.have.property('success', true)
@@ -1251,11 +1261,13 @@ describeMain('expertAutomations', () => {
             it('should include node ids in group summaries', async () => {
                 const nodeA = { id: 'n1', type: 'inject', z: 'tab1' }
                 const nodeB = { id: 'n2', type: 'function', z: 'tab1' }
+                const mockTab = { id: 'tab1', type: 'tab', label: 'Flow 1' }
                 const mockFlows = [
-                    { id: 'tab1', type: 'tab', label: 'Flow 1' },
+                    mockTab,
                     { id: 'g1', type: 'group', z: 'tab1', nodes: [nodeA, nodeB] }
                 ]
                 mockRED.nodes.createCompleteNodeSet = sinon.stub().returns(mockFlows)
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockTab)
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-workspace-nodes', { params: {} }, result)
                 result.should.have.property('success', true)

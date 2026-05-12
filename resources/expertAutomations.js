@@ -1813,9 +1813,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
     _summarizeFlowItem (item) {
         if (!item) return null
         if (item.type === 'tab') {
-            const tab = { id: item.id, type: item.type, label: item.label }
-            if (item.disabled !== undefined) tab.disabled = item.disabled
-            return tab
+            const ws = this.RED.nodes.workspace(item.id)
+            return this._summarizeWorkspace(ws)
         }
         if (item.type === 'subflow') return this._summarizeSubflow(item)
         if (item.type === 'group') return this._summarizeGroup(item)
