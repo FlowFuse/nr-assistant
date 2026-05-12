@@ -32,6 +32,8 @@ const ERROR_CODES = Object.freeze({
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
 })
 
+const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -1281,6 +1283,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
+            if (params.properties && 'wires' in params.properties) {
+                result.error = `Node ${params.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            if (params.properties && 'links' in params.properties && LINK_NODE_TYPES.includes(this.RED.nodes.node(params.id)?.type)) {
+                result.error = `Node ${params.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
             if (params.properties && 'g' in params.properties) {
                 result.error = `Node ${params.id}: "g" cannot be set directly — group membership must be managed via a dedicated action`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
@@ -1362,6 +1376,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (groupNodes.length > 0) {
                 result.error = `Nodes [${groupNodes.map(n => n.id).join(', ')}] are group nodes — group nodes cannot be added via this action`
                 result.errorCode = ERROR_CODES.GROUP_OPERATION_REQUIRED
+                result.success = false
+                break
+            }
+            const wiresNode = (params.nodes || []).find(n => n.wires !== undefined)
+            if (wiresNode) {
+                result.error = `Node ${wiresNode.id}: "wires" cannot be set directly — wire connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            const linksNode = (params.nodes || []).find(n => n.links !== undefined && LINK_NODE_TYPES.includes(n.type))
+            if (linksNode) {
+                result.error = `Node ${linksNode.id}: "links" cannot be set directly — link connections must be managed via a dedicated action`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
                 result.success = false
                 break
             }
