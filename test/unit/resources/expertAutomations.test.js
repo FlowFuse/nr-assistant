@@ -363,45 +363,34 @@ describeMain('expertAutomations', () => {
         })
         describe('removeNodes action', () => {
             beforeEach(() => {
-                mockRED.nodes.remove = sinon.stub().returns({ nodes: [], links: [] })
                 mockRED.nodes.dirty = sinon.stub()
-                mockRED.history = { push: sinon.stub() }
-                mockRED.view.updateActive = sinon.stub()
-                mockRED.view.redraw = sinon.stub()
+                mockRED.actions = { invoke: sinon.stub() }
+                mockRED.view.select = sinon.stub()
+                mockRED.view.selection = sinon.stub().callsFake(() => mockRED.view.select.lastCall?.args[0] || { nodes: [] })
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
             })
-            it('should remove nodes by ID string and push history', async () => {
+            it('should remove nodes by delegating to core:delete-selection', async () => {
                 const mockNode = { id: 'n1' }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
                 }, result)
-                mockRED.nodes.remove.calledWith('n1').should.be.true()
-                mockRED.history.push.calledOnce.should.be.true()
-                const historyArg = mockRED.history.push.firstCall.args[0]
-                historyArg.should.have.property('t', 'delete')
-                historyArg.should.have.property('nodes').which.is.an.Array().with.lengthOf(1)
-                historyArg.nodes[0].should.equal(mockNode)
-                mockRED.nodes.dirty.calledWith(true).should.be.true()
-                mockRED.view.updateActive.calledOnce.should.be.true()
-                mockRED.view.redraw.calledOnce.should.be.true()
+                mockRED.view.select.calledWith({ nodes: [mockNode] }).should.be.true()
+                mockRED.actions.invoke.calledWith('core:delete-selection').should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
                 result.should.have.property('data').which.deepEqual({ removed: ['n1'] })
             })
-            it('should collect removed links for history', async () => {
+            it('should use core:delete-selection-and-reconnect when reconnectWires is true', async () => {
                 const mockNode = { id: 'n1' }
-                const mockLink = { source: { id: 'n1' }, target: { id: 'n2' } }
                 mockRED.nodes.node.withArgs('n1').returns(mockNode)
-                mockRED.nodes.remove.returns({ nodes: [], links: [mockLink] })
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-nodes', {
-                    params: { ids: ['n1'] }
+                    params: { ids: ['n1'], reconnectWires: true }
                 }, result)
-                const historyArg = mockRED.history.push.firstCall.args[0]
-                historyArg.should.have.property('links').which.is.an.Array().with.lengthOf(1)
-                historyArg.links[0].should.equal(mockLink)
+                mockRED.actions.invoke.calledWith('core:delete-selection-and-reconnect').should.be.true()
+                result.should.have.property('success', true)
             })
             it('should throw if any node ID does not exist', async () => {
                 mockRED.nodes.node.returns(null)
@@ -409,7 +398,7 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['nonexistent'] }
                 }, result)).rejectedWith(/Node nonexistent not found/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
             })
             it('should throw without removing anything if mix of valid and invalid IDs', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
@@ -418,7 +407,7 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1', 'bad'] }
                 }, result)).rejectedWith(/Node bad not found/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
             })
             it('should throw if node workspace is locked', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'locked-tab' })
@@ -427,7 +416,7 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1'] }
                 }, result)).rejectedWith(/Workspace locked-tab is locked/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
             })
             it('should reject group IDs and return GROUP_OPERATION_REQUIRED error', async () => {
                 mockRED.nodes.group.withArgs('g1').returns({ id: 'g1', type: 'group' })
@@ -438,7 +427,19 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', false)
                 result.should.have.property('errorCode', 'GROUP_OPERATION_REQUIRED')
                 result.should.have.property('error').which.match(/group nodes/)
-                mockRED.nodes.remove.called.should.be.false()
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject nodes that are members of a group', async () => {
+                const mockNode = { id: 'n1', g: 'grp1' }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
+                result.should.have.property('error').which.match(/member of a group/)
+                mockRED.actions.invoke.called.should.be.false()
             })
         })
         describe('setWires action', () => {

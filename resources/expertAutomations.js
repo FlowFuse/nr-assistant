@@ -279,6 +279,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         description: 'IDs of nodes to remove from the canvas'
+                    },
+                    reconnectWires: {
+                        type: 'boolean',
+                        description: 'If true, reconnects wires around removed nodes (pass-through). Default: false'
                     }
                 },
                 required: ['ids']
@@ -1033,9 +1037,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Remove one or more nodes from the live NR4 canvas by ID.
+     * Delegates to Node-RED's core:delete-selection action to ensure all internal data
+     * structures (including group membership arrays) are properly cleaned up.
      * @param {string[]} ids - node IDs to remove
+     * @param {object} [options]
+     * @param {boolean} [options.reconnectWires=false] - reconnect wires around removed nodes
      */
-    removeNodes (ids) {
+    removeNodes (ids, { reconnectWires = false } = {}) {
         // Resolve all nodes once and check for missing
         const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
@@ -1046,15 +1054,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         for (const node of nodes) {
             this._assertWorkspaceNotLocked(node.z)
         }
-        const allRemovedLinks = []
-        for (const node of nodes) {
-            const removed = this.RED.nodes.remove(node.id)
-            allRemovedLinks.push(...(removed.links || []))
+        this.RED.view.select({ nodes })
+        this._verifySelection(nodes)
+        if (reconnectWires) {
+            this.RED.actions.invoke('core:delete-selection-and-reconnect')
+        } else {
+            this.RED.actions.invoke('core:delete-selection')
         }
-        this.RED.history.push({ t: 'delete', nodes, links: allRemovedLinks, dirty: this.RED.nodes.dirty() })
-        this.RED.nodes.dirty(true)
-        this.RED.view.updateActive()
-        this.RED.view.redraw()
     }
 
     /**
@@ -1385,7 +1391,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            this.removeNodes(params.ids)
+            const groupedNodes = (params.ids || []).map(id => this.RED.nodes.node(id)).filter(n => n && n.g)
+            if (groupedNodes.length > 0) {
+                result.error = `Node ${groupedNodes[0].id}: cannot be removed while it is a member of a group — group membership must be managed via a dedicated action first`
+                result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
+                result.success = false
+                break
+            }
+            this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
             result.data = { removed: params.ids }
             result.success = true
         }
