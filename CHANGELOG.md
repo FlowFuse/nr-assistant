@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [0.15.0](https://github.com/FlowFuse/nr-assistant/compare/v0.14.0...v0.15.0) (2026-05-12)
+
+ - fix(automation): move node to tab via link nodes instead of direct z change (#336) @andypalmi
+ - feat(automation): migrate update-node to update-nodes (array params) (#329) @andypalmi
+ - feat(automation): hard-reject wires property in update-node (#328) @andypalmi
+ - feat(automation): slim get-workspace-nodes response by default (#327) @andypalmi
+ - ci: Add H1 header to the changelog file (#330) @ppawlowski
+ - chore(deps): bump fast-uri from 3.1.0 to 3.1.2 (#322) @app/dependabot
+ - feat(automation): add automation/manage-groups action (#323) @andypalmi
+
 ## [0.14.0](https://github.com/FlowFuse/nr-assistant/compare/v0.13.1...v0.14.0) (2026-05-07)
 
  - feat(actions): add automation/open-palette-manager action (#314) @andypalmi
