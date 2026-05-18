@@ -625,6 +625,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this._assertWorkspaceNotLocked(targetTabId)
         this._assertWorkspaceNotLocked(node.z)
 
+        const wasDirty = this.RED.nodes.dirty()
+
         // Show source tab so link nodes are created on the correct workspace
         this.RED.workspaces.show(node.z)
 
@@ -686,12 +688,34 @@ export class ExpertAutomations extends ExpertActionsInterface {
             linkNodesToMove.push(...newOutbound.map(l => l.target).filter(n => n.type === 'link out'))
         }
 
+        const moves = []
         for (const n of [node, ...linkNodesToMove]) {
+            const oldZ = n.z
             this.RED.nodes.moveNodeToTab(n, targetTabId)
+            moves.push({ node: n, oldZ, newZ: targetTabId })
         }
 
         this.RED.nodes.dirty(true)
         this.RED.view.redraw(true)
+
+        // Use a toggle callback on a multi event — RED.history has no native tab-move
+        // event type, and multi is the only built-in type that safely supports callbacks.
+        // The callback swaps oldZ/newZ after each invocation so that undo and redo
+        // alternate between moving nodes to their source and target tabs.
+        this.RED.history.push({
+            t: 'multi',
+            events: [],
+            dirty: wasDirty,
+            callback: () => {
+                for (const item of moves) {
+                    this.RED.nodes.moveNodeToTab(item.node, item.oldZ)
+                    item.node.dirty = true
+                }
+                for (const item of moves) {
+                    const tmp = item.oldZ; item.oldZ = item.newZ; item.newZ = tmp
+                }
+            }
+        })
 
         return { linkNodes: linkNodesToMove, junctionNodes }
     }

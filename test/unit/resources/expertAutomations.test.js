@@ -1865,6 +1865,7 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.moveNodeToTab = sinon.stub()
                     mockRED.actions = { invoke: sinon.stub() }
                     mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
                     mockRED.view.redraw = sinon.stub()
                     return node
                 }
@@ -1880,6 +1881,66 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.moveNodeToTab.firstCall.args[0].should.equal(node)
                     mockRED.nodes.moveNodeToTab.firstCall.args[1].should.equal('tab-b')
                     mockRED.actions.invoke.called.should.be.false()
+                })
+
+                it('should push a multi history event with undo/redo callback when moving a node', async () => {
+                    const node = setupTabChangeNode()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'z', op: 'replace', content: 'tab-b' }] }] }
+                    }, result)
+
+                    mockRED.history.push.calledOnce.should.be.true()
+                    const historyArg = mockRED.history.push.firstCall.args[0]
+                    historyArg.should.have.property('t', 'multi')
+                    historyArg.should.have.property('events').which.is.an.Array().with.lengthOf(0)
+                    historyArg.should.have.property('callback').which.is.a.Function()
+
+                    // Simulate undo — node moves back to tab-a
+                    historyArg.callback()
+                    mockRED.nodes.moveNodeToTab.callCount.should.equal(2)
+                    mockRED.nodes.moveNodeToTab.lastCall.args[0].should.equal(node)
+                    mockRED.nodes.moveNodeToTab.lastCall.args[1].should.equal('tab-a')
+
+                    // Simulate redo — node moves back to tab-b
+                    historyArg.callback()
+                    mockRED.nodes.moveNodeToTab.callCount.should.equal(3)
+                    mockRED.nodes.moveNodeToTab.lastCall.args[0].should.equal(node)
+                    mockRED.nodes.moveNodeToTab.lastCall.args[1].should.equal('tab-b')
+                })
+
+                it('should include link nodes in the history callback when wires are split', async () => {
+                    const upstreamNode = { id: 'up1', type: 'inject', z: 'tab-a' }
+                    const downstreamNode = { id: 'dn1', type: 'debug', z: 'tab-a' }
+                    const node = setupTabChangeNode({ wires: [['dn1']] })
+                    const linkInNode = { id: 'li1', type: 'link in', z: 'tab-a', links: [] }
+                    const linkOutNode = { id: 'lo1', type: 'link out', z: 'tab-a', links: [] }
+
+                    const inboundWire = { source: upstreamNode, sourcePort: 0, target: node }
+                    const outboundWire = { source: node, sourcePort: 0, target: downstreamNode }
+                    mockRED.nodes.getNodeLinks.onCall(0).returns([inboundWire])
+                    mockRED.nodes.getNodeLinks.onCall(1).returns([outboundWire])
+                    mockRED.nodes.getNodeLinks.onCall(2).returns([{ source: linkInNode, sourcePort: 0, target: node }])
+                    mockRED.nodes.getNodeLinks.onCall(3).returns([{ source: node, sourcePort: 0, target: linkOutNode }])
+
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'z', op: 'replace', content: 'tab-b' }] }] }
+                    }, result)
+
+                    mockRED.history.push.calledOnce.should.be.true()
+                    const historyArg = mockRED.history.push.firstCall.args[0]
+                    historyArg.should.have.property('t', 'multi')
+                    historyArg.should.have.property('callback').which.is.a.Function()
+
+                    // Simulate undo — all three nodes move back to tab-a
+                    historyArg.callback()
+                    const undoCalls = mockRED.nodes.moveNodeToTab.args.slice(-3)
+                    const undoIds = undoCalls.map(a => a[0].id)
+                    undoIds.should.containEql('n1')
+                    undoIds.should.containEql('li1')
+                    undoIds.should.containEql('lo1')
+                    undoCalls.every(a => a[1] === 'tab-a').should.be.true()
                 })
 
                 it('should split wires with link nodes when single upstream and single downstream', async () => {
@@ -2088,6 +2149,7 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.moveNodeToTab = sinon.stub()
                     mockRED.actions = { invoke: sinon.stub() }
                     mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
                     mockRED.view.redraw = sinon.stub()
 
                     const wire = { source: n1, sourcePort: 0, target: n2 }
