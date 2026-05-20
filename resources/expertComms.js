@@ -682,7 +682,8 @@ export class ExpertComms {
             let actualType = data === null ? 'null' : typeof data
             if (Array.isArray(data)) actualType = 'array'
 
-            if (allowedTypes && !allowedTypes.includes(actualType)) {
+            if (allowedTypes && !allowedTypes.includes(actualType) &&
+                !(actualType === 'number' && allowedTypes.includes('integer') && Number.isInteger(data))) {
                 errors.push(`${path}: is not of a type(s) ${allowedTypes.join(' or ')}`)
                 return
             }
