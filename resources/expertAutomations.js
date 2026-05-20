@@ -87,6 +87,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'string',
                         enum: ['upstream', 'downstream', 'connected'],
                         description: 'Specify whether to also retrieve nodes upstream, downstream, or connected to the specified node(s).'
+                    },
+                    levels: {
+                        type: 'integer',
+                        minimum: 0,
+                        description: 'Max connection levels to traverse when include is specified. 1 = direct neighbors only, 2 = two hops, etc. 0 = all levels (no limit). Results are grouped by level. Only applicable when include is provided.'
                     }
                 }
             }
@@ -110,6 +115,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'string',
                         enum: ['upstream', 'downstream', 'connected'],
                         description: 'Specify whether to also select nodes upstream, downstream, or connected to the specified node(s).'
+                    },
+                    levels: {
+                        type: 'integer',
+                        minimum: 0,
+                        description: 'Max connection levels to traverse when include is specified. 1 = direct neighbors only, 2 = two hops, etc. 0 = all levels (no limit). Results are grouped by level. Only applicable when include is provided.'
                     }
                 }
             }
@@ -484,7 +494,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     })
 
     /**
-     * Get nodes connected to a given node in a direction
+     * Get nodes connected to a given node in a direction (all levels, flat)
      * @param {object} node - the node to get connections for
      * @param {'upstream'|'downstream'|'connected'|null} include - direction to traverse
      * @returns {object[]} the connected nodes (includes the start node)
@@ -502,13 +512,77 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Get direct neighbors of a node in a direction using getNodeLinks
+     * @param {object} node - the node to get neighbors for
+     * @param {'upstream'|'downstream'|'connected'} direction - direction to traverse
+     * @returns {object[]} direct neighbor nodes (deduplicated)
+     */
+    _getDirectNeighbors (node, direction) {
+        const neighbors = []
+        const seen = new Set()
+        if (direction === 'upstream' || direction === 'connected') {
+            const inLinks = this.RED.nodes.getNodeLinks(node.id, 1)
+            for (const link of inLinks) {
+                if (!seen.has(link.source.id)) {
+                    seen.add(link.source.id)
+                    neighbors.push(link.source)
+                }
+            }
+        }
+        if (direction === 'downstream' || direction === 'connected') {
+            const outLinks = this.RED.nodes.getNodeLinks(node.id, 0)
+            for (const link of outLinks) {
+                if (!seen.has(link.target.id)) {
+                    seen.add(link.target.id)
+                    neighbors.push(link.target)
+                }
+            }
+        }
+        return neighbors
+    }
+
+    /**
+     * BFS traversal from start nodes, returning nodes grouped by level
+     * @param {object[]} startNodes - the starting nodes (level 0)
+     * @param {'upstream'|'downstream'|'connected'} direction - direction to traverse
+     * @param {number} maxLevels - max levels to traverse (0 = unlimited)
+     * @returns {Map<number, object[]>} nodes grouped by level
+     */
+    _getConnectedByLevel (startNodes, direction, maxLevels) {
+        const levelMap = new Map()
+        const visited = new Set()
+        levelMap.set(0, startNodes)
+        for (const n of startNodes) visited.add(n.id)
+        let currentLevel = startNodes
+        const limit = maxLevels === 0 ? Infinity : maxLevels
+        for (let level = 0; currentLevel.length > 0 && level < limit; level++) {
+            const nextLevel = []
+            for (const node of currentLevel) {
+                const neighbors = this._getDirectNeighbors(node, direction)
+                for (const neighbor of neighbors) {
+                    if (!visited.has(neighbor.id)) {
+                        visited.add(neighbor.id)
+                        nextLevel.push(neighbor)
+                    }
+                }
+            }
+            if (nextLevel.length > 0) {
+                levelMap.set(level + 1, nextLevel)
+            }
+            currentLevel = nextLevel
+        }
+        return levelMap
+    }
+
+    /**
      * Get node or nodes by id
      * @param {string|string[]} nodeId - the id or ids of the nodes to retrieve
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also retrieve nodes upstream, downstream, or connected to the specified node(s). Results are deduplicated.
-     * @returns {object[]} the nodes that were retrieved
+     * @param {number|undefined} levels - if defined, use BFS and return a Map<level, node[]>. 0 = all levels. Only applies when include is provided.
+     * @returns {object[]|Map<number, object[]>} flat array (no levels) or Map keyed by level number
      * @throws {Error} if any node ID is not found
      */
-    getNodes (nodeId, include) {
+    getNodes (nodeId, include, levels) {
         const ids = Array.isArray(nodeId) ? nodeId : [nodeId]
         const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
@@ -517,6 +591,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         })
         if (!include) {
             return nodes
+        }
+        if (levels !== undefined && levels !== null) {
+            return this._getConnectedByLevel(nodes, include, levels)
         }
         const seen = new Set()
         const result = []
@@ -536,17 +613,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Select node or nodes on the workspace
      * @param {string|string[]} nodeId - the id or ids of the nodes to select
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also select nodes upstream, downstream, or connected to the specified node(s).
-     * @returns {object[]} the nodes that were selected
+     * @param {number|undefined} levels - if defined, use BFS traversal. 0 = all levels.
+     * @returns {object[]|Map<number, object[]>} flat array or Map keyed by level
      * @throws {Error} if any node ID is not found
      */
-    selectNodes (nodeId, include) {
-        const nodes = this.getNodes(nodeId, include)
-        if (nodes.length > 0) {
+    selectNodes (nodeId, include, levels) {
+        const result = this.getNodes(nodeId, include, levels)
+        let allNodes
+        if (result instanceof Map) {
+            allNodes = []
+            for (const nodes of result.values()) allNodes.push(...nodes)
+        } else {
+            allNodes = result
+        }
+        if (allNodes.length > 0) {
             const id = Array.isArray(nodeId) ? nodeId[0] : nodeId
             this.RED.view.reveal(id, false)
-            this.RED.view.select({ nodes })
+            this.RED.view.select({ nodes: allNodes })
         }
-        return nodes
+        return result
     }
 
     /**
@@ -1399,20 +1484,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
         result.handled = true // default to handled=true (set to false in default case below if action is not implemented)
         switch (actionName) {
         case SELECT_NODES: {
-            const _nodes = this.selectNodes(params.id || params.ids, params.include)
-            if (!_nodes || _nodes.length === 0) {
-                throw new Error('No nodes found to select with the provided parameters')
-            }
-            result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            const _nodes = this.selectNodes(params.id || params.ids, params.include, params.levels)
+            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
             result.success = true
         }
             break
         case GET_NODES: {
-            const _nodes = this.getNodes(params.id || params.ids, params.include)
-            if (!_nodes || _nodes.length === 0) {
-                throw new Error('No nodes found with the provided parameters')
-            }
-            result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            const _nodes = this.getNodes(params.id || params.ids, params.include, params.levels)
+            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
             result.success = true
         }
             break
@@ -1781,6 +1860,31 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     _formatNodes (nodes, includeModuleConfig = true) {
         return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+    }
+
+    /**
+     * Format a node result that may be a flat array or a leveled Map
+     * @param {object[]|Map<number, object[]>} nodes - flat array or Map<level, node[]>
+     * @param {boolean} includeModuleConfig
+     * @returns {object[]|object} formatted flat array, or object keyed by level number
+     */
+    _formatNodeResult (nodes, includeModuleConfig) {
+        if (nodes instanceof Map) {
+            let total = 0
+            const leveled = {}
+            for (const [level, levelNodes] of nodes) {
+                leveled[level] = this._formatNodes(levelNodes, includeModuleConfig)
+                total += levelNodes.length
+            }
+            if (total === 0) {
+                throw new Error('No nodes found with the provided parameters')
+            }
+            return leveled
+        }
+        if (!nodes || nodes.length === 0) {
+            throw new Error('No nodes found with the provided parameters')
+        }
+        return this._formatNodes(nodes, includeModuleConfig)
     }
 
     /**
