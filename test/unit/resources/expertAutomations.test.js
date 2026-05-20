@@ -36,6 +36,7 @@ describeMain('expertAutomations', () => {
                 node: sinon.stub(),
                 group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
+                getType: sinon.stub().returns({ category: 'function' }),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
             },
@@ -191,6 +192,75 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes(['n1', 'shared'], 'downstream')
                 result.should.have.lengthOf(2)
                 result.map(n => n.id).should.deepEqual(['n1', 'shared'])
+            })
+            describe('leveled connections', () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                const n4 = { id: 'n4' }
+                beforeEach(() => {
+                    mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                    mockRED.nodes.node.withArgs('n1').returns(n1)
+                    mockRED.nodes.node.withArgs('n2').returns(n2)
+                    mockRED.nodes.node.withArgs('n3').returns(n3)
+                    mockRED.nodes.node.withArgs('n4').returns(n4)
+                })
+                it('should return nodes grouped by level for downstream', () => {
+                    // n1 -> n2 -> n3 -> n4
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ target: n4 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
+                    const result = expertAutomations.getNodes('n1', 'downstream', 0)
+                    result.should.be.instanceOf(Map)
+                    result.get(0).map(n => n.id).should.deepEqual(['n1'])
+                    result.get(1).map(n => n.id).should.deepEqual(['n2'])
+                    result.get(2).map(n => n.id).should.deepEqual(['n3'])
+                    result.get(3).map(n => n.id).should.deepEqual(['n4'])
+                })
+                it('should limit traversal to maxLevels', () => {
+                    // n1 -> n2 -> n3 -> n4, but only 1 level
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                    const result = expertAutomations.getNodes('n1', 'downstream', 1)
+                    result.should.be.instanceOf(Map)
+                    result.get(0).map(n => n.id).should.deepEqual(['n1'])
+                    result.get(1).map(n => n.id).should.deepEqual(['n2'])
+                    should(result.get(2)).be.undefined()
+                })
+                it('should traverse upstream using input links', () => {
+                    // n3 <- n2 <- n1
+                    mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([{ source: n2 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([])
+                    const result = expertAutomations.getNodes('n3', 'upstream', 0)
+                    result.get(0).map(n => n.id).should.deepEqual(['n3'])
+                    result.get(1).map(n => n.id).should.deepEqual(['n2'])
+                    result.get(2).map(n => n.id).should.deepEqual(['n1'])
+                })
+                it('should traverse connected (both directions)', () => {
+                    // n2 -> n1 -> n3
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: n2 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n3 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([])
+                    mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([])
+                    mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                    const result = expertAutomations.getNodes('n1', 'connected', 0)
+                    result.get(0).map(n => n.id).should.deepEqual(['n1'])
+                    result.get(1).should.have.lengthOf(2)
+                    const level1Ids = result.get(1).map(n => n.id).sort()
+                    level1Ids.should.deepEqual(['n2', 'n3'])
+                })
+                it('should deduplicate across multiple start nodes', () => {
+                    // n1 -> n3, n2 -> n3
+                    mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n3 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                    mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                    const result = expertAutomations.getNodes(['n1', 'n2'], 'downstream', 0)
+                    result.get(0).should.have.lengthOf(2)
+                    result.get(1).map(n => n.id).should.deepEqual(['n3'])
+                })
             })
         })
         describe('editNode', () => {
