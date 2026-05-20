@@ -26,6 +26,9 @@ const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
+const ALIGN_SELECTION = 'automation/align-selection'
+
+const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 
 const ERROR_CODES = Object.freeze({
     GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
@@ -59,7 +62,8 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |GET_PALETTE
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
- *   |MANAGE_GROUPS} ExpertAutomationsActionsEnum
+ *   |MANAGE_GROUPS
+ *   |ALIGN_SELECTION} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -457,6 +461,24 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['operations']
+            }
+        },
+        [ALIGN_SELECTION]: {
+            params: {
+                type: 'object',
+                properties: {
+                    ids: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'IDs of nodes to align'
+                    },
+                    direction: {
+                        type: 'string',
+                        enum: ALIGNMENT_DIRECTIONS,
+                        description: 'Alignment direction: "grid" snaps to grid; "left", "right", "top", "bottom" align to the respective edge; "middle" aligns vertically; "center" aligns horizontally'
+                    }
+                },
+                required: ['ids', 'direction']
             }
         }
     })
@@ -1729,6 +1751,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
+        case ALIGN_SELECTION: {
+            const { aligned, excluded } = this.alignSelection(params.ids, params.direction)
+            result.data = {
+                alignedNodes: aligned.map(n => this._summarizeNode(n)),
+                excludedConfigNodes: excluded.map(n => ({ id: n.id, type: n.type }))
+            }
+            result.success = true
+        }
+            break
+
         default:
             result.handled = false
             result.success = false
@@ -1955,6 +1987,40 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.actions.invoke('core:ungroup-selection')
         this.RED.nodes.dirty(true)
         this.RED.view.redraw()
+    }
+
+    /**
+     * Align the specified nodes using a Node-RED core alignment action.
+     * @param {string[]} ids - node IDs to align
+     * @param {'grid'|'left'|'right'|'top'|'bottom'|'middle'|'center'} direction
+     */
+    alignSelection (ids, direction) {
+        if (!ids || ids.length === 0) throw new Error('ids array must not be empty')
+        if (!ALIGNMENT_DIRECTIONS.includes(direction)) {
+            throw new Error(`Invalid alignment direction: ${direction}`)
+        }
+        const allNodes = ids.map(id => {
+            const node = this.RED.nodes.node(id)
+            if (!node) throw new Error(`Node ${id} not found`)
+            return node
+        })
+        // Exclude config nodes — they have no canvas position and break alignment
+        const nodes = allNodes.filter(n => {
+            const def = this.RED.nodes.getType(n.type)
+            return !def || def.category !== 'config'
+        })
+        if (nodes.length === 0) throw new Error('No non-config nodes to align')
+        if (direction !== 'grid' && nodes.length < 2) {
+            throw new Error(`Alignment direction "${direction}" requires at least 2 non-config nodes`)
+        }
+        this._assertWorkspaceExists(nodes[0].z)
+        this._assertWorkspaceNotLocked(nodes[0].z)
+        this.RED.view.reveal(nodes[0].id, false)
+        this.RED.view.select({ nodes })
+        this._verifySelection(nodes)
+        this.RED.actions.invoke(`core:align-selection-to-${direction}`)
+        const excluded = allNodes.filter(n => !nodes.includes(n))
+        return { aligned: nodes, excluded }
     }
 
     _summarizeNode (node) {
