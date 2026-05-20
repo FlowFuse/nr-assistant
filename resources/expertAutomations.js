@@ -1517,13 +1517,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         switch (actionName) {
         case SELECT_NODES: {
             const _nodes = this.selectNodes(params.id || params.ids, params.include, params.levels, params.includeConfigNodes)
-            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
+            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig, params.includeConfigNodes !== false)
             result.success = true
         }
             break
         case GET_NODES: {
             const _nodes = this.getNodes(params.id || params.ids, params.include, params.levels, params.includeConfigNodes)
-            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
+            result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig, params.includeConfigNodes !== false)
             result.success = true
         }
             break
@@ -1890,22 +1890,28 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     }
 
-    _formatNodes (nodes, includeModuleConfig = true) {
-        return this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+    _formatNodes (nodes, includeModuleConfig = true, includeConfigNodes = true) {
+        const formatted = this.RED.nodes.createExportableNodeSet(nodes, { includeModuleConfig })
+        if (!includeConfigNodes) {
+            const requestedIds = new Set(nodes.map(n => n.id))
+            return formatted.filter(n => requestedIds.has(n.id) || !this._isConfigNode(n))
+        }
+        return formatted
     }
 
     /**
      * Format a node result that may be a flat array or a leveled Map
      * @param {object[]|Map<number, object[]>} nodes - flat array or Map<level, node[]>
      * @param {boolean} includeModuleConfig
+     * @param {boolean} includeConfigNodes - whether to keep config nodes added by createExportableNodeSet
      * @returns {object[]|object} formatted flat array, or object keyed by level number
      */
-    _formatNodeResult (nodes, includeModuleConfig) {
+    _formatNodeResult (nodes, includeModuleConfig, includeConfigNodes = true) {
         if (nodes instanceof Map) {
             let total = 0
             const leveled = {}
             for (const [level, levelNodes] of nodes) {
-                leveled[level] = this._formatNodes(levelNodes, includeModuleConfig)
+                leveled[level] = this._formatNodes(levelNodes, includeModuleConfig, includeConfigNodes)
                 total += levelNodes.length
             }
             if (total === 0) {
@@ -1916,7 +1922,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!nodes || nodes.length === 0) {
             throw new Error('No nodes found with the provided parameters')
         }
-        return this._formatNodes(nodes, includeModuleConfig)
+        return this._formatNodes(nodes, includeModuleConfig, includeConfigNodes)
     }
 
     /**
