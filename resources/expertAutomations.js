@@ -92,6 +92,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'integer',
                         minimum: 0,
                         description: 'Max connection levels to traverse when include is specified. 1 = direct neighbors only, 2 = two hops, etc. 0 = all levels (no limit). Results are grouped by level. Only applicable when include is provided.'
+                    },
+                    includeConfigNodes: {
+                        type: 'boolean',
+                        default: false,
+                        description: 'Whether to include config nodes in the results when using include. Defaults to false.'
                     }
                 }
             }
@@ -120,6 +125,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'integer',
                         minimum: 0,
                         description: 'Max connection levels to traverse when include is specified. 1 = direct neighbors only, 2 = two hops, etc. 0 = all levels (no limit). Results are grouped by level. Only applicable when include is provided.'
+                    },
+                    includeConfigNodes: {
+                        type: 'boolean',
+                        default: false,
+                        description: 'Whether to include config nodes in the results when using include. Defaults to false.'
                     }
                 }
             }
@@ -493,6 +503,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     })
 
+    _isConfigNode (node) {
+        const def = this.RED.nodes.getType(node.type)
+        return def && def.category === 'config'
+    }
+
     /**
      * Get nodes connected to a given node in a direction (all levels, flat)
      * @param {object} node - the node to get connections for
@@ -579,10 +594,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string|string[]} nodeId - the id or ids of the nodes to retrieve
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also retrieve nodes upstream, downstream, or connected to the specified node(s). Results are deduplicated.
      * @param {number|undefined} levels - if defined, use BFS and return a Map<level, node[]>. 0 = all levels. Only applies when include is provided.
+     * @param {boolean} [includeConfigNodes=false] - whether to include config nodes in the results when traversing connections
      * @returns {object[]|Map<number, object[]>} flat array (no levels) or Map keyed by level number
      * @throws {Error} if any node ID is not found
      */
-    getNodes (nodeId, include, levels) {
+    getNodes (nodeId, include, levels, includeConfigNodes = false) {
         const ids = Array.isArray(nodeId) ? nodeId : [nodeId]
         const nodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
@@ -592,14 +608,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!include) {
             return nodes
         }
+        const filterConfig = !includeConfigNodes
+            ? (arr) => arr.filter(n => !this._isConfigNode(n))
+            : (arr) => arr
         if (levels !== undefined && levels !== null) {
-            return this._getConnectedByLevel(nodes, include, levels)
+            const levelMap = this._getConnectedByLevel(nodes, include, levels)
+            if (filterConfig !== null) {
+                for (const [level, levelNodes] of levelMap) {
+                    if (level === 0) continue
+                    const filtered = filterConfig(levelNodes)
+                    if (filtered.length > 0) {
+                        levelMap.set(level, filtered)
+                    } else {
+                        levelMap.delete(level)
+                    }
+                }
+            }
+            return levelMap
         }
         const seen = new Set()
         const result = []
         for (const node of nodes) {
             const connected = this._getConnectedNodes(node, include)
-            for (const n of connected) {
+            for (const n of filterConfig(connected)) {
                 if (!seen.has(n.id)) {
                     seen.add(n.id)
                     result.push(n)
@@ -614,11 +645,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string|string[]} nodeId - the id or ids of the nodes to select
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also select nodes upstream, downstream, or connected to the specified node(s).
      * @param {number|undefined} levels - if defined, use BFS traversal. 0 = all levels.
+     * @param {boolean} [includeConfigNodes=false] - whether to include config nodes when traversing connections
      * @returns {object[]|Map<number, object[]>} flat array or Map keyed by level
      * @throws {Error} if any node ID is not found
      */
-    selectNodes (nodeId, include, levels) {
-        const result = this.getNodes(nodeId, include, levels)
+    selectNodes (nodeId, include, levels, includeConfigNodes = false) {
+        const result = this.getNodes(nodeId, include, levels, includeConfigNodes)
         let allNodes
         if (result instanceof Map) {
             allNodes = []
@@ -1253,7 +1285,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!rawNode.type) throw new Error('Node is missing required property: type')
             const def = this.RED.nodes.getType(rawNode.type)
             if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
-            const isConfigNode = def.category === 'config'
+            const isConfigNode = this._isConfigNode(rawNode)
             if (!isConfigNode && !rawNode.z) throw new Error('Node is missing required property: z')
             return { ...rawNode }
         })
@@ -1484,13 +1516,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         result.handled = true // default to handled=true (set to false in default case below if action is not implemented)
         switch (actionName) {
         case SELECT_NODES: {
-            const _nodes = this.selectNodes(params.id || params.ids, params.include, params.levels)
+            const _nodes = this.selectNodes(params.id || params.ids, params.include, params.levels, params.includeConfigNodes)
             result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
             result.success = true
         }
             break
         case GET_NODES: {
-            const _nodes = this.getNodes(params.id || params.ids, params.include, params.levels)
+            const _nodes = this.getNodes(params.id || params.ids, params.include, params.levels, params.includeConfigNodes)
             result.nodes = this._formatNodeResult(_nodes, params.options?.includeModuleConfig)
             result.success = true
         }
@@ -2120,10 +2152,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             return node
         })
         // Exclude config nodes — they have no canvas position and break alignment
-        const nodes = allNodes.filter(n => {
-            const def = this.RED.nodes.getType(n.type)
-            return !def || def.category !== 'config'
-        })
+        const nodes = allNodes.filter(n => !this._isConfigNode(n))
         if (nodes.length === 0) throw new Error('No non-config nodes to align')
         if (direction !== 'grid' && nodes.length < 2) {
             throw new Error(`Alignment direction "${direction}" requires at least 2 non-config nodes`)
