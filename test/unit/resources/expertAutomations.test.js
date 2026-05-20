@@ -144,11 +144,9 @@ describeMain('expertAutomations', () => {
                 mockRED.view.select.calledWith({ nodes: [mockNode1, mockNode2] }).should.be.true()
                 result.should.deepEqual([mockNode1, mockNode2])
             })
-            it('should return null if no nodes found', () => {
-                mockRED.nodes.node.returns(null)
-                mockRED.nodes.getAllFlowNodes.returns([])
-                const result = expertAutomations.selectNodes('node1', null)
-                should(result).equal(null)
+            it('should throw if node not found', () => {
+                mockRED.nodes.node.returns(null);
+                (() => expertAutomations.selectNodes('node1', null)).should.throw('Node node1 not found')
             })
         })
         describe('getNodes', () => {
@@ -166,10 +164,33 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes(['node1', 'node2'], null)
                 result.should.deepEqual([mockNode1, mockNode2])
             })
-            it('should return null if node not found', () => {
-                mockRED.nodes.node.returns(null)
-                const result = expertAutomations.getNodes('node1', null)
-                should(result).equal(null)
+            it('should throw if node not found', () => {
+                mockRED.nodes.node.returns(null);
+                (() => expertAutomations.getNodes('node1', null)).should.throw('Node node1 not found')
+            })
+            it('should support include with ids array', () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                const n4 = { id: 'n4' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, n3])
+                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3, n4])
+                const result = expertAutomations.getNodes(['n1', 'n2'], 'downstream')
+                result.should.have.lengthOf(4)
+                result.map(n => n.id).should.deepEqual(['n1', 'n3', 'n2', 'n4'])
+            })
+            it('should deduplicate overlapping connections across ids', () => {
+                const n1 = { id: 'n1' }
+                const shared = { id: 'shared' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('shared').returns(shared)
+                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, shared])
+                mockRED.nodes.getAllFlowNodes.withArgs(shared, 'down').returns([shared])
+                const result = expertAutomations.getNodes(['n1', 'shared'], 'downstream')
+                result.should.have.lengthOf(2)
+                result.map(n => n.id).should.deepEqual(['n1', 'shared'])
             })
         })
         describe('editNode', () => {
@@ -188,7 +209,7 @@ describeMain('expertAutomations', () => {
             })
             it('should throw error if node not found', () => {
                 mockRED.nodes.node.returns(null);
-                (() => expertAutomations.editNode('node1')).should.throw('Node with id node1 not found')
+                (() => expertAutomations.editNode('node1')).should.throw('Node node1 not found')
             })
         })
         describe('search', () => {
@@ -240,13 +261,11 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
-            it('should fail if no nodes found', async () => {
+            it('should throw if node not found', async () => {
                 mockRED.nodes.node.returns(null)
-                mockRED.nodes.getAllFlowNodes.returns([])
                 const result = {}
-                await expertAutomations.invokeAction('automation/select-nodes', { params: { id: 'node1' } }, result)
-                result.should.have.property('success', false)
-                result.should.have.property('error')
+                await should(expertAutomations.invokeAction('automation/select-nodes', { params: { id: 'node1' } }, result))
+                    .rejectedWith(/Node node1 not found/)
             })
         })
         describe('getNodes action', () => {
@@ -274,13 +293,11 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
-            it('should fail if no nodes found', async () => {
+            it('should throw if node not found', async () => {
                 mockRED.nodes.node.returns(null)
-                mockRED.nodes.getAllFlowNodes.returns([])
                 const result = {}
-                await expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result)
-                result.should.have.property('success', false)
-                result.should.have.property('error')
+                await should(expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result))
+                    .rejectedWith(/Node node1 not found/)
             })
         })
         describe('editNode action', () => {
@@ -299,12 +316,12 @@ describeMain('expertAutomations', () => {
             it('should fail if no node found', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/open-node-edit', { params: { id: 'node1' } }, result)).rejectedWith('Node with id node1 not found')
+                await should(expertAutomations.invokeAction('automation/open-node-edit', { params: { id: 'node1' } }, result)).rejectedWith('Node node1 not found')
             })
             it('should fail if non string params.id is used', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/open-node-edit', { params: { id: ['node1', 'node2'] } }, result)).rejectedWith(/Node with .* not found/)
+                await should(expertAutomations.invokeAction('automation/open-node-edit', { params: { id: ['node1', 'node2'] } }, result)).rejectedWith(/Node .* not found/)
             })
         })
         describe('search action', () => {
