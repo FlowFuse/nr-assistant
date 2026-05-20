@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [0.16.0](https://github.com/FlowFuse/nr-assistant/compare/v0.15.0...v0.16.0) (2026-05-20)
+
+
+### Features
+
+* **automation:** add align-selection action ([#347](https://github.com/FlowFuse/nr-assistant/issues/347)) ([7dcf1d8](https://github.com/FlowFuse/nr-assistant/commit/7dcf1d8ae965e96f0e9bc1f837c13d4f2d9ab063))
+
+
+### Bug Fixes
+
+* **automation:** track history for moveNodeToTab so undo works correctly ([1935719](https://github.com/FlowFuse/nr-assistant/commit/1935719131d9212655817390afc48c014732649c))
+* **automation:** track history for moveNodeToTab so undo works correctly ([#341](https://github.com/FlowFuse/nr-assistant/issues/341)) ([d0bf691](https://github.com/FlowFuse/nr-assistant/commit/d0bf691d1eb25303cf5ef6212dcade11b2ef5edd))
+
 ## [0.15.0](https://github.com/FlowFuse/nr-assistant/compare/v0.14.0...v0.15.0) (2026-05-12)
 
  - fix(automation): move node to tab via link nodes instead of direct z change (#336) @andypalmi
