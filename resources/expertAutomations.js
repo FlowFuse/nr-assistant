@@ -525,15 +525,44 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     _getConnectedNodes (node, include) {
-        switch (include) {
-        case 'upstream':
-            return this.RED.nodes.getAllFlowNodes(node, 'up')
-        case 'downstream':
-            return this.RED.nodes.getAllFlowNodes(node, 'down')
-        case 'connected':
-            return this.RED.nodes.getAllFlowNodes(node)
+        if (include === 'connected') {
+            const upstream = this._traverseDirection(node, 1)
+            const downstream = this._traverseDirection(node, 0)
+            const seen = new Set()
+            const result = []
+            for (const n of [node, ...upstream, ...downstream]) {
+                if (!seen.has(n.id)) {
+                    seen.add(n.id)
+                    result.push(n)
+                }
+            }
+            return result
+        }
+        if (include === 'upstream' || include === 'downstream') {
+            return [node, ...this._traverseDirection(node, include === 'upstream' ? 1 : 0)]
         }
         return [node]
+    }
+
+    _traverseDirection (startNode, portType) {
+        const visited = new Set([startNode.id])
+        const queue = [startNode]
+        const result = []
+        while (queue.length > 0) {
+            const current = queue.shift()
+            const links = this.RED.nodes.getNodeLinks(current.id, portType)
+            const neighbors = portType === 1
+                ? links.map(l => l.source)
+                : links.map(l => l.target)
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id)
+                    result.push(neighbor)
+                    queue.push(neighbor)
+                }
+            }
+        }
+        return result
     }
 
     /**

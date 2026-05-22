@@ -36,6 +36,7 @@ describeMain('expertAutomations', () => {
                 node: sinon.stub(),
                 group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
+                getNodeLinks: sinon.stub().returns([]),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
             },
@@ -178,8 +179,10 @@ describeMain('expertAutomations', () => {
                 const n4 = { id: 'n4' }
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n2').returns(n2)
-                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, n3])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3, n4])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }, { target: n4 }])
+                mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
                 const result = expertAutomations.getNodes(['n1', 'n2'], 'downstream')
                 result.should.have.lengthOf(4)
                 result.map(n => n.id).should.deepEqual(['n1', 'n3', 'n2', 'n4'])
@@ -189,8 +192,8 @@ describeMain('expertAutomations', () => {
                 const shared = { id: 'shared' }
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('shared').returns(shared)
-                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, shared])
-                mockRED.nodes.getAllFlowNodes.withArgs(shared, 'down').returns([shared])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: shared }])
+                mockRED.nodes.getNodeLinks.withArgs('shared', 0).returns([])
                 const result = expertAutomations.getNodes(['n1', 'shared'], 'downstream')
                 result.should.have.lengthOf(2)
                 result.map(n => n.id).should.deepEqual(['n1', 'shared'])
@@ -255,7 +258,6 @@ describeMain('expertAutomations', () => {
                 const mockNode2 = { id: 'node2' }
                 mockRED.nodes.node.withArgs('node1').returns(mockNode1)
                 mockRED.nodes.node.withArgs('node2').returns(mockNode2)
-                mockRED.nodes.getAllFlowNodes.returns([])
                 const result = {}
                 await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['node1', 'node2'] } }, result)
                 expertAutomations.selectNodes.calledWith(['node1', 'node2'], undefined).should.be.true()
@@ -291,8 +293,10 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n2').returns(n2)
                 mockRED.nodes.node.withArgs('n3').returns(n3)
                 mockRED.nodes.node.withArgs('n4').returns(n4)
-                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, n3])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3, n4])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }, { target: n4 }])
+                mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
                 const result = {}
                 await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n1', 'n2'], include: 'downstream' } }, result)
                 result.should.have.property('success', true)
@@ -311,9 +315,10 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n2').returns(n2)
                 mockRED.nodes.node.withArgs('n3').returns(n3)
-                mockRED.nodes.getAllFlowNodes.withArgs(n2).returns([n1, n2, n3])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'up').returns([n2, n1])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
                 const result = {}
                 await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n2'], include: 'connected' } }, result)
                 result.should.have.property('success', true)
@@ -374,16 +379,17 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n2').returns(n2)
                 mockRED.nodes.node.withArgs('n3').returns(n3)
-                mockRED.nodes.getAllFlowNodes.withArgs(n1, 'down').returns([n1, n2])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n1', 'n2'], include: 'downstream' } }, result)
                 result.should.have.property('success', true)
                 result.nodes.should.have.lengthOf(2)
                 result.nodes[0].should.have.property('id', 'n1')
                 result.nodes[0].should.have.property('type', 'inject')
-                result.nodes[0].should.have.property('downstream').with.lengthOf(1)
-                result.nodes[0].downstream[0].should.have.property('id', 'n2')
+                result.nodes[0].should.have.property('downstream').with.lengthOf(2)
+                result.nodes[0].downstream.map(n => n.id).should.deepEqual(['n2', 'n3'])
                 result.nodes[1].should.have.property('id', 'n2')
                 result.nodes[1].should.have.property('downstream').with.lengthOf(1)
                 result.nodes[1].downstream[0].should.have.property('id', 'n3')
@@ -395,9 +401,10 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n2').returns(n2)
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n3').returns(n3)
-                mockRED.nodes.getAllFlowNodes.withArgs(n2).returns([n1, n2, n3])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'up').returns([n2, n1])
-                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n2'], include: 'connected' } }, result)
                 result.should.have.property('success', true)
@@ -1987,8 +1994,6 @@ describeMain('expertAutomations', () => {
                     mockRED.nodes.workspace = sinon.stub()
                     mockRED.nodes.workspace.withArgs('tab-a').returns({ id: 'tab-a' })
                     mockRED.nodes.workspace.withArgs('tab-b').returns({ id: 'tab-b' })
-                    // getAllFlowNodes used by getNodes — default: no upstream (just the node itself)
-                    mockRED.nodes.getAllFlowNodes.withArgs(node, 'up').returns([node])
                     mockRED.nodes.getNodeLinks = sinon.stub().returns([])
                     mockRED.nodes.moveNodeToTab = sinon.stub()
                     mockRED.actions = { invoke: sinon.stub() }
