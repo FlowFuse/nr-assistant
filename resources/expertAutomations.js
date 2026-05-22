@@ -600,7 +600,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     continue
                 }
                 visited.add(neighbor.id)
-                if (this._isConfigNode(neighbor) || LINK_NODE_TYPES.includes(neighbor.type)) {
+                if (this._isConfigNode(neighbor)) {
                     continue
                 }
                 const nextLevel = level + 1
@@ -611,7 +611,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                     byLevel[nextLevel].push(neighbor)
                 }
-                queue.push({ node: neighbor, level: nextLevel })
+                if (!LINK_NODE_TYPES.includes(neighbor.type)) {
+                    queue.push({ node: neighbor, level: nextLevel })
+                }
             }
         }
         return leveled ? { flat, byLevel } : flat

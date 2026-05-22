@@ -241,15 +241,18 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes('n1', 'upstream')
                 result.map(n => n.id).should.deepEqual(['n1', 'n2'])
             })
-            it('should exclude link nodes from traversal', () => {
+            it('should include link nodes but not traverse through them', () => {
                 const n1 = { id: 'n1', type: 'function' }
                 const linkOut = { id: 'lo1', type: 'link out' }
+                const linkIn = { id: 'li1', type: 'link in' }
                 const n2 = { id: 'n2', type: 'debug' }
                 mockRED.nodes.node.withArgs('n1').returns(n1)
-                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: linkOut }, { target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: linkOut }])
+                mockRED.nodes.getNodeLinks.withArgs('lo1', 0).returns([{ target: linkIn }])
+                mockRED.nodes.getNodeLinks.withArgs('li1', 0).returns([{ target: n2 }])
                 mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([])
                 const result = expertAutomations.getNodes('n1', 'downstream')
-                result.map(n => n.id).should.deepEqual(['n1', 'n2'])
+                result.map(n => n.id).should.deepEqual(['n1', 'lo1'])
             })
         })
         describe('editNode', () => {
