@@ -521,7 +521,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @returns {object[]} the nodes that were retrieved (missing IDs are silently skipped)
      */
     getNodes (nodeId, include) {
-        const ids = Array.isArray(nodeId) ? nodeId : [nodeId]
+        const ids = this._normalizeIds(nodeId)
         const nodes = ids.map(id => this.RED.nodes.node(id)).filter(n => n)
         if (!include) {
             return nodes
