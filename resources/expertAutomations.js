@@ -502,6 +502,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return requestedIds.filter(id => !foundIds.has(id))
     }
 
+    _groupNodesBySource (requestedIds, include, formatFn) {
+        return requestedIds
+            .map(id => this.RED.nodes.node(id))
+            .filter(n => n)
+            .map(node => {
+                const connected = this._getConnectedNodes(node, include)
+                    .filter(n => n.id !== node.id)
+                return {
+                    ...formatFn([node])[0],
+                    [include]: formatFn(connected)
+                }
+            })
+    }
+
     _getConnectedNodes (node, include) {
         switch (include) {
         case 'upstream':
@@ -1422,7 +1436,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = true
                 break
             }
-            result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            const _format = (nodes) => this._formatNodes(nodes, params.options?.includeModuleConfig)
+            result.nodes = params.include
+                ? this._groupNodesBySource(_requestedIds, params.include, _format)
+                : _format(_nodes)
             result.success = true
         }
             break
@@ -1438,11 +1455,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = true
                 break
             }
-            if (params.full) {
-                result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
-            } else {
-                result.nodes = _nodes.map(n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) }))
-            }
+            const _summarize = (nodes) => nodes.map(n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) }))
+            const _format = params.full
+                ? (nodes) => this._formatNodes(nodes, params.options?.includeModuleConfig)
+                : _summarize
+            result.nodes = params.include
+                ? this._groupNodesBySource(_requestedIds, params.include, _format)
+                : _format(_nodes)
             result.success = true
         }
             break
