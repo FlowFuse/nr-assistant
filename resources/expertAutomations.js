@@ -493,6 +493,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {'upstream'|'downstream'|'connected'|null} include - direction to traverse
      * @returns {object[]} the connected nodes (includes the start node)
      */
+    _normalizeIds (ids) {
+        return Array.isArray(ids) ? ids : [ids]
+    }
+
+    _findMissingIds (requestedIds, foundNodes) {
+        const foundIds = new Set(foundNodes.map(n => n.id))
+        return requestedIds.filter(id => !foundIds.has(id))
+    }
+
     _getConnectedNodes (node, include) {
         switch (include) {
         case 'upstream':
@@ -1402,18 +1411,32 @@ export class ExpertAutomations extends ExpertActionsInterface {
         result.handled = true // default to handled=true (set to false in default case below if action is not implemented)
         switch (actionName) {
         case SELECT_NODES: {
-            const _nodes = this.selectNodes(params.id || params.ids, params.include)
-            if (!_nodes || _nodes.length === 0) {
-                throw new Error('No nodes found to select with the provided parameters')
+            const _requestedIds = this._normalizeIds(params.id || params.ids)
+            const _nodes = this.selectNodes(_requestedIds, params.include)
+            const _missingIds = this._findMissingIds(_requestedIds, _nodes)
+            if (_missingIds.length > 0) {
+                result.warning = `Nodes not found: ${_missingIds.join(', ')}`
+            }
+            if (_nodes.length === 0) {
+                result.nodes = []
+                result.success = true
+                break
             }
             result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
             result.success = true
         }
             break
         case GET_NODES: {
-            const _nodes = this.getNodes(params.id || params.ids, params.include)
-            if (!_nodes || _nodes.length === 0) {
-                throw new Error('No nodes found with the provided parameters')
+            const _requestedIds = this._normalizeIds(params.id || params.ids)
+            const _nodes = this.getNodes(_requestedIds, params.include)
+            const _missingIds = this._findMissingIds(_requestedIds, _nodes)
+            if (_missingIds.length > 0) {
+                result.warning = `Nodes not found: ${_missingIds.join(', ')}`
+            }
+            if (_nodes.length === 0) {
+                result.nodes = []
+                result.success = true
+                break
             }
             if (params.full) {
                 result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)

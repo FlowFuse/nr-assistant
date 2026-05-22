@@ -264,11 +264,23 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
             })
-            it('should throw if node not found', async () => {
+            it('should return warning if node not found', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/select-nodes', { params: { id: 'node1' } }, result))
-                    .rejectedWith(/No nodes found to select with the provided parameters/)
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { id: 'node1' } }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('nodes').and.deepEqual([])
+                result.should.have.property('warning', 'Nodes not found: node1')
+            })
+            it('should return found nodes with warning for missing ones', async () => {
+                const mockNode1 = { id: 'node1' }
+                mockRED.nodes.node.withArgs('node1').returns(mockNode1)
+                mockRED.nodes.node.withArgs('node2').returns(null)
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['node1', 'node2'] } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.should.have.property('warning', 'Nodes not found: node2')
             })
         })
         describe('getNodes action', () => {
@@ -305,11 +317,13 @@ describeMain('expertAutomations', () => {
                 result.nodes[0].should.have.property('id', 'node1')
                 result.nodes[0].should.have.property('type', 'function')
             })
-            it('should throw if node not found', async () => {
+            it('should return warning if node not found', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result))
-                    .rejectedWith(/No nodes found with the provided parameters/)
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('nodes').and.deepEqual([])
+                result.should.have.property('warning', 'Nodes not found: node1')
             })
         })
         describe('editNode action', () => {
