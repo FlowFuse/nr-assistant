@@ -198,6 +198,34 @@ describeMain('expertAutomations', () => {
                 result.should.have.lengthOf(2)
                 result.map(n => n.id).should.deepEqual(['n1', 'shared'])
             })
+            it('should limit traversal depth with levels param', () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                const result = expertAutomations.getNodes('n1', 'downstream', 1)
+                result.should.have.lengthOf(2)
+                result.map(n => n.id).should.deepEqual(['n1', 'n2'])
+            })
+            it('should traverse all levels when levels is 0', () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                const result = expertAutomations.getNodes('n1', 'downstream', 0)
+                result.should.have.lengthOf(3)
+                result.map(n => n.id).should.deepEqual(['n1', 'n2', 'n3'])
+            })
         })
         describe('editNode', () => {
             it('should edit a node when in default state', () => {
@@ -253,18 +281,30 @@ describeMain('expertAutomations', () => {
             await should(expertAutomations.invokeAction('automation/nonexistent-action')).rejectedWith(/Action .* not found/)
         })
         describe('selectNodes action', () => {
-            it('should invoke action and select nodes', async () => {
+            it('should return summarized nodes by default', async () => {
+                const mockNode1 = { id: 'node1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const mockNode2 = { id: 'node2', type: 'debug', x: 30, y: 40, z: 'tab1' }
+                mockRED.nodes.node.withArgs('node1').returns(mockNode1)
+                mockRED.nodes.node.withArgs('node2').returns(mockNode2)
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['node1', 'node2'] } }, result)
+                expertAutomations.selectNodes.calledWith(['node1', 'node2'], undefined, undefined).should.be.true()
+                mockRED.view.select.calledWith({ nodes: [mockNode1, mockNode2] }).should.be.true()
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(2)
+                result.nodes[0].should.have.property('id', 'node1')
+                result.nodes[0].should.have.property('type', 'inject')
+            })
+            it('should return full node data when full is true', async () => {
                 const mockNode1 = { id: 'node1' }
                 const mockNode2 = { id: 'node2' }
                 mockRED.nodes.node.withArgs('node1').returns(mockNode1)
                 mockRED.nodes.node.withArgs('node2').returns(mockNode2)
                 const result = {}
-                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['node1', 'node2'] } }, result)
-                expertAutomations.selectNodes.calledWith(['node1', 'node2'], undefined).should.be.true()
-                mockRED.view.select.calledWith({ nodes: [mockNode1, mockNode2] }).should.be.true()
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['node1', 'node2'], full: true } }, result)
+                expertAutomations._formatNodes.calledWith([mockNode1, mockNode2], undefined).should.be.true()
                 result.should.have.property('nodes').and.deepEqual([mockNode1, mockNode2])
                 result.should.have.property('success', true)
-                result.should.have.property('handled', true)
             })
             it('should return warning if node not found', async () => {
                 mockRED.nodes.node.returns(null)
@@ -328,6 +368,68 @@ describeMain('expertAutomations', () => {
                 result.nodes[0].upstream[0].should.have.property('id', 'n1')
                 result.nodes[0].should.have.property('downstream').with.lengthOf(1)
                 result.nodes[0].downstream[0].should.have.property('id', 'n3')
+            })
+            it('should return leveled results when levels is specified', async () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                const n4 = { id: 'n4' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.node.withArgs('n4').returns(n4)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ target: n4 }])
+                mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n1'], include: 'downstream', levels: 1 } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'n1')
+                result.nodes[0].should.have.property('downstream')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.not.have.property('2')
+            })
+            it('should return all levels when levels is 0', async () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n1'], include: 'downstream', levels: 0 } }, result)
+                result.should.have.property('success', true)
+                result.nodes[0].should.have.property('downstream')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.have.property('2').with.lengthOf(1)
+                result.nodes[0].downstream['2'][0].should.have.property('id', 'n3')
+            })
+            it('should show parallel connections at the same level', async () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                const n4 = { id: 'n4' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.node.withArgs('n4').returns(n4)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }, { target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n4 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n1'], include: 'downstream', levels: 0 } }, result)
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(2)
+                result.nodes[0].downstream['1'].map(n => n.id).should.deepEqual(['n2', 'n3'])
+                result.nodes[0].downstream.should.have.property('2').with.lengthOf(1)
+                result.nodes[0].downstream['2'][0].should.have.property('id', 'n4')
             })
         })
         describe('getNodes action', () => {
@@ -415,6 +517,67 @@ describeMain('expertAutomations', () => {
                 result.nodes[0].upstream[0].should.have.property('id', 'n1')
                 result.nodes[0].should.have.property('downstream').with.lengthOf(1)
                 result.nodes[0].downstream[0].should.have.property('id', 'n3')
+            })
+            it('should return leveled results when levels is specified', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n1'], include: 'downstream', levels: 1 } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'n1')
+                result.nodes[0].should.have.property('downstream')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.not.have.property('2')
+            })
+            it('should show parallel vs serial connections via levels', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
+                const n4 = { id: 'n4', type: 'http', x: 70, y: 80, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.node.withArgs('n4').returns(n4)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: n2 }, { target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n4 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n4', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n1'], include: 'downstream', levels: 0 } }, result)
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(2)
+                result.nodes[0].downstream['1'].map(n => n.id).should.deepEqual(['n2', 'n3'])
+                result.nodes[0].downstream.should.have.property('2').with.lengthOf(1)
+                result.nodes[0].downstream['2'][0].should.have.property('id', 'n4')
+            })
+            it('should return leveled connected results with upstream and downstream', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n2'], include: 'connected', levels: 0 } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'n2')
+                result.nodes[0].upstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].upstream['1'][0].should.have.property('id', 'n1')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n3')
             })
         })
         describe('editNode action', () => {

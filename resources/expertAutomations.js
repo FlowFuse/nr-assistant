@@ -88,8 +88,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         enum: ['upstream', 'downstream', 'connected'],
                         description: 'Specify whether to also retrieve nodes upstream, downstream, or connected to the specified node(s).'
                     },
+                    levels: {
+                        type: 'integer',
+                        minimum: 0,
+                        description: 'Max connection levels to traverse (1 = direct neighbors only, 0 = all levels). Only applicable when include is specified.'
+                    },
                     full: {
                         type: 'boolean',
+                        default: false,
                         description: 'Return full node data instead of slim summaries. Defaults to false.'
                     }
                 }
@@ -114,6 +120,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'string',
                         enum: ['upstream', 'downstream', 'connected'],
                         description: 'Specify whether to also select nodes upstream, downstream, or connected to the specified node(s).'
+                    },
+                    levels: {
+                        type: 'integer',
+                        minimum: 0,
+                        description: 'Max connection levels to traverse (1 = direct neighbors only, 0 = all levels). Only applicable when include is specified.'
+                    },
+                    full: {
+                        type: 'boolean',
+                        default: false,
+                        description: 'Return full node data instead of slim summaries. Defaults to false.'
                     }
                 }
             }
@@ -487,12 +503,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     })
 
-    /**
-     * Get nodes connected to a given node in a direction
-     * @param {object} node - the node to get connections for
-     * @param {'upstream'|'downstream'|'connected'|null} include - direction to traverse
-     * @returns {object[]} the connected nodes (includes the start node)
-     */
     _normalizeIds (ids) {
         return Array.isArray(ids) ? ids : [ids]
     }
@@ -502,32 +512,56 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return requestedIds.filter(id => !foundIds.has(id))
     }
 
-    _groupNodesBySource (requestedIds, include, formatFn) {
+    _groupNodesBySource (requestedIds, include, formatFn, levels) {
+        const useLevels = levels !== undefined
         return requestedIds
             .map(id => this.RED.nodes.node(id))
             .filter(n => n)
             .map(node => {
                 const formatted = formatFn([node])[0]
+                const maxLevels = levels !== undefined ? levels : 0
                 if (include === 'connected') {
-                    const upstream = this._getConnectedNodes(node, 'upstream')
-                        .filter(n => n.id !== node.id)
-                    const downstream = this._getConnectedNodes(node, 'downstream')
-                        .filter(n => n.id !== node.id)
-                    formatted.upstream = formatFn(upstream)
-                    formatted.downstream = formatFn(downstream)
+                    if (useLevels) {
+                        const upResult = this._traverseDirection(node, 1, maxLevels, true)
+                        const downResult = this._traverseDirection(node, 0, maxLevels, true)
+                        formatted.upstream = this._formatByLevel(upResult.byLevel, formatFn)
+                        formatted.downstream = this._formatByLevel(downResult.byLevel, formatFn)
+                    } else {
+                        const upstream = this._getConnectedNodes(node, 'upstream', levels)
+                            .filter(n => n.id !== node.id)
+                        const downstream = this._getConnectedNodes(node, 'downstream', levels)
+                            .filter(n => n.id !== node.id)
+                        formatted.upstream = formatFn(upstream)
+                        formatted.downstream = formatFn(downstream)
+                    }
                 } else {
-                    const connected = this._getConnectedNodes(node, include)
-                        .filter(n => n.id !== node.id)
-                    formatted[include] = formatFn(connected)
+                    const portType = include === 'upstream' ? 1 : 0
+                    if (useLevels) {
+                        const traverseResult = this._traverseDirection(node, portType, maxLevels, true)
+                        formatted[include] = this._formatByLevel(traverseResult.byLevel, formatFn)
+                    } else {
+                        const connected = this._getConnectedNodes(node, include, levels)
+                            .filter(n => n.id !== node.id)
+                        formatted[include] = formatFn(connected)
+                    }
                 }
                 return formatted
             })
     }
 
-    _getConnectedNodes (node, include) {
+    _formatByLevel (byLevel, formatFn) {
+        const result = {}
+        for (const [level, nodes] of Object.entries(byLevel)) {
+            result[level] = formatFn(nodes)
+        }
+        return result
+    }
+
+    _getConnectedNodes (node, include, levels) {
+        const maxLevels = levels !== undefined ? levels : 0
         if (include === 'connected') {
-            const upstream = this._traverseDirection(node, 1)
-            const downstream = this._traverseDirection(node, 0)
+            const upstream = this._traverseDirection(node, 1, maxLevels, false)
+            const downstream = this._traverseDirection(node, 0, maxLevels, false)
             const seen = new Set()
             const result = []
             for (const n of [node, ...upstream, ...downstream]) {
@@ -539,17 +573,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
             return result
         }
         if (include === 'upstream' || include === 'downstream') {
-            return [node, ...this._traverseDirection(node, include === 'upstream' ? 1 : 0)]
+            return [node, ...this._traverseDirection(node, include === 'upstream' ? 1 : 0, maxLevels, false)]
         }
         return [node]
     }
 
-    _traverseDirection (startNode, portType) {
+    _traverseDirection (startNode, portType, maxLevels, leveled) {
         const visited = new Set([startNode.id])
-        const queue = [startNode]
-        const result = []
+        const queue = [{ node: startNode, level: 0 }]
+        const flat = []
+        const byLevel = leveled ? {} : null
         while (queue.length > 0) {
-            const current = queue.shift()
+            const { node: current, level } = queue.shift()
+            if (maxLevels > 0 && level >= maxLevels) continue
             const links = this.RED.nodes.getNodeLinks(current.id, portType)
             const neighbors = portType === 1
                 ? links.map(l => l.source)
@@ -557,21 +593,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
             for (const neighbor of neighbors) {
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id)
-                    result.push(neighbor)
-                    queue.push(neighbor)
+                    const nextLevel = level + 1
+                    flat.push(neighbor)
+                    if (byLevel) {
+                        if (!byLevel[nextLevel]) byLevel[nextLevel] = []
+                        byLevel[nextLevel].push(neighbor)
+                    }
+                    queue.push({ node: neighbor, level: nextLevel })
                 }
             }
         }
-        return result
+        return leveled ? { flat, byLevel } : flat
     }
 
     /**
      * Get node or nodes by id
      * @param {string|string[]} nodeId - the id or ids of the nodes to retrieve
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also retrieve nodes upstream, downstream, or connected to the specified node(s). Results are deduplicated.
+     * @param {number} [levels] - max connection levels to traverse (1 = direct neighbors, 0 = all). Only with include.
      * @returns {object[]} the nodes that were retrieved (missing IDs are silently skipped)
      */
-    getNodes (nodeId, include) {
+    getNodes (nodeId, include, levels) {
         const ids = this._normalizeIds(nodeId)
         const nodes = ids.map(id => this.RED.nodes.node(id)).filter(n => n)
         if (!include) {
@@ -581,7 +623,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const result = []
         for (const node of nodes) {
             if (seen.has(node.id)) continue
-            const connected = this._getConnectedNodes(node, include)
+            const connected = this._getConnectedNodes(node, include, levels)
             for (const n of connected) {
                 if (!seen.has(n.id)) {
                     seen.add(n.id)
@@ -596,10 +638,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Select node or nodes on the workspace
      * @param {string|string[]} nodeId - the id or ids of the nodes to select
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also select nodes upstream, downstream, or connected to the specified node(s).
+     * @param {number} [levels] - max connection levels to traverse (1 = direct neighbors, 0 = all). Only with include.
      * @returns {object[]} the nodes that were selected
      */
-    selectNodes (nodeId, include) {
-        const nodes = this.getNodes(nodeId, include)
+    selectNodes (nodeId, include, levels) {
+        const nodes = this.getNodes(nodeId, include, levels)
         if (nodes.length > 0) {
             const id = Array.isArray(nodeId) ? nodeId[0] : nodeId
             this.RED.view.reveal(id, false)
@@ -1463,26 +1506,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         switch (actionName) {
         case SELECT_NODES: {
             const _requestedIds = this._normalizeIds(params.id || params.ids)
-            const _nodes = this.selectNodes(_requestedIds, params.include)
-            const _missingIds = this._findMissingIds(_requestedIds, _nodes)
-            if (_missingIds.length > 0) {
-                result.warning = `Nodes not found: ${_missingIds.join(', ')}`
-            }
-            if (_nodes.length === 0) {
-                result.nodes = []
-                result.success = true
-                break
-            }
-            const _format = (nodes) => this._formatNodes(nodes, params.options?.includeModuleConfig)
-            result.nodes = params.include
-                ? this._groupNodesBySource(_requestedIds, params.include, _format)
-                : _format(_nodes)
-            result.success = true
-        }
-            break
-        case GET_NODES: {
-            const _requestedIds = this._normalizeIds(params.id || params.ids)
-            const _nodes = this.getNodes(_requestedIds, params.include)
+            const _nodes = this.selectNodes(_requestedIds, params.include, params.levels)
             const _missingIds = this._findMissingIds(_requestedIds, _nodes)
             if (_missingIds.length > 0) {
                 result.warning = `Nodes not found: ${_missingIds.join(', ')}`
@@ -1497,7 +1521,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 ? (nodes) => this._formatNodes(nodes, params.options?.includeModuleConfig)
                 : _summarize
             result.nodes = params.include
-                ? this._groupNodesBySource(_requestedIds, params.include, _format)
+                ? this._groupNodesBySource(_requestedIds, params.include, _format, params.levels)
+                : _format(_nodes)
+            result.success = true
+        }
+            break
+        case GET_NODES: {
+            const _requestedIds = this._normalizeIds(params.id || params.ids)
+            const _nodes = this.getNodes(_requestedIds, params.include, params.levels)
+            const _missingIds = this._findMissingIds(_requestedIds, _nodes)
+            if (_missingIds.length > 0) {
+                result.warning = `Nodes not found: ${_missingIds.join(', ')}`
+            }
+            if (_nodes.length === 0) {
+                result.nodes = []
+                result.success = true
+                break
+            }
+            const _summarize = (nodes) => nodes.map(n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) }))
+            const _format = params.full
+                ? (nodes) => this._formatNodes(nodes, params.options?.includeModuleConfig)
+                : _summarize
+            result.nodes = params.include
+                ? this._groupNodesBySource(_requestedIds, params.include, _format, params.levels)
                 : _format(_nodes)
             result.success = true
         }
