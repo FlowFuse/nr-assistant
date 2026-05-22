@@ -37,6 +37,7 @@ describeMain('expertAutomations', () => {
                 group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 getNodeLinks: sinon.stub().returns([]),
+                getType: sinon.stub().returns(null),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
             },
@@ -225,6 +226,30 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes('n1', 'downstream', 0)
                 result.should.have.lengthOf(3)
                 result.map(n => n.id).should.deepEqual(['n1', 'n2', 'n3'])
+            })
+            it('should exclude config nodes from traversal', () => {
+                const n1 = { id: 'n1', type: 'function' }
+                const configNode = { id: 'cfg1', type: 'mqtt-broker' }
+                const n2 = { id: 'n2', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.getType.withArgs('mqtt-broker').returns({ category: 'config' })
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([
+                    { source: configNode },
+                    { source: n2 }
+                ])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([])
+                const result = expertAutomations.getNodes('n1', 'upstream')
+                result.map(n => n.id).should.deepEqual(['n1', 'n2'])
+            })
+            it('should exclude link nodes from traversal', () => {
+                const n1 = { id: 'n1', type: 'function' }
+                const linkOut = { id: 'lo1', type: 'link out' }
+                const n2 = { id: 'n2', type: 'debug' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ target: linkOut }, { target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([])
+                const result = expertAutomations.getNodes('n1', 'downstream')
+                result.map(n => n.id).should.deepEqual(['n1', 'n2'])
             })
         })
         describe('editNode', () => {

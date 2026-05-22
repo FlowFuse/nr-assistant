@@ -578,6 +578,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return [node]
     }
 
+    _isConfigNode (node) {
+        const def = this.RED.nodes.getType(node.type)
+        return def && def.category === 'config'
+    }
+
     _traverseDirection (startNode, portType, maxLevels, leveled) {
         const visited = new Set([startNode.id])
         const queue = [{ node: startNode, level: 0 }]
@@ -585,22 +590,30 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const byLevel = leveled ? {} : null
         while (queue.length > 0) {
             const { node: current, level } = queue.shift()
-            if (maxLevels > 0 && level >= maxLevels) continue
+            if (maxLevels > 0 && level >= maxLevels) {
+                continue
+            }
             const links = this.RED.nodes.getNodeLinks(current.id, portType)
             const neighbors = portType === 1
                 ? links.map(l => l.source)
                 : links.map(l => l.target)
             for (const neighbor of neighbors) {
-                if (!visited.has(neighbor.id)) {
-                    visited.add(neighbor.id)
-                    const nextLevel = level + 1
-                    flat.push(neighbor)
-                    if (byLevel) {
-                        if (!byLevel[nextLevel]) byLevel[nextLevel] = []
-                        byLevel[nextLevel].push(neighbor)
-                    }
-                    queue.push({ node: neighbor, level: nextLevel })
+                if (visited.has(neighbor.id)) {
+                    continue
                 }
+                visited.add(neighbor.id)
+                if (this._isConfigNode(neighbor) || LINK_NODE_TYPES.includes(neighbor.type)) {
+                    continue
+                }
+                const nextLevel = level + 1
+                flat.push(neighbor)
+                if (byLevel) {
+                    if (!byLevel[nextLevel]) {
+                        byLevel[nextLevel] = []
+                    }
+                    byLevel[nextLevel].push(neighbor)
+                }
+                queue.push({ node: neighbor, level: nextLevel })
             }
         }
         return leveled ? { flat, byLevel } : flat
@@ -622,7 +635,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const seen = new Set()
         const result = []
         for (const node of nodes) {
-            if (seen.has(node.id)) continue
+            if (seen.has(node.id)) {
+                continue
+            }
             const connected = this._getConnectedNodes(node, include, levels)
             for (const n of connected) {
                 if (!seen.has(n.id)) {
