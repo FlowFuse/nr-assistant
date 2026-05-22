@@ -87,6 +87,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'string',
                         enum: ['upstream', 'downstream', 'connected'],
                         description: 'Specify whether to also retrieve nodes upstream, downstream, or connected to the specified node(s).'
+                    },
+                    full: {
+                        type: 'boolean',
+                        description: 'Return full node data instead of slim summaries. Defaults to false.'
                     }
                 }
             }
@@ -1412,7 +1416,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!_nodes || _nodes.length === 0) {
                 throw new Error('No nodes found with the provided parameters')
             }
-            result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            if (params.full) {
+                result.nodes = this._formatNodes(_nodes, params.options?.includeModuleConfig)
+            } else {
+                result.nodes = _nodes.map(n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) }))
+            }
             result.success = true
         }
             break

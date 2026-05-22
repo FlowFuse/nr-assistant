@@ -269,29 +269,38 @@ describeMain('expertAutomations', () => {
             })
         })
         describe('getNodes action', () => {
-            it('should invoke action and get multiple nodes using params.ids', async () => {
+            it('should return summarized nodes by default', async () => {
+                const mockNode1 = { id: 'node1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const mockNode2 = { id: 'node2', type: 'debug', x: 30, y: 40, z: 'tab1' }
+                mockRED.nodes.node.withArgs('node1').returns(mockNode1)
+                mockRED.nodes.node.withArgs('node2').returns(mockNode2)
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['node1', 'node2'] } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(2)
+                result.nodes[0].should.have.property('id', 'node1')
+                result.nodes[0].should.have.property('type', 'inject')
+            })
+            it('should return full node data when full is true', async () => {
                 const mockNode1 = { id: 'node1' }
                 const mockNode2 = { id: 'node2' }
                 mockRED.nodes.node.withArgs('node1').returns(mockNode1)
                 mockRED.nodes.node.withArgs('node2').returns(mockNode2)
                 const result = {}
-                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['node1', 'node2'] } }, result)
-                expertAutomations.getNodes.calledWith(['node1', 'node2'], undefined).should.be.true()
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['node1', 'node2'], full: true } }, result)
                 expertAutomations._formatNodes.calledWith([mockNode1, mockNode2], undefined).should.be.true()
                 result.should.have.property('nodes').and.deepEqual([mockNode1, mockNode2])
                 result.should.have.property('success', true)
-                result.should.have.property('handled', true)
             })
             it('should invoke action and get single node using params.id', async () => {
-                const mockNode1 = { id: 'node1' }
+                const mockNode1 = { id: 'node1', type: 'function', x: 10, y: 20, z: 'tab1' }
                 mockRED.nodes.node.withArgs('node1').returns(mockNode1)
                 const result = {}
                 await expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result)
-                expertAutomations.getNodes.calledWith('node1', undefined).should.be.true()
-                expertAutomations._formatNodes.calledWith([mockNode1], undefined).should.be.true()
-                result.should.have.property('nodes').and.deepEqual([mockNode1])
                 result.should.have.property('success', true)
-                result.should.have.property('handled', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'node1')
+                result.nodes[0].should.have.property('type', 'function')
             })
             it('should throw if node not found', async () => {
                 mockRED.nodes.node.returns(null)
