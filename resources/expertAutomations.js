@@ -509,22 +509,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Get node or nodes by id
      * @param {string|string[]} nodeId - the id or ids of the nodes to retrieve
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also retrieve nodes upstream, downstream, or connected to the specified node(s). Results are deduplicated.
-     * @returns {object[]} the nodes that were retrieved
-     * @throws {Error} if any node ID is not found
+     * @returns {object[]} the nodes that were retrieved (missing IDs are silently skipped)
      */
     getNodes (nodeId, include) {
         const ids = Array.isArray(nodeId) ? nodeId : [nodeId]
-        const nodes = ids.map(id => {
-            const node = this.RED.nodes.node(id)
-            if (!node) throw new Error(`Node ${id} not found`)
-            return node
-        })
+        const nodes = ids.map(id => this.RED.nodes.node(id)).filter(n => n)
         if (!include) {
             return nodes
         }
         const seen = new Set()
         const result = []
         for (const node of nodes) {
+            if (seen.has(node.id)) continue
             const connected = this._getConnectedNodes(node, include)
             for (const n of connected) {
                 if (!seen.has(n.id)) {
@@ -541,7 +537,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string|string[]} nodeId - the id or ids of the nodes to select
      * @param {'upstream'|'downstream'|'connected'|null} include - if provided, also select nodes upstream, downstream, or connected to the specified node(s).
      * @returns {object[]} the nodes that were selected
-     * @throws {Error} if any node ID is not found
      */
     selectNodes (nodeId, include) {
         const nodes = this.getNodes(nodeId, include)
@@ -564,6 +559,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (this.RED.view.state() !== this.RED.state.DEFAULT) {
             // only allow selecting and editing nodes when in default state (not editing another node, not in the middle of adding a connection, etc.)
             throw new Error('Cannot select and edit node when not in default view state')
+        }
+        const node = this.RED.nodes.node(nodeId)
+        if (!node) {
+            throw new Error(`Node ${nodeId} not found`)
         }
         const selectedNodes = this.selectNodes([nodeId])
         this.RED.editor.edit(selectedNodes[0])

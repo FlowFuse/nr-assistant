@@ -144,9 +144,11 @@ describeMain('expertAutomations', () => {
                 mockRED.view.select.calledWith({ nodes: [mockNode1, mockNode2] }).should.be.true()
                 result.should.deepEqual([mockNode1, mockNode2])
             })
-            it('should throw if node not found', () => {
-                mockRED.nodes.node.returns(null);
-                (() => expertAutomations.selectNodes('node1', null)).should.throw('Node node1 not found')
+            it('should return empty array if node not found', () => {
+                mockRED.nodes.node.returns(null)
+                const result = expertAutomations.selectNodes('node1', null)
+                result.should.deepEqual([])
+                mockRED.view.select.called.should.be.false()
             })
         })
         describe('getNodes', () => {
@@ -164,9 +166,10 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes(['node1', 'node2'], null)
                 result.should.deepEqual([mockNode1, mockNode2])
             })
-            it('should throw if node not found', () => {
-                mockRED.nodes.node.returns(null);
-                (() => expertAutomations.getNodes('node1', null)).should.throw('Node node1 not found')
+            it('should return empty array if node not found', () => {
+                mockRED.nodes.node.returns(null)
+                const result = expertAutomations.getNodes('node1', null)
+                result.should.deepEqual([])
             })
             it('should support include with ids array', () => {
                 const n1 = { id: 'n1' }
@@ -265,7 +268,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/select-nodes', { params: { id: 'node1' } }, result))
-                    .rejectedWith(/Node node1 not found/)
+                    .rejectedWith(/No nodes found to select with the provided parameters/)
             })
         })
         describe('getNodes action', () => {
@@ -306,7 +309,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result))
-                    .rejectedWith(/Node node1 not found/)
+                    .rejectedWith(/No nodes found with the provided parameters/)
             })
         })
         describe('editNode action', () => {
