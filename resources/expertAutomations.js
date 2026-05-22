@@ -507,12 +507,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
             .map(id => this.RED.nodes.node(id))
             .filter(n => n)
             .map(node => {
-                const connected = this._getConnectedNodes(node, include)
-                    .filter(n => n.id !== node.id)
-                return {
-                    ...formatFn([node])[0],
-                    [include]: formatFn(connected)
+                const formatted = formatFn([node])[0]
+                if (include === 'connected') {
+                    const upstream = this._getConnectedNodes(node, 'upstream')
+                        .filter(n => n.id !== node.id)
+                    const downstream = this._getConnectedNodes(node, 'downstream')
+                        .filter(n => n.id !== node.id)
+                    formatted.upstream = formatFn(upstream)
+                    formatted.downstream = formatFn(downstream)
+                } else {
+                    const connected = this._getConnectedNodes(node, include)
+                        .filter(n => n.id !== node.id)
+                    formatted[include] = formatFn(connected)
                 }
+                return formatted
             })
     }
 

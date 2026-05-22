@@ -282,7 +282,7 @@ describeMain('expertAutomations', () => {
                 result.nodes.should.have.lengthOf(1)
                 result.should.have.property('warning', 'Nodes not found: node2')
             })
-            it('should group results by source node when include is provided', async () => {
+            it('should group results by source node when include is downstream', async () => {
                 const n1 = { id: 'n1' }
                 const n2 = { id: 'n2' }
                 const n3 = { id: 'n3' }
@@ -303,6 +303,26 @@ describeMain('expertAutomations', () => {
                 result.nodes[1].should.have.property('id', 'n2')
                 result.nodes[1].should.have.property('downstream').with.lengthOf(2)
                 result.nodes[1].downstream.map(n => n.id).should.deepEqual(['n3', 'n4'])
+            })
+            it('should split upstream and downstream when include is connected', async () => {
+                const n1 = { id: 'n1' }
+                const n2 = { id: 'n2' }
+                const n3 = { id: 'n3' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getAllFlowNodes.withArgs(n2).returns([n1, n2, n3])
+                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'up').returns([n2, n1])
+                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3])
+                const result = {}
+                await expertAutomations.invokeAction('automation/select-nodes', { params: { ids: ['n2'], include: 'connected' } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'n2')
+                result.nodes[0].should.have.property('upstream').with.lengthOf(1)
+                result.nodes[0].upstream[0].should.have.property('id', 'n1')
+                result.nodes[0].should.have.property('downstream').with.lengthOf(1)
+                result.nodes[0].downstream[0].should.have.property('id', 'n3')
             })
         })
         describe('getNodes action', () => {
@@ -347,7 +367,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('nodes').and.deepEqual([])
                 result.should.have.property('warning', 'Nodes not found: node1')
             })
-            it('should group results by source node when include is provided', async () => {
+            it('should group results by source node when include is downstream', async () => {
                 const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
                 const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
                 const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
@@ -367,6 +387,27 @@ describeMain('expertAutomations', () => {
                 result.nodes[1].should.have.property('id', 'n2')
                 result.nodes[1].should.have.property('downstream').with.lengthOf(1)
                 result.nodes[1].downstream[0].should.have.property('id', 'n3')
+            })
+            it('should split upstream and downstream when include is connected', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getAllFlowNodes.withArgs(n2).returns([n1, n2, n3])
+                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'up').returns([n2, n1])
+                mockRED.nodes.getAllFlowNodes.withArgs(n2, 'down').returns([n2, n3])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-nodes', { params: { ids: ['n2'], include: 'connected' } }, result)
+                result.should.have.property('success', true)
+                result.nodes.should.have.lengthOf(1)
+                result.nodes[0].should.have.property('id', 'n2')
+                result.nodes[0].should.have.property('type', 'function')
+                result.nodes[0].should.have.property('upstream').with.lengthOf(1)
+                result.nodes[0].upstream[0].should.have.property('id', 'n1')
+                result.nodes[0].should.have.property('downstream').with.lengthOf(1)
+                result.nodes[0].downstream[0].should.have.property('id', 'n3')
             })
         })
         describe('editNode action', () => {
