@@ -26,9 +26,10 @@ const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
-const ALIGN_SELECTION = 'automation/align-selection'
+const ARRANGE_NODES = 'automation/arrange-nodes'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
+const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
 
 const ERROR_CODES = Object.freeze({
     GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
@@ -63,7 +64,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
  *   |MANAGE_GROUPS
- *   |ALIGN_SELECTION} ExpertAutomationsActionsEnum
+ *   |ARRANGE_NODES} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -463,19 +464,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 required: ['operations']
             }
         },
-        [ALIGN_SELECTION]: {
+        [ARRANGE_NODES]: {
             params: {
                 type: 'object',
                 properties: {
                     ids: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'IDs of nodes to align'
+                        description: 'IDs of nodes to align or distribute'
                     },
                     direction: {
                         type: 'string',
-                        enum: ALIGNMENT_DIRECTIONS,
-                        description: 'Alignment direction: "grid" snaps to grid; "left", "right", "top", "bottom" align to the respective edge; "middle" aligns vertically; "center" aligns horizontally'
+                        enum: [...ALIGNMENT_DIRECTIONS, ...DISTRIBUTE_DIRECTIONS],
+                        description: 'Alignment: "grid" snaps to grid; "left", "right", "top", "bottom" align to edge; "middle" aligns vertically; "center" aligns horizontally. Distribution: "horizontally" or "vertically" evenly spaces nodes (requires 3+)'
                     }
                 },
                 required: ['ids', 'direction']
@@ -1751,8 +1752,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
-        case ALIGN_SELECTION: {
-            const { aligned, excluded } = this.alignSelection(params.ids, params.direction)
+        case ARRANGE_NODES: {
+            const { aligned, excluded } = this.arrangeNodes(params.ids, params.direction)
             result.data = {
                 alignedNodes: aligned.map(n => this._summarizeNode(n)),
                 excludedConfigNodes: excluded.map(n => ({ id: n.id, type: n.type }))
@@ -1990,27 +1991,31 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Align the specified nodes using a Node-RED core alignment action.
-     * @param {string[]} ids - node IDs to align
-     * @param {'grid'|'left'|'right'|'top'|'bottom'|'middle'|'center'} direction
+     * Align or distribute the specified nodes using a Node-RED core action.
+     * @param {string[]} ids - node IDs to arrange
+     * @param {string} direction - alignment or distribution direction
      */
-    alignSelection (ids, direction) {
+    arrangeNodes (ids, direction) {
         if (!ids || ids.length === 0) throw new Error('ids array must not be empty')
-        if (!ALIGNMENT_DIRECTIONS.includes(direction)) {
-            throw new Error(`Invalid alignment direction: ${direction}`)
+        const isDistribute = DISTRIBUTE_DIRECTIONS.includes(direction)
+        const isAlign = ALIGNMENT_DIRECTIONS.includes(direction)
+        if (!isDistribute && !isAlign) {
+            throw new Error(`Invalid direction "${direction}". Valid alignment: ${ALIGNMENT_DIRECTIONS.join(', ')}. Valid distribution: ${DISTRIBUTE_DIRECTIONS.join(', ')}`)
         }
         const allNodes = ids.map(id => {
             const node = this.RED.nodes.node(id)
             if (!node) throw new Error(`Node ${id} not found`)
             return node
         })
-        // Exclude config nodes — they have no canvas position and break alignment
         const nodes = allNodes.filter(n => {
             const def = this.RED.nodes.getType(n.type)
             return !def || def.category !== 'config'
         })
         if (nodes.length === 0) throw new Error('No non-config nodes to align')
-        if (direction !== 'grid' && nodes.length < 2) {
+        if (isDistribute && nodes.length < 3) {
+            throw new Error('Distribution requires at least 3 non-config nodes')
+        }
+        if (!isDistribute && direction !== 'grid' && nodes.length < 2) {
             throw new Error(`Alignment direction "${direction}" requires at least 2 non-config nodes`)
         }
         this._assertWorkspaceExists(nodes[0].z)
@@ -2018,7 +2023,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.reveal(nodes[0].id, false)
         this.RED.view.select({ nodes })
         this._verifySelection(nodes)
-        this.RED.actions.invoke(`core:align-selection-to-${direction}`)
+        if (isDistribute) {
+            this.RED.actions.invoke(`core:distribute-selection-${direction}`)
+        } else {
+            this.RED.actions.invoke(`core:align-selection-to-${direction}`)
+        }
         const excluded = allNodes.filter(n => !nodes.includes(n))
         return { aligned: nodes, excluded }
     }
