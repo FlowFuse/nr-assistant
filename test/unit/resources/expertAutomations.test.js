@@ -38,6 +38,7 @@ describeMain('expertAutomations', () => {
                 getAllFlowNodes: sinon.stub(),
                 getNodeLinks: sinon.stub().returns([]),
                 getType: sinon.stub().returns(null),
+                junction: sinon.stub().returns(null),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub()
             },
@@ -254,6 +255,17 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getNodes('n1', 'downstream')
                 result.map(n => n.id).should.deepEqual(['n1', 'lo1'])
             })
+            it('should resolve junction nodes by ID', () => {
+                const junction = { id: 'j1', type: 'junction' }
+                const n1 = { id: 'n1', type: 'inject' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.junction.withArgs('j1').returns(junction)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.getNodeLinks.withArgs('j1', 1).returns([{ source: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([])
+                const result = expertAutomations.getNodes('j1', 'upstream')
+                result.map(n => n.id).should.deepEqual(['j1', 'n1'])
+            })
         })
         describe('editNode', () => {
             it('should edit a node when in default state', () => {
@@ -352,7 +364,7 @@ describeMain('expertAutomations', () => {
                 result.nodes.should.have.lengthOf(1)
                 result.should.have.property('warning', 'Nodes not found: node2')
             })
-            it('should group results by source node when include is downstream', async () => {
+            it('should group results by source node with levels when include is downstream', async () => {
                 const n1 = { id: 'n1' }
                 const n2 = { id: 'n2' }
                 const n3 = { id: 'n3' }
@@ -370,13 +382,17 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.nodes.should.have.lengthOf(2)
                 result.nodes[0].should.have.property('id', 'n1')
-                result.nodes[0].should.have.property('downstream').with.lengthOf(2)
-                result.nodes[0].downstream.map(n => n.id).should.deepEqual(['n1', 'n3'])
+                result.nodes[0].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].downstream['0'][0].should.have.property('id', 'n1')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n3')
                 result.nodes[1].should.have.property('id', 'n2')
-                result.nodes[1].should.have.property('downstream').with.lengthOf(3)
-                result.nodes[1].downstream.map(n => n.id).should.deepEqual(['n2', 'n3', 'n4'])
+                result.nodes[1].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[1].downstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[1].downstream.should.have.property('1').with.lengthOf(2)
+                result.nodes[1].downstream['1'].map(n => n.id).should.deepEqual(['n3', 'n4'])
             })
-            it('should split upstream and downstream when include is connected', async () => {
+            it('should split upstream and downstream with levels when include is connected', async () => {
                 const n1 = { id: 'n1' }
                 const n2 = { id: 'n2' }
                 const n3 = { id: 'n3' }
@@ -392,10 +408,14 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.nodes.should.have.lengthOf(1)
                 result.nodes[0].should.have.property('id', 'n2')
-                result.nodes[0].should.have.property('upstream').with.lengthOf(2)
-                result.nodes[0].upstream.map(n => n.id).should.deepEqual(['n2', 'n1'])
-                result.nodes[0].should.have.property('downstream').with.lengthOf(2)
-                result.nodes[0].downstream.map(n => n.id).should.deepEqual(['n2', 'n3'])
+                result.nodes[0].upstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].upstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[0].upstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].upstream['1'][0].should.have.property('id', 'n1')
+                result.nodes[0].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].downstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n3')
             })
             it('should return leveled results when levels is specified', async () => {
                 const n1 = { id: 'n1' }
@@ -508,7 +528,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('nodes').and.deepEqual([])
                 result.should.have.property('warning', 'Nodes not found: node1')
             })
-            it('should group results by source node when include is downstream', async () => {
+            it('should always return leveled results when include is used', async () => {
                 const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
                 const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
                 const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
@@ -524,13 +544,19 @@ describeMain('expertAutomations', () => {
                 result.nodes.should.have.lengthOf(2)
                 result.nodes[0].should.have.property('id', 'n1')
                 result.nodes[0].should.have.property('type', 'inject')
-                result.nodes[0].should.have.property('downstream').with.lengthOf(3)
-                result.nodes[0].downstream.map(n => n.id).should.deepEqual(['n1', 'n2', 'n3'])
+                result.nodes[0].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].downstream['0'][0].should.have.property('id', 'n1')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.have.property('2').with.lengthOf(1)
+                result.nodes[0].downstream['2'][0].should.have.property('id', 'n3')
                 result.nodes[1].should.have.property('id', 'n2')
-                result.nodes[1].should.have.property('downstream').with.lengthOf(2)
-                result.nodes[1].downstream.map(n => n.id).should.deepEqual(['n2', 'n3'])
+                result.nodes[1].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[1].downstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[1].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[1].downstream['1'][0].should.have.property('id', 'n3')
             })
-            it('should split upstream and downstream when include is connected', async () => {
+            it('should split upstream and downstream with levels when include is connected', async () => {
                 const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
                 const n2 = { id: 'n2', type: 'function', x: 30, y: 40, z: 'tab1' }
                 const n3 = { id: 'n3', type: 'debug', x: 50, y: 60, z: 'tab1' }
@@ -547,10 +573,14 @@ describeMain('expertAutomations', () => {
                 result.nodes.should.have.lengthOf(1)
                 result.nodes[0].should.have.property('id', 'n2')
                 result.nodes[0].should.have.property('type', 'function')
-                result.nodes[0].should.have.property('upstream').with.lengthOf(2)
-                result.nodes[0].upstream.map(n => n.id).should.deepEqual(['n2', 'n1'])
-                result.nodes[0].should.have.property('downstream').with.lengthOf(2)
-                result.nodes[0].downstream.map(n => n.id).should.deepEqual(['n2', 'n3'])
+                result.nodes[0].upstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].upstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[0].upstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].upstream['1'][0].should.have.property('id', 'n1')
+                result.nodes[0].downstream.should.have.property('0').with.lengthOf(1)
+                result.nodes[0].downstream['0'][0].should.have.property('id', 'n2')
+                result.nodes[0].downstream.should.have.property('1').with.lengthOf(1)
+                result.nodes[0].downstream['1'][0].should.have.property('id', 'n3')
             })
             it('should return leveled results when levels is specified', async () => {
                 const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
