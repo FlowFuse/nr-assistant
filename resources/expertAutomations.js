@@ -514,6 +514,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     _groupNodesBySource (requestedIds, include, formatFn, levels) {
         const useLevels = levels !== undefined
+        const formattedSource = (node) => formatFn([node])
         return requestedIds
             .map(id => this.RED.nodes.node(id))
             .filter(n => n)
@@ -524,13 +525,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     if (useLevels) {
                         const upResult = this._traverseDirection(node, 1, maxLevels, true)
                         const downResult = this._traverseDirection(node, 0, maxLevels, true)
-                        formatted.upstream = this._formatByLevel(upResult.byLevel, formatFn)
-                        formatted.downstream = this._formatByLevel(downResult.byLevel, formatFn)
+                        formatted.upstream = this._formatByLevel(upResult.byLevel, formatFn, formattedSource(node))
+                        formatted.downstream = this._formatByLevel(downResult.byLevel, formatFn, formattedSource(node))
                     } else {
                         const upstream = this._getConnectedNodes(node, 'upstream', levels)
-                            .filter(n => n.id !== node.id)
                         const downstream = this._getConnectedNodes(node, 'downstream', levels)
-                            .filter(n => n.id !== node.id)
                         formatted.upstream = formatFn(upstream)
                         formatted.downstream = formatFn(downstream)
                     }
@@ -538,10 +537,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     const portType = include === 'upstream' ? 1 : 0
                     if (useLevels) {
                         const traverseResult = this._traverseDirection(node, portType, maxLevels, true)
-                        formatted[include] = this._formatByLevel(traverseResult.byLevel, formatFn)
+                        formatted[include] = this._formatByLevel(traverseResult.byLevel, formatFn, formattedSource(node))
                     } else {
                         const connected = this._getConnectedNodes(node, include, levels)
-                            .filter(n => n.id !== node.id)
                         formatted[include] = formatFn(connected)
                     }
                 }
@@ -549,8 +547,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             })
     }
 
-    _formatByLevel (byLevel, formatFn) {
-        const result = {}
+    _formatByLevel (byLevel, formatFn, sourceFormatted) {
+        const result = { 0: sourceFormatted }
         for (const [level, nodes] of Object.entries(byLevel)) {
             result[level] = formatFn(nodes)
         }
