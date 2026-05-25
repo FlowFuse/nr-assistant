@@ -102,7 +102,7 @@ describeMain('expertAutomations', () => {
                 'automation/list-config-nodes',
                 'automation/open-palette-manager',
                 'automation/manage-groups',
-                'automation/align-selection'
+                'automation/arrange-nodes'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3105,7 +3105,7 @@ describeMain('expertAutomations', () => {
                 existingGroup.name.should.equal('Renamed')
             })
         })
-        describe('alignSelection action', () => {
+        describe('arrangeNodes action', () => {
             beforeEach(() => {
                 mockRED.actions = { invoke: sinon.stub() }
                 mockRED.view.select = sinon.stub()
@@ -3121,7 +3121,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n2').returns(n2)
                 const result = {}
-                await expertAutomations.invokeAction('automation/align-selection', {
+                await expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1', 'n2'], direction: 'grid' }
                 }, result)
                 mockRED.view.reveal.calledWith('n1', false).should.be.true()
@@ -3132,7 +3132,7 @@ describeMain('expertAutomations', () => {
                 result.data.alignedNodes.should.have.lengthOf(2)
                 result.data.excludedConfigNodes.should.have.lengthOf(0)
             })
-            it('should invoke the correct core action for each direction', async () => {
+            it('should invoke the correct core action for each alignment direction', async () => {
                 const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
                 const n2 = { id: 'n2', type: 'debug', x: 30, y: 40, z: 'tab1' }
                 mockRED.nodes.node.withArgs('n1').returns(n1)
@@ -3141,31 +3141,59 @@ describeMain('expertAutomations', () => {
                 for (const direction of directions) {
                     mockRED.actions.invoke.resetHistory()
                     const result = {}
-                    await expertAutomations.invokeAction('automation/align-selection', {
+                    await expertAutomations.invokeAction('automation/arrange-nodes', {
                         params: { ids: ['n1', 'n2'], direction }
                     }, result)
                     mockRED.actions.invoke.calledWith(`core:align-selection-to-${direction}`).should.be.true()
                     result.should.have.property('success', true)
                 }
             })
+            it('should invoke core:distribute-selection for distribution directions', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'debug', x: 30, y: 40, z: 'tab1' }
+                const n3 = { id: 'n3', type: 'function', x: 50, y: 60, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                for (const direction of ['horizontally', 'vertically']) {
+                    mockRED.actions.invoke.resetHistory()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/arrange-nodes', {
+                        params: { ids: ['n1', 'n2', 'n3'], direction }
+                    }, result)
+                    mockRED.actions.invoke.calledWith(`core:distribute-selection-${direction}`).should.be.true()
+                    result.should.have.property('success', true)
+                    result.data.alignedNodes.should.have.lengthOf(3)
+                }
+            })
+            it('should throw if distribution is requested with fewer than 3 nodes', async () => {
+                const n1 = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
+                const n2 = { id: 'n2', type: 'debug', x: 30, y: 40, z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
+                    params: { ids: ['n1', 'n2'], direction: 'horizontally' }
+                }, result)).rejectedWith(/Distribution requires at least 3 non-config nodes/)
+            })
             it('should throw if ids array is empty', async () => {
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: [], direction: 'grid' }
                 }, result)).rejectedWith(/ids array must not be empty/)
             })
             it('should throw if a node ID does not exist', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['nonexistent'], direction: 'grid' }
                 }, result)).rejectedWith(/Node nonexistent not found/)
             })
-            it('should throw if non-grid direction is used with a single node', async () => {
+            it('should throw if non-grid alignment direction is used with a single node', async () => {
                 const node = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'tab1' }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'left' }
                 }, result)).rejectedWith(/requires at least 2 non-config nodes/)
             })
@@ -3173,7 +3201,7 @@ describeMain('expertAutomations', () => {
                 const node = { id: 'n1', type: 'inject', x: 13, y: 27, z: 'tab1' }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 const result = {}
-                await expertAutomations.invokeAction('automation/align-selection', {
+                await expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'grid' }
                 }, result)
                 mockRED.view.reveal.calledWith('n1', false).should.be.true()
@@ -3184,16 +3212,16 @@ describeMain('expertAutomations', () => {
                 const node = { id: 'n1', type: 'inject', x: 10, y: 20 }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'diagonal' }
-                }, result)).rejectedWith(/Invalid alignment direction/)
+                }, result)).rejectedWith(/Invalid direction/)
             })
             it('should throw if workspace is locked', async () => {
                 const node = { id: 'n1', type: 'inject', x: 10, y: 20, z: 'locked-tab' }
                 mockRED.nodes.node.withArgs('n1').returns(node)
                 mockRED.workspaces.isLocked = sinon.stub().withArgs('locked-tab').returns(true)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'grid' }
                 }, result)).rejectedWith(/Workspace locked-tab is locked/)
             })
@@ -3206,7 +3234,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('cfg1').returns(cfg)
                 mockRED.nodes.getType.withArgs('mqtt-broker').returns({ category: 'config' })
                 const result = {}
-                await expertAutomations.invokeAction('automation/align-selection', {
+                await expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1', 'cfg1', 'n2'], direction: 'grid' }
                 }, result)
                 mockRED.view.select.calledWith({ nodes: [n1, n2] }).should.be.true()
@@ -3221,7 +3249,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('cfg1').returns(cfg)
                 mockRED.nodes.getType.withArgs('mqtt-broker').returns({ category: 'config' })
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/align-selection', {
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['cfg1'], direction: 'grid' }
                 }, result)).rejectedWith(/No non-config nodes to align/)
             })
