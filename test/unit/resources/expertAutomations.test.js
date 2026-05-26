@@ -110,7 +110,8 @@ describeMain('expertAutomations', () => {
                 'automation/arrange-nodes',
                 'automation/export-flow',
                 'automation/set-deploy-mode',
-                'automation/show-sidebar-panel'
+                'automation/show-sidebar-panel',
+                'automation/toggle-sidebar'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3495,6 +3496,18 @@ describeMain('expertAutomations', () => {
                     result.should.have.property('success', true)
                 })
             }
+        })
+
+        describe('toggle-sidebar action', () => {
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+            })
+            it('should invoke core:toggle-sidebar', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: {} }, result)
+                mockRED.actions.invoke.calledWith('core:toggle-sidebar').should.be.true()
+                result.should.have.property('success', true)
+            })
         })
     })
 })

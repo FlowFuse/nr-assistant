@@ -30,6 +30,7 @@ const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
+const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -70,7 +71,8 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE
- *   |SHOW_SIDEBAR_PANEL} ExpertAutomationsActionsEnum
+ *   |SHOW_SIDEBAR_PANEL
+ *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -530,7 +532,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['panel']
             }
-        }
+        },
+        [TOGGLE_SIDEBAR]: {}
+
     })
 
     /**
@@ -1904,6 +1908,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         case SHOW_SIDEBAR_PANEL:
             this.RED.sidebar.show(params.panel)
+            result.success = true
+            break
+        case TOGGLE_SIDEBAR:
+            this.RED.actions.invoke('core:toggle-sidebar')
             result.success = true
             break
         default:
