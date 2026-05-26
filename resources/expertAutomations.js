@@ -67,7 +67,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |OPEN_PALETTE_MANAGER
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
- *   |EXPORT_FLOW} ExpertAutomationsActionsEnum
+ *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
  */
 
@@ -497,7 +497,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['scope']
-
+            }
+        },
         [SET_DEPLOY_MODE]: {
             params: {
                 type: 'object',
@@ -1855,6 +1856,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }[params.scope]
             this.RED.actions.invoke('core:show-export-dialog')
             document.getElementById(scopeButtonId)?.click()
+            result.success = true
+            break
+        }
         case SET_DEPLOY_MODE: {
             const modeMap = {
                 full: 'core:set-deploy-type-to-full',
