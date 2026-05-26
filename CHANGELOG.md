@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## [0.16.0](https://github.com/FlowFuse/nr-assistant/compare/v0.15.0...v0.16.0) (2026-05-26)
+
+
+### Features
+
+* **automation:** add align-selection action ([#347](https://github.com/FlowFuse/nr-assistant/issues/347)) ([7dcf1d8](https://github.com/FlowFuse/nr-assistant/commit/7dcf1d8ae965e96f0e9bc1f837c13d4f2d9ab063))
+* **automation:** rename to arrange-nodes and add distribution ([#354](https://github.com/FlowFuse/nr-assistant/issues/354)) ([e8913c4](https://github.com/FlowFuse/nr-assistant/commit/e8913c40748f5c18f3bed176c63db7c120ab7372))
+* **automations:** add export-flow action ([#363](https://github.com/FlowFuse/nr-assistant/issues/363)) ([5317dda](https://github.com/FlowFuse/nr-assistant/commit/5317dda323c98e1a60f9867b16fe763915cb94d4))
+* **automations:** add set-deploy-mode action ([#362](https://github.com/FlowFuse/nr-assistant/issues/362)) ([3680cc0](https://github.com/FlowFuse/nr-assistant/commit/3680cc0b29bfb4fe78c72199432c0567e6da2c37))
+* **automations:** add show-sidebar-panel and toggle-sidebar actions ([#364](https://github.com/FlowFuse/nr-assistant/issues/364)) ([fe56098](https://github.com/FlowFuse/nr-assistant/commit/fe560985942f38630595f4e78582532702f8606c))
+
+
+### Bug Fixes
+
+* **automations:** update config node users array in updateNode ([#357](https://github.com/FlowFuse/nr-assistant/issues/357)) ([1245d83](https://github.com/FlowFuse/nr-assistant/commit/1245d83c08d5b2ba149eaf77779731c5780eeb0d))
+* **automation:** track history for moveNodeToTab so undo works correctly ([1935719](https://github.com/FlowFuse/nr-assistant/commit/1935719131d9212655817390afc48c014732649c))
+* **automation:** track history for moveNodeToTab so undo works correctly ([#341](https://github.com/FlowFuse/nr-assistant/issues/341)) ([d0bf691](https://github.com/FlowFuse/nr-assistant/commit/d0bf691d1eb25303cf5ef6212dcade11b2ef5edd))
+* Tighter workspace permission checks ([#361](https://github.com/FlowFuse/nr-assistant/issues/361)) ([f992e57](https://github.com/FlowFuse/nr-assistant/commit/f992e57546ef67294f135e544add8705d6781856))
+
 ## [0.15.0](https://github.com/FlowFuse/nr-assistant/compare/v0.14.0...v0.15.0) (2026-05-12)
 
  - fix(automation): move node to tab via link nodes instead of direct z change (#336) @andypalmi
