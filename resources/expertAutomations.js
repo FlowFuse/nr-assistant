@@ -1153,8 +1153,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string} z - tab ID to remove
      */
     removeTab (z) {
-        this._assertWorkspaceIsEditable(z)
         const ws = this.RED.nodes.workspace(z)
+        if (!ws) throw new Error(`Workspace ${z} not found`)
+        this._assertWorkspaceIsEditable(z)
         this.RED.workspaces.delete(ws)
     }
 
