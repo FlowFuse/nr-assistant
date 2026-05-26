@@ -776,6 +776,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         const changes = {}
 
+        this.RED.nodes.updateConfigNodeUsers(node, { action: 'remove' })
+
         // Apply line-based patches first (before full property replacement)
         // so that patches reference the original line numbers
         if (hasPatches) {
@@ -794,6 +796,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             Object.assign(node, properties)
         }
 
+        this.RED.nodes.updateConfigNodeUsers(node, { action: 'add' })
+
         const wasChanged = node.changed
         this.RED.history.push({ t: 'edit', node, changes, changed: wasChanged, dirty: this.RED.nodes.dirty() })
         node.changed = true
@@ -805,6 +809,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.updateActive()
         this.RED.view.redraw()
         this.RED.sidebar?.info?.refresh()
+        this.RED.sidebar?.config?.refresh()
 
         if (this.RED.view.state() !== this.RED.state?.DEFAULT) {
             await this.closeEditorTray()

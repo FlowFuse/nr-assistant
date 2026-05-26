@@ -37,7 +37,8 @@ describeMain('expertAutomations', () => {
                 group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
-                dirty: sinon.stub()
+                dirty: sinon.stub(),
+                updateConfigNodeUsers: sinon.stub()
             },
             settings: {
                 version: '4.1.4'
