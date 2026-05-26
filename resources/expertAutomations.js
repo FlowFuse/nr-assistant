@@ -27,6 +27,7 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
+const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -64,7 +65,8 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
  *   |MANAGE_GROUPS
- *   |ARRANGE_NODES} ExpertAutomationsActionsEnum
+ *   |ARRANGE_NODES
+ *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -480,6 +482,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids', 'direction']
+            }
+        },
+        [SET_DEPLOY_MODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: {
+                        type: 'string',
+                        enum: ['full', 'modified-flows', 'modified-nodes'],
+                        description: '"full" redeploys everything; "modified-flows" redeploys only flows that contain changed nodes; "modified-nodes" redeploys only the changed nodes themselves'
+                    }
+                },
+                required: ['mode']
             }
         }
     })
@@ -1818,6 +1833,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case SET_DEPLOY_MODE: {
+            const modeMap = {
+                full: 'core:set-deploy-type-to-full',
+                'modified-flows': 'core:set-deploy-type-to-modified-flows',
+                'modified-nodes': 'core:set-deploy-type-to-modified-nodes'
+            }
+            const coreAction = modeMap[params.mode]
+            if (!coreAction) {
+                result.error = `Unknown deploy mode: ${params.mode}`
+                result.success = false
+                break
+            }
+            this.RED.actions.invoke(coreAction)
+            result.success = true
+            break
+        }
         default:
             result.handled = false
             result.success = false
