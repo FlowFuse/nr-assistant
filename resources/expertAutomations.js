@@ -28,6 +28,7 @@ const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
+const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -67,6 +68,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW} ExpertAutomationsActionsEnum
+ *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -495,6 +497,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['scope']
+
+        [SET_DEPLOY_MODE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    mode: {
+                        type: 'string',
+                        enum: ['full', 'modified-flows', 'modified-nodes'],
+                        description: '"full" redeploys everything; "modified-flows" redeploys only flows that contain changed nodes; "modified-nodes" redeploys only the changed nodes themselves'
+                    }
+                },
+                required: ['mode']
             }
         }
     })
@@ -603,6 +617,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         } else {
             throw new Error('importFlow expects a JSON string or an array of node objects')
         }
+        this._assertWritePermission()
         // If importing onto the current tab (not creating a new one), check it's not locked
         if (!addFlow && this.RED.workspaces.isLocked()) {
             throw new Error('Cannot import into a locked workspace')
@@ -620,6 +635,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     async addFlowTab (title) {
+        this._assertWritePermission()
         const cmd = () => {
             if (!title) {
                 // if no title is specified, we let the core action perform this (auto naming)
@@ -659,9 +675,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
-        this._assertWorkspaceExists(targetTabId)
-        this._assertWorkspaceNotLocked(targetTabId)
-        this._assertWorkspaceNotLocked(node.z)
+        this._assertWorkspaceIsEditable(targetTabId)
+        this._assertWorkspaceIsEditable(node.z)
 
         const wasDirty = this.RED.nodes.dirty()
 
@@ -788,6 +803,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
+
+        this._assertWorkspaceIsEditable(node.z)
 
         const changes = {}
 
@@ -1084,19 +1101,43 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Throw if the workspace does not exist.
-     * @param {string} id - workspace ID
+     * @param {string} z - workspace tab ID
      */
-    _assertWorkspaceExists (id) {
-        if (!this.hasWorkspace(id)) throw new Error(`Workspace ${id} not found`)
+    _assertWorkspaceExists (z) {
+        if (!this.hasWorkspace(z)) throw new Error(`Workspace ${z} not found`)
     }
 
     /**
-     * Throw if the workspace tab is locked. No-op when tabId is falsy (e.g. config nodes).
-     * @param {string|null|undefined} tabId - workspace tab ID
+     * Throw if the user does not have write permission, which is required for any operation that modifies nodes or workspaces.
      */
-    _assertWorkspaceNotLocked (tabId) {
-        if (!tabId) return
-        if (this.RED.workspaces.isLocked(tabId)) throw new Error(`Workspace ${tabId} is locked`)
+    _assertWritePermission () {
+        if (!this.RED.user.hasPermission('flows.write')) {
+            throw new Error('Permission denied: user account does not have write permission')
+        }
+    }
+
+    /**
+     * Throw if the workspace tab is missing, is locked, or user does not have write permission.
+     * If z is null or undefined, only check the editor state and user permissions (i.e. config nodes).
+     * @param {string|null|undefined} z - workspace tab ID
+     */
+    _assertWorkspaceIsEditable (z) {
+        // if z is null or undefined, assume the caller is trying to edit a config node
+        if (z) {
+            this._assertWorkspaceExists(z)
+            if (this.RED.workspaces.isLocked(z)) {
+                throw new Error(`Workspace ${z} is locked`)
+            }
+        }
+        this._assertWritePermission()
+    }
+
+    isConfigNode (id) {
+        const node = this.RED.nodes.node(id)
+        if (!node) { throw new Error(`Node ${id} not found`) }
+        const def = node._def || this.RED.nodes.getType(node.type)
+        if (!def) { return false }
+        return def.category === 'config'
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -1127,6 +1168,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (tab.id && (this.RED.nodes.node(tab.id) || this.RED.nodes.workspace(tab.id) || this.RED.nodes.subflow(tab.id))) {
             throw new Error(`ID ${tab.id} already exists — provide a unique ID or omit to auto-generate`)
         }
+        this._assertWritePermission()
         const ws = {
             type: 'tab',
             id: tab.id || this.RED.nodes.id(),
@@ -1145,16 +1187,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Remove an existing flow tab from the NR4 editor.
-     * @param {string} id - tab ID to remove
+     * @param {string} z - tab ID to remove
      */
-    removeTab (id) {
-        const ws = this.RED.nodes.workspace(id)
-        if (!ws) {
-            throw new Error(`Tab with id ${id} not found`)
-        }
-        if (ws.locked) {
-            throw new Error(`Tab ${id} is locked and cannot be removed`)
-        }
+    removeTab (z) {
+        const ws = this.RED.nodes.workspace(z)
+        if (!ws) throw new Error(`Workspace ${z} not found`)
+        this._assertWorkspaceIsEditable(z)
         this.RED.workspaces.delete(ws)
     }
 
@@ -1181,8 +1219,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Validate all target tabs exist and are not locked
         const uniqueZs = [...new Set(prepared.map(n => n.z).filter(Boolean))]
         for (const z of uniqueZs) {
-            this._assertWorkspaceExists(z)
-            this._assertWorkspaceNotLocked(z)
+            this._assertWorkspaceIsEditable(z)
+        }
+        // If a config node is being added, ensure the user has write permission
+        const hasConfigNodes = prepared.some(n => !n.z)
+        if (hasConfigNodes) {
+            this._assertWritePermission()
         }
         // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
@@ -1230,7 +1272,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         })
         // Check if any node's workspace is locked
         for (const node of nodes) {
-            this._assertWorkspaceNotLocked(node.z)
+            this._assertWorkspaceIsEditable(node.z)
         }
         this.RED.view.select({ nodes })
         this._verifySelection(nodes)
@@ -1255,12 +1297,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!sourceNode) throw new Error(`Source node ${source} not found`)
         const targetNode = this.RED.nodes.node(target)
         if (!targetNode) throw new Error(`Target node ${target} not found`)
+        // wires can only be set on workspace nodes (not config nodes)
+        if (this.isConfigNode(source)) {
+            throw new Error(`Source node ${source} is a config node and cannot be wired`)
+        }
+        if (this.isConfigNode(target)) {
+            throw new Error(`Target node ${target} is a config node and cannot be wired`)
+        }
+        if (!sourceNode.z) { throw new Error(`Source node ${source} is not a workspace node and cannot be wired`) }
+        if (!targetNode.z) { throw new Error(`Target node ${target} is not a workspace node and cannot be wired`) }
         // Source and target must be on the same tab
         if (sourceNode.z !== targetNode.z) {
             throw new Error('Source and target nodes must be on the same tab')
         }
         // Check workspace is not locked
-        this._assertWorkspaceNotLocked(sourceNode.z)
+        this._assertWorkspaceIsEditable(sourceNode.z)
+        this._assertWorkspaceIsEditable(targetNode.z)
         // Validate output port exists on source
         const port = output ?? 0
         if (port >= (sourceNode.outputs || 0)) {
@@ -1313,6 +1365,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!sourceNode) throw new Error(`Source node ${source} not found`)
         const targetNode = this.RED.nodes.node(target)
         if (!targetNode) throw new Error(`Target node ${target} not found`)
+        // Validate these are link xxx nodes
+        if (!LINK_NODE_TYPES.includes(sourceNode.type)) {
+            throw new Error(`Source node ${source} must be a link node`)
+        }
+        if (!LINK_NODE_TYPES.includes(targetNode.type)) {
+            throw new Error(`Target node ${target} must be a link node`)
+        }
         // Validate types: source must be link out or link call, target must be link in
         if (sourceNode.type !== 'link out' && sourceNode.type !== 'link call') {
             throw new Error(`Source node ${source} must be a link out or link call node (got ${sourceNode.type})`)
@@ -1328,9 +1387,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (sourceNode.type === 'link call' && sourceNode.linkType === 'dynamic') {
             throw new Error(`Source node ${source} is a link call in dynamic mode and cannot have static links`)
         }
-        // Check workspace locks for both nodes
-        this._assertWorkspaceNotLocked(sourceNode.z)
-        if (targetNode.z !== sourceNode.z) this._assertWorkspaceNotLocked(targetNode.z)
+
+        // assert z is an actual workspace tab and that they exists
+        if (!sourceNode.z) { throw new Error(`Source node ${source} is missing workspace (z) property`) }
+        if (!targetNode.z) { throw new Error(`Target node ${target} is missing workspace (z) property`) }
+        // Check workspace is editable for both nodes
+        this._assertWorkspaceIsEditable(sourceNode.z)
+        if (targetNode.z !== sourceNode.z) {
+            this._assertWorkspaceIsEditable(targetNode.z)
+        }
         const isBidirectional = sourceNode.type === 'link out'
         const sourceLinks = sourceNode.links || []
         const targetLinks = targetNode.links || []
@@ -1790,6 +1855,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }[params.scope]
             this.RED.actions.invoke('core:show-export-dialog')
             document.getElementById(scopeButtonId)?.click()
+        case SET_DEPLOY_MODE: {
+            const modeMap = {
+                full: 'core:set-deploy-type-to-full',
+                'modified-flows': 'core:set-deploy-type-to-modified-flows',
+                'modified-nodes': 'core:set-deploy-type-to-modified-nodes'
+            }
+            const coreAction = modeMap[params.mode]
+            if (!coreAction) {
+                result.error = `Unknown deploy mode: ${params.mode}`
+                result.success = false
+                break
+            }
+            this.RED.actions.invoke(coreAction)
             result.success = true
             break
         }
@@ -1867,7 +1945,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('All nodes must be on the same tab to form a group')
         }
         const tabId = tabs.size === 1 ? [...tabs][0] : null
-        this._assertWorkspaceNotLocked(tabId)
+        this._assertWorkspaceIsEditable(tabId)
 
         // Snapshot existing group IDs so we can identify the newly created one
         const existingGroupIds = new Set()
@@ -1940,7 +2018,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     updateGroup (id, { name, nodeIds, remove, style, env } = {}) {
         let group = this.RED.nodes.group(id)
         if (!group) throw new Error(`Group ${id} not found`)
-        this._assertWorkspaceNotLocked(group.z)
+        this._assertWorkspaceIsEditable(group.z)
 
         if (nodeIds && nodeIds.length > 0) {
             if (remove) {
@@ -2013,7 +2091,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     deleteGroup (id) {
         const group = this.RED.nodes.group(id)
         if (!group) throw new Error(`Group ${id} not found`)
-        this._assertWorkspaceNotLocked(group.z)
+        this._assertWorkspaceIsEditable(group.z)
         this.RED.view.select({ nodes: [group] })
         this._verifySelection([group])
         this.RED.actions.invoke('core:ungroup-selection')
@@ -2038,29 +2116,27 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!node) throw new Error(`Node ${id} not found`)
             return node
         })
-        const nodes = allNodes.filter(n => {
-            const def = this.RED.nodes.getType(n.type)
-            return !def || def.category !== 'config'
+        const workspaceNodes = allNodes.filter(n => {
+            return !this.isConfigNode(n.id)
         })
-        if (nodes.length === 0) throw new Error('No non-config nodes to align')
-        if (isDistribute && nodes.length < 3) {
-            throw new Error('Distribution requires at least 3 non-config nodes')
+        if (workspaceNodes.length === 0) throw new Error('No workspace nodes to align')
+        if (isDistribute && workspaceNodes.length < 3) {
+            throw new Error('Distribution requires at least 3 workspace nodes')
         }
-        if (!isDistribute && direction !== 'grid' && nodes.length < 2) {
-            throw new Error(`Alignment direction "${direction}" requires at least 2 non-config nodes`)
+        if (!isDistribute && direction !== 'grid' && workspaceNodes.length < 2) {
+            throw new Error(`Alignment direction "${direction}" requires at least 2 workspace nodes`)
         }
-        this._assertWorkspaceExists(nodes[0].z)
-        this._assertWorkspaceNotLocked(nodes[0].z)
-        this.RED.view.reveal(nodes[0].id, false)
-        this.RED.view.select({ nodes })
-        this._verifySelection(nodes)
+        this._assertWorkspaceIsEditable(workspaceNodes[0].z)
+        this.RED.view.reveal(workspaceNodes[0].id, false)
+        this.RED.view.select({ nodes: workspaceNodes })
+        this._verifySelection(workspaceNodes)
         if (isDistribute) {
             this.RED.actions.invoke(`core:distribute-selection-${direction}`)
         } else {
             this.RED.actions.invoke(`core:align-selection-to-${direction}`)
         }
-        const excluded = allNodes.filter(n => !nodes.includes(n))
-        return { aligned: nodes, excluded }
+        const excluded = allNodes.filter(n => !workspaceNodes.includes(n))
+        return { aligned: workspaceNodes, excluded }
     }
 
     _summarizeNode (node) {
