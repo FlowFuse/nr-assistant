@@ -103,7 +103,8 @@ describeMain('expertAutomations', () => {
                 'automation/list-config-nodes',
                 'automation/open-palette-manager',
                 'automation/manage-groups',
-                'automation/arrange-nodes'
+                'automation/arrange-nodes',
+                'automation/set-deploy-mode'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3253,6 +3254,37 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['cfg1'], direction: 'grid' }
                 }, result)).rejectedWith(/No non-config nodes to align/)
+            })
+        })
+
+        describe('set-deploy-mode action', () => {
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+            })
+            it('should invoke core:set-deploy-type-to-full for mode "full"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-deploy-mode', { params: { mode: 'full' } }, result)
+                mockRED.actions.invoke.calledWith('core:set-deploy-type-to-full').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:set-deploy-type-to-modified-flows for mode "modified-flows"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-deploy-mode', { params: { mode: 'modified-flows' } }, result)
+                mockRED.actions.invoke.calledWith('core:set-deploy-type-to-modified-flows').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:set-deploy-type-to-modified-nodes for mode "modified-nodes"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-deploy-mode', { params: { mode: 'modified-nodes' } }, result)
+                mockRED.actions.invoke.calledWith('core:set-deploy-type-to-modified-nodes').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should return an error for an unknown mode', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-deploy-mode', { params: { mode: 'invalid' } }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('error').which.match(/Unknown deploy mode/)
+                mockRED.actions.invoke.called.should.be.false()
             })
         })
     })
