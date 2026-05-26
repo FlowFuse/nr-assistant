@@ -38,12 +38,16 @@ describeMain('expertAutomations', () => {
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub(),
+                workspace: sinon.stub().returns({ id: 'default-tab', type: 'tab' }),
                 updateConfigNodeUsers: sinon.stub()
             },
             settings: {
                 version: '4.1.4'
             },
             state: { DEFAULT: 1 },
+            user: {
+                hasPermission: sinon.stub().returns(true)
+            },
             workspaces: {
                 active: sinon.stub().returns('active-tab'),
                 show: sinon.stub(),
@@ -710,7 +714,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
                 await should(expertAutomations.invokeAction('automation/set-links', {
                     params: { mode: 'add', source: 'n1', target: 'li1' }
-                }, {})).rejectedWith(/must be a link out or link call node/)
+                }, {})).rejectedWith(/must be a link node/)
             })
             it('should throw if target is not a link in', async () => {
                 mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1' })
@@ -1090,7 +1094,8 @@ describeMain('expertAutomations', () => {
                     delete: sinon.stub(),
                     selection: sinon.stub().returns([]),
                     active: sinon.stub().returns(null),
-                    isHidden: sinon.stub().returns(false)
+                    isHidden: sinon.stub().returns(false),
+                    isLocked: sinon.stub().returns(false)
                 }
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-tab', {
@@ -1104,24 +1109,24 @@ describeMain('expertAutomations', () => {
             })
             it('should throw if tab not found', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().returns(false) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: 'does-not-exist' }
-                }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+                }, {})).rejectedWith(/Workspace does-not-exist not found/)
             })
             it('should throw if id is empty', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().returns(false) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: '' }
-                }, {})).rejectedWith(/Tab with id .* not found/)
+                }, {})).rejectedWith(/Workspace .* not found/)
             })
             it('should throw if tab is locked', async () => {
                 mockRED.nodes.workspace = sinon.stub().withArgs('locked-tab').returns({ id: 'locked-tab', type: 'tab', locked: true })
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().withArgs('locked-tab').returns(true) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: 'locked-tab' }
-                }, {})).rejectedWith(/Tab locked-tab is locked/)
+                }, {})).rejectedWith(/Workspace locked-tab is locked/)
                 mockRED.workspaces.delete.called.should.be.false()
             })
         })
@@ -3175,7 +3180,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1', 'n2'], direction: 'horizontally' }
-                }, result)).rejectedWith(/Distribution requires at least 3 non-config nodes/)
+                }, result)).rejectedWith(/Distribution requires at least 3 workspace nodes/)
             })
             it('should throw if ids array is empty', async () => {
                 const result = {}
@@ -3196,7 +3201,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'left' }
-                }, result)).rejectedWith(/requires at least 2 non-config nodes/)
+                }, result)).rejectedWith(/requires at least 2 workspace nodes/)
             })
             it('should allow grid alignment with a single node', async () => {
                 const node = { id: 'n1', type: 'inject', x: 13, y: 27, z: 'tab1' }
@@ -3252,7 +3257,135 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['cfg1'], direction: 'grid' }
-                }, result)).rejectedWith(/No non-config nodes to align/)
+                }, result)).rejectedWith(/No workspace nodes to align/)
+            })
+        })
+        describe('write permission enforcement (flows.write)', () => {
+            beforeEach(() => {
+                mockRED.user.hasPermission = sinon.stub().withArgs('flows.write').returns(false)
+                // Common mocks used across the write-protected actions below
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.nodes.addLink = sinon.stub()
+                mockRED.nodes.removeLink = sinon.stub()
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+                mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })
+                mockRED.nodes.addWorkspace = sinon.stub()
+                mockRED.nodes.id = sinon.stub().returns('gen-id')
+                mockRED.nodes.subflow = sinon.stub().returns(null)
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.view.select = sinon.stub()
+                mockRED.view.selection = sinon.stub().returns({ nodes: [] })
+                mockRED.history = { push: sinon.stub() }
+                mockRED.actions = { invoke: sinon.stub() }
+                mockRED.editor = { validateNode: sinon.stub() }
+                mockRED.workspaces = {
+                    ...mockRED.workspaces,
+                    isLocked: sinon.stub().returns(false),
+                    add: sinon.stub(),
+                    delete: sinon.stub()
+                }
+            })
+            it('should reject add-flow-tab', async () => {
+                sinon.stub(expertAutomations.redOps, 'commandAndWait').callsFake((cmd) => { cmd(); return Promise.resolve() })
+                await should(expertAutomations.invokeAction('automation/add-flow-tab', {
+                    params: { title: 'New Flow' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.view.importNodes.called.should.be.false()
+            })
+            it('should reject add-tab', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null) // no existing tab with this id
+                await should(expertAutomations.invokeAction('automation/add-tab', {
+                    params: { label: 'New Tab' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.nodes.addWorkspace.called.should.be.false()
+            })
+            it('should reject remove-tab', async () => {
+                const ws = { id: 'tab1', type: 'tab' }
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(ws)
+                await should(expertAutomations.invokeAction('automation/remove-tab', {
+                    params: { id: 'tab1' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.workspaces.delete.called.should.be.false()
+            })
+            it('should reject add-nodes', async () => {
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'n1', type: 'inject', z: 'tab1' }] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.view.importNodes.called.should.be.false()
+            })
+            it('should reject add-nodes for config-only nodes (no z)', async () => {
+                mockRED.nodes.getType = sinon.stub().returns({ category: 'config', inputs: 0, outputs: 0, defaults: {} })
+                await should(expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes: [{ id: 'cfg1', type: 'ui-base' }] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.view.importNodes.called.should.be.false()
+            })
+            it('should reject remove-nodes', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1' })
+                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['n1'] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject update-nodes', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', type: 'inject', name: 'old' })
+                await should(expertAutomations.invokeAction('automation/update-nodes', {
+                    params: { nodes: [{ id: 'n1', updates: [{ property: 'name', op: 'replace', content: 'new' }] }] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.history.push.called.should.be.false()
+            })
+            it('should reject set-wires', async () => {
+                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', outputs: 1 })
+                mockRED.nodes.node.withArgs('n2').returns({ id: 'n2', z: 'tab1', type: 'debug' })
+                await should(expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', source: 'n1', target: 'n2' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.nodes.addLink.called.should.be.false()
+            })
+            it('should reject set-links', async () => {
+                mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1', links: [] })
+                mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1', links: [] })
+                await should(expertAutomations.invokeAction('automation/set-links', {
+                    params: { mode: 'add', source: 'lo1', target: 'li1' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.history.push.called.should.be.false()
+            })
+            it('should reject import-flow', async () => {
+                const flowJson = JSON.stringify([{ id: 'n1', type: 'inject' }])
+                await should(expertAutomations.invokeAction('automation/import-flow', {
+                    params: { flow: flowJson }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.view.importNodes.called.should.be.false()
+            })
+            it('should reject manage-groups (create)', async () => {
+                const n1 = { id: 'n1', z: 'tab1' }
+                const n2 = { id: 'n2', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1, n2 }[id] || null))
+                mockRED.nodes.group = sinon.stub().returns(null)
+                mockRED.nodes.eachGroup = sinon.stub()
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'create', nodeIds: ['n1', 'n2'], name: 'g' }] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject manage-groups (delete)', async () => {
+                mockRED.nodes.group = sinon.stub().withArgs('g1').returns({ id: 'g1', z: 'tab1', nodes: [] })
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'delete', id: 'g1' }] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject arrange-nodes', async () => {
+                const n1 = { id: 'n1', type: 'inject', z: 'tab1' }
+                const n2 = { id: 'n2', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1, n2 }[id] || null))
+                mockRED.nodes.getType.withArgs('inject').returns({ category: 'input' })
+                mockRED.nodes.getType.withArgs('debug').returns({ category: 'output' })
+                await should(expertAutomations.invokeAction('automation/arrange-nodes', {
+                    params: { ids: ['n1', 'n2'], direction: 'grid' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.actions.invoke.called.should.be.false()
             })
         })
     })
