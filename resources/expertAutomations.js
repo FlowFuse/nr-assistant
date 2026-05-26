@@ -493,7 +493,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     scope: {
                         type: 'string',
                         enum: ['selection', 'current-tab', 'all-flows'],
-                        description: '"selection" exports the currently selected nodes; "current-tab" exports all nodes on the active flow tab; "all-flows" exports the entire workspace'
+                        description: 'Scope specifies what should be exported. Options are "selection" to export currently selected nodes, "current-tab" to export all nodes on the active flow tab, "all-flows" to export all flows on all workspace tabs including config nodes and subflows'
                     },
                     tabId: {
                         type: 'string',
