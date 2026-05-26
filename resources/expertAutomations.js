@@ -1173,7 +1173,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            const isConfigNode = this.isConfigNode(rawNode.id)
+            const def = this.RED.nodes.getType(rawNode.type)
+            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            const isConfigNode = def.category === 'config'
             if (!isConfigNode && !rawNode.z) throw new Error('Node is missing required property: z')
             return { ...rawNode }
         })
