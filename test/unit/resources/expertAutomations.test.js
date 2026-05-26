@@ -37,12 +37,16 @@ describeMain('expertAutomations', () => {
                 group: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
-                dirty: sinon.stub()
+                dirty: sinon.stub(),
+                workspace: sinon.stub().returns({ id: 'default-tab', type: 'tab' })
             },
             settings: {
                 version: '4.1.4'
             },
             state: { DEFAULT: 1 },
+            user: {
+                hasPermission: sinon.stub().returns(true)
+            },
             workspaces: {
                 active: sinon.stub().returns('active-tab'),
                 show: sinon.stub(),
@@ -709,7 +713,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('li1').returns({ id: 'li1', type: 'link in', z: 'tab1' })
                 await should(expertAutomations.invokeAction('automation/set-links', {
                     params: { mode: 'add', source: 'n1', target: 'li1' }
-                }, {})).rejectedWith(/must be a link out or link call node/)
+                }, {})).rejectedWith(/must be a link node/)
             })
             it('should throw if target is not a link in', async () => {
                 mockRED.nodes.node.withArgs('lo1').returns({ id: 'lo1', type: 'link out', mode: 'link', z: 'tab1' })
@@ -1089,7 +1093,8 @@ describeMain('expertAutomations', () => {
                     delete: sinon.stub(),
                     selection: sinon.stub().returns([]),
                     active: sinon.stub().returns(null),
-                    isHidden: sinon.stub().returns(false)
+                    isHidden: sinon.stub().returns(false),
+                    isLocked: sinon.stub().returns(false)
                 }
                 const result = {}
                 await expertAutomations.invokeAction('automation/remove-tab', {
@@ -1103,24 +1108,24 @@ describeMain('expertAutomations', () => {
             })
             it('should throw if tab not found', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().returns(false) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: 'does-not-exist' }
-                }, {})).rejectedWith(/Tab with id does-not-exist not found/)
+                }, {})).rejectedWith(/Workspace does-not-exist not found/)
             })
             it('should throw if id is empty', async () => {
                 mockRED.nodes.workspace = sinon.stub().returns(null)
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().returns(false) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: '' }
-                }, {})).rejectedWith(/Tab with id .* not found/)
+                }, {})).rejectedWith(/Workspace .* not found/)
             })
             it('should throw if tab is locked', async () => {
                 mockRED.nodes.workspace = sinon.stub().withArgs('locked-tab').returns({ id: 'locked-tab', type: 'tab', locked: true })
-                mockRED.workspaces = { delete: sinon.stub() }
+                mockRED.workspaces = { delete: sinon.stub(), isLocked: sinon.stub().withArgs('locked-tab').returns(true) }
                 await should(expertAutomations.invokeAction('automation/remove-tab', {
                     params: { id: 'locked-tab' }
-                }, {})).rejectedWith(/Tab locked-tab is locked/)
+                }, {})).rejectedWith(/Workspace locked-tab is locked/)
                 mockRED.workspaces.delete.called.should.be.false()
             })
         })
@@ -3174,7 +3179,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1', 'n2'], direction: 'horizontally' }
-                }, result)).rejectedWith(/Distribution requires at least 3 non-config nodes/)
+                }, result)).rejectedWith(/Distribution requires at least 3 workspace nodes/)
             })
             it('should throw if ids array is empty', async () => {
                 const result = {}
@@ -3195,7 +3200,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['n1'], direction: 'left' }
-                }, result)).rejectedWith(/requires at least 2 non-config nodes/)
+                }, result)).rejectedWith(/requires at least 2 workspace nodes/)
             })
             it('should allow grid alignment with a single node', async () => {
                 const node = { id: 'n1', type: 'inject', x: 13, y: 27, z: 'tab1' }
@@ -3251,7 +3256,7 @@ describeMain('expertAutomations', () => {
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['cfg1'], direction: 'grid' }
-                }, result)).rejectedWith(/No non-config nodes to align/)
+                }, result)).rejectedWith(/No workspace nodes to align/)
             })
         })
     })
