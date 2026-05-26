@@ -533,7 +533,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 required: ['panel']
             }
         },
-        [TOGGLE_SIDEBAR]: {}
+        [TOGGLE_SIDEBAR]: {
+            params: {
+                type: 'object',
+                properties: {
+                    side: {
+                        type: 'string',
+                        enum: ['left', 'right'],
+                        description: '"left" toggles the palette panel on the left; "right" toggles the sidebar panel on the right'
+                    }
+                },
+                required: ['side']
+            }
+        }
 
     })
 
@@ -1910,10 +1922,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.sidebar.show(params.panel)
             result.success = true
             break
-        case TOGGLE_SIDEBAR:
-            this.RED.actions.invoke('core:toggle-sidebar')
+        case TOGGLE_SIDEBAR: {
+            const sideActionMap = {
+                left: 'core:toggle-palette',
+                right: 'core:toggle-sidebar'
+            }
+            this.RED.actions.invoke(sideActionMap[params.side])
             result.success = true
             break
+        }
         default:
             result.handled = false
             result.success = false

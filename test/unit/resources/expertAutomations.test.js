@@ -3502,9 +3502,15 @@ describeMain('expertAutomations', () => {
             beforeEach(() => {
                 mockRED.actions = { invoke: sinon.stub() }
             })
-            it('should invoke core:toggle-sidebar', async () => {
+            it('should invoke core:toggle-palette for side "left"', async () => {
                 const result = {}
-                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: {} }, result)
+                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: { side: 'left' } }, result)
+                mockRED.actions.invoke.calledWith('core:toggle-palette').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:toggle-sidebar for side "right"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: { side: 'right' } }, result)
                 mockRED.actions.invoke.calledWith('core:toggle-sidebar').should.be.true()
                 result.should.have.property('success', true)
             })
