@@ -494,6 +494,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'string',
                         enum: ['selection', 'current-tab', 'all-flows'],
                         description: '"selection" exports the currently selected nodes; "current-tab" exports all nodes on the active flow tab; "all-flows" exports the entire workspace'
+                    },
+                    tabId: {
+                        type: 'string',
+                        description: 'ID of the tab to switch to before exporting. Only valid when scope is "current-tab". The tab must exist or an error is thrown.'
                     }
                 },
                 required: ['scope']
@@ -1849,6 +1853,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case EXPORT_FLOW: {
+            if (params.tabId) {
+                if (params.scope !== 'current-tab') {
+                    result.error = '"tabId" is only valid when scope is "current-tab"'
+                    result.success = false
+                    break
+                }
+                this.showWorkspace(params.tabId)
+            }
             const scopeButtonId = {
                 selection: 'red-ui-clipboard-dialog-export-rng-selected',
                 'current-tab': 'red-ui-clipboard-dialog-export-rng-flow',
