@@ -27,6 +27,7 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
+const EXPORT_FLOW = 'automation/export-flow'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -64,7 +65,8 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
  *   |MANAGE_GROUPS
- *   |ARRANGE_NODES} ExpertAutomationsActionsEnum
+ *   |ARRANGE_NODES
+ *   |EXPORT_FLOW} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -480,6 +482,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids', 'direction']
+            }
+        },
+        [EXPORT_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    scope: {
+                        type: 'string',
+                        enum: ['selection', 'current-tab', 'all-flows'],
+                        description: '"selection" exports the currently selected nodes; "current-tab" exports all nodes on the active flow tab; "all-flows" exports the entire workspace'
+                    }
+                },
+                required: ['scope']
             }
         }
     })
@@ -1767,6 +1782,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case EXPORT_FLOW: {
+            const scopeButtonId = {
+                selection: 'red-ui-clipboard-dialog-export-rng-selected',
+                'current-tab': 'red-ui-clipboard-dialog-export-rng-flow',
+                'all-flows': 'red-ui-clipboard-dialog-export-rng-full'
+            }[params.scope]
+            this.RED.actions.invoke('core:show-export-dialog')
+            document.getElementById(scopeButtonId)?.click()
+            result.success = true
+            break
+        }
         default:
             result.handled = false
             result.success = false

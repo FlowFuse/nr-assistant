@@ -103,7 +103,8 @@ describeMain('expertAutomations', () => {
                 'automation/list-config-nodes',
                 'automation/open-palette-manager',
                 'automation/manage-groups',
-                'automation/arrange-nodes'
+                'automation/arrange-nodes',
+                'automation/export-flow'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3253,6 +3254,43 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/arrange-nodes', {
                     params: { ids: ['cfg1'], direction: 'grid' }
                 }, result)).rejectedWith(/No non-config nodes to align/)
+            })
+        })
+
+        describe('export-flow action', () => {
+            let clickedId
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+                clickedId = null
+                global.document = {
+                    getElementById: sinon.stub().callsFake(id => ({
+                        click: () => { clickedId = id }
+                    }))
+                }
+            })
+            afterEach(() => {
+                delete global.document
+            })
+            it('should invoke core:show-export-dialog and click the selected-nodes button for scope "selection"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'selection' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-selected')
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:show-export-dialog and click the flow button for scope "current-tab"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'current-tab' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-flow')
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:show-export-dialog and click the full button for scope "all-flows"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'all-flows' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-full')
+                result.should.have.property('success', true)
             })
         })
     })
