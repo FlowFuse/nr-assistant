@@ -497,7 +497,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     },
                     tabId: {
                         type: 'string',
-                        description: 'ID of the tab to switch to before exporting. Only valid when scope is "current-tab". The tab must exist or an error is thrown.'
+                        description: '(optional) The ID of the tab to switch to before exporting. Only valid when scope is "current-tab". If the tab does not exist, an error will be thrown.'
                     }
                 },
                 required: ['scope']
