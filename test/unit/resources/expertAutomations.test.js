@@ -3488,7 +3488,7 @@ describeMain('expertAutomations', () => {
             beforeEach(() => {
                 mockRED.sidebar = { show: sinon.stub() }
             })
-            for (const panel of ['info', 'config', 'context', 'help']) {
+            for (const panel of ['info', 'config', 'context', 'help', 'debug', 'dashboard-2.0', 'lint', 'flow-debugger', 'flowfuse-nr-subflow-export']) {
                 it(`should call RED.sidebar.show with "${panel}"`, async () => {
                     const result = {}
                     await expertAutomations.invokeAction('automation/show-sidebar-panel', { params: { panel } }, result)
