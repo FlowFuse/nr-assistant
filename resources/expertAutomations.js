@@ -29,6 +29,7 @@ const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
+const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -68,7 +69,8 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
- *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
+ *   |SET_DEPLOY_MODE
+ *   |SHOW_SIDEBAR_PANEL} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -514,6 +516,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['mode']
+            }
+        },
+        [SHOW_SIDEBAR_PANEL]: {
+            params: {
+                type: 'object',
+                properties: {
+                    panel: {
+                        type: 'string',
+                        enum: ['info', 'config', 'context', 'help'],
+                        description: '"info" shows the Info/Properties panel; "config" shows the Config Nodes panel; "context" shows the Context Variables panel; "help" shows the Help panel'
+                    }
+                },
+                required: ['panel']
             }
         }
     })
@@ -1887,6 +1902,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
+        case SHOW_SIDEBAR_PANEL:
+            this.RED.sidebar.show(params.panel)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false

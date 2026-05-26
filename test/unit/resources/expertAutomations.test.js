@@ -109,7 +109,8 @@ describeMain('expertAutomations', () => {
                 'automation/manage-groups',
                 'automation/arrange-nodes',
                 'automation/export-flow',
-                'automation/set-deploy-mode'
+                'automation/set-deploy-mode',
+                'automation/show-sidebar-panel'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3480,6 +3481,20 @@ describeMain('expertAutomations', () => {
                 mockRED.workspaces.show.called.should.be.false()
                 mockRED.actions.invoke.called.should.be.false()
             })
+        })
+
+        describe('show-sidebar-panel action', () => {
+            beforeEach(() => {
+                mockRED.sidebar = { show: sinon.stub() }
+            })
+            for (const panel of ['info', 'config', 'context', 'help']) {
+                it(`should call RED.sidebar.show with "${panel}"`, async () => {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/show-sidebar-panel', { params: { panel } }, result)
+                    mockRED.sidebar.show.calledWith(panel).should.be.true()
+                    result.should.have.property('success', true)
+                })
+            }
         })
     })
 })
