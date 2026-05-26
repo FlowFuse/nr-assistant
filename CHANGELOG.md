@@ -15,7 +15,6 @@
 ### Bug Fixes
 
 * **automations:** update config node users array in updateNode ([#357](https://github.com/FlowFuse/nr-assistant/issues/357)) ([1245d83](https://github.com/FlowFuse/nr-assistant/commit/1245d83c08d5b2ba149eaf77779731c5780eeb0d))
-* **automation:** track history for moveNodeToTab so undo works correctly ([1935719](https://github.com/FlowFuse/nr-assistant/commit/1935719131d9212655817390afc48c014732649c))
 * **automation:** track history for moveNodeToTab so undo works correctly ([#341](https://github.com/FlowFuse/nr-assistant/issues/341)) ([d0bf691](https://github.com/FlowFuse/nr-assistant/commit/d0bf691d1eb25303cf5ef6212dcade11b2ef5edd))
 * Tighter workspace permission checks ([#361](https://github.com/FlowFuse/nr-assistant/issues/361)) ([f992e57](https://github.com/FlowFuse/nr-assistant/commit/f992e57546ef67294f135e544add8705d6781856))
 
