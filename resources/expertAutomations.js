@@ -1079,6 +1079,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Throw if the user does not have write permission, which is required for any operation that modifies nodes or workspaces.
+     */
+    _assertWritePermission () {
+        if (!this.RED.user.hasPermission('flows.write')) {
+            throw new Error('Permission denied: user account does not have write permission')
+        }
+    }
+
+    /**
      * Throw if the workspace tab is missing, is locked, or user does not have write permission.
      * If z is null or undefined, only check the editor state and user permissions (i.e. config nodes).
      * @param {string|null|undefined} z - workspace tab ID
@@ -1092,12 +1101,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
         }
         this._assertWritePermission()
-    }
-
-    _assertWritePermission () {
-        if (!this.RED.user.hasPermission('flows.write')) {
-            throw new Error('Permission denied: user account does not have write permission')
-        }
     }
 
     isConfigNode (id) {
