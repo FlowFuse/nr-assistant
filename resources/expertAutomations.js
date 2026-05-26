@@ -527,7 +527,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     panel: {
                         type: 'string',
                         enum: ['info', 'config', 'context', 'help', 'debug', 'dashboard-2.0', 'lint', 'flow-debugger', 'flowfuse-nr-subflow-export'],
-                        description: '"info" shows the Info/Properties panel; "config" shows the Config Nodes panel; "context" shows the Context Variables panel; "help" shows the Help panel; "debug" shows the Debug Messages panel; "dashboard-2.0" shows the Dashboard 2.0 panel; "lint" shows the Lint panel; "flow-debugger" shows the Flow Debugger panel; "flowfuse-nr-subflow-export" shows the Subflow Export panel'
+                        description: '"info" shows the Info/Properties panel; "config" shows the Config Nodes panel; "context" shows the Context Variables panel; "help" shows the Help panel; "debug" shows the Debug Messages panel; "dashboard-2.0" shows the Dashboard 2.0 panel; "lint" shows the Lint panel; "flow-debugger" shows the Flow Debugger panel; "flowfuse-nr-subflow-export" shows the FlowFuse Subflow Export panel'
                     }
                 },
                 required: ['panel']
