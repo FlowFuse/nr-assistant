@@ -122,6 +122,9 @@ describeMain('expertComms', function () {
             workspaces: {
                 isLocked: sinon.stub().returns(false)
             },
+            user: {
+                hasPermission: sinon.stub().returns(true)
+            },
             nrAssistant: {
                 DEBUG: false
             },
