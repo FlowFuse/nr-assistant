@@ -29,6 +29,8 @@ const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
+const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
+const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -68,7 +70,9 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
- *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
+ *   |SET_DEPLOY_MODE
+ *   |SHOW_SIDEBAR_PANEL
+ *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -515,7 +519,34 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['mode']
             }
+        },
+        [SHOW_SIDEBAR_PANEL]: {
+            params: {
+                type: 'object',
+                properties: {
+                    panel: {
+                        type: 'string',
+                        enum: ['info', 'config', 'context', 'help', 'debug', 'dashboard-2.0', 'lint', 'flow-debugger', 'flowfuse-nr-subflow-export'],
+                        description: '"info" shows the Info/Properties panel; "config" shows the Config Nodes panel; "context" shows the Context Variables panel; "help" shows the Help panel; "debug" shows the Debug Messages panel; "dashboard-2.0" shows the Dashboard 2.0 panel; "lint" shows the Lint panel; "flow-debugger" shows the Flow Debugger panel; "flowfuse-nr-subflow-export" shows the FlowFuse Subflow Export panel'
+                    }
+                },
+                required: ['panel']
+            }
+        },
+        [TOGGLE_SIDEBAR]: {
+            params: {
+                type: 'object',
+                properties: {
+                    side: {
+                        type: 'string',
+                        enum: ['left', 'right'],
+                        description: '"left" toggles the palette panel on the left; "right" toggles the sidebar panel on the right'
+                    }
+                },
+                required: ['side']
+            }
         }
+
     })
 
     /**
@@ -1884,6 +1915,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
             this.RED.actions.invoke(coreAction)
+            result.success = true
+            break
+        }
+        case SHOW_SIDEBAR_PANEL:
+            this.RED.sidebar.show(params.panel)
+            result.success = true
+            break
+        case TOGGLE_SIDEBAR: {
+            const sideActionMap = {
+                left: 'core:toggle-palette',
+                right: 'core:toggle-sidebar'
+            }
+            this.RED.actions.invoke(sideActionMap[params.side])
             result.success = true
             break
         }

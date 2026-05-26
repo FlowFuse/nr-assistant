@@ -109,7 +109,9 @@ describeMain('expertAutomations', () => {
                 'automation/manage-groups',
                 'automation/arrange-nodes',
                 'automation/export-flow',
-                'automation/set-deploy-mode'
+                'automation/set-deploy-mode',
+                'automation/show-sidebar-panel',
+                'automation/toggle-sidebar'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -3479,6 +3481,38 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('error').which.match(/"tabId" is only valid/)
                 mockRED.workspaces.show.called.should.be.false()
                 mockRED.actions.invoke.called.should.be.false()
+            })
+        })
+
+        describe('show-sidebar-panel action', () => {
+            beforeEach(() => {
+                mockRED.sidebar = { show: sinon.stub() }
+            })
+            for (const panel of ['info', 'config', 'context', 'help', 'debug', 'dashboard-2.0', 'lint', 'flow-debugger', 'flowfuse-nr-subflow-export']) {
+                it(`should call RED.sidebar.show with "${panel}"`, async () => {
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/show-sidebar-panel', { params: { panel } }, result)
+                    mockRED.sidebar.show.calledWith(panel).should.be.true()
+                    result.should.have.property('success', true)
+                })
+            }
+        })
+
+        describe('toggle-sidebar action', () => {
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+            })
+            it('should invoke core:toggle-palette for side "left"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: { side: 'left' } }, result)
+                mockRED.actions.invoke.calledWith('core:toggle-palette').should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:toggle-sidebar for side "right"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/toggle-sidebar', { params: { side: 'right' } }, result)
+                mockRED.actions.invoke.calledWith('core:toggle-sidebar').should.be.true()
+                result.should.have.property('success', true)
             })
         })
     })
