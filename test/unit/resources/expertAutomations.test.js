@@ -108,6 +108,7 @@ describeMain('expertAutomations', () => {
                 'automation/open-palette-manager',
                 'automation/manage-groups',
                 'automation/arrange-nodes',
+                'automation/export-flow',
                 'automation/set-deploy-mode'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
@@ -3417,6 +3418,66 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/set-deploy-mode', { params: { mode: 'invalid' } }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('error').which.match(/Unknown deploy mode/)
+                mockRED.actions.invoke.called.should.be.false()
+            })
+        })
+
+        describe('export-flow action', () => {
+            let clickedId
+            beforeEach(() => {
+                mockRED.actions = { invoke: sinon.stub() }
+                clickedId = null
+                global.document = {
+                    getElementById: sinon.stub().callsFake(id => ({
+                        click: () => { clickedId = id }
+                    }))
+                }
+            })
+            afterEach(() => {
+                delete global.document
+            })
+            it('should invoke core:show-export-dialog and click the selected-nodes button for scope "selection"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'selection' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-selected')
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:show-export-dialog and click the flow button for scope "current-tab"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'current-tab' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-flow')
+                result.should.have.property('success', true)
+            })
+            it('should invoke core:show-export-dialog and click the full button for scope "all-flows"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'all-flows' } }, result)
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-full')
+                result.should.have.property('success', true)
+            })
+            it('should switch to the given tab before exporting when tabId is provided', async () => {
+                mockRED.nodes.workspace.withArgs('tab123').returns({ id: 'tab123', type: 'tab' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'current-tab', tabId: 'tab123' } }, result)
+                mockRED.workspaces.show.calledWith('tab123').should.be.true()
+                mockRED.actions.invoke.calledWith('core:show-export-dialog').should.be.true()
+                clickedId.should.equal('red-ui-clipboard-dialog-export-rng-flow')
+                result.should.have.property('success', true)
+            })
+            it('should throw if tabId refers to a non-existent tab', async () => {
+                mockRED.nodes.workspace.withArgs('missing-tab').returns(null)
+                await should(expertAutomations.invokeAction('automation/export-flow', {
+                    params: { scope: 'current-tab', tabId: 'missing-tab' }
+                }, {})).rejectedWith(/missing-tab/)
+            })
+            it('should return an error if tabId is provided with a scope other than "current-tab"', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/export-flow', { params: { scope: 'all-flows', tabId: 'tab123' } }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('error').which.match(/"tabId" is only valid/)
+                mockRED.workspaces.show.called.should.be.false()
                 mockRED.actions.invoke.called.should.be.false()
             })
         })

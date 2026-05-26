@@ -27,6 +27,7 @@ const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
+const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
@@ -66,6 +67,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |OPEN_PALETTE_MANAGER
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
+ *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE} ExpertAutomationsActionsEnum
  */
 
@@ -482,6 +484,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids', 'direction']
+            }
+        },
+        [EXPORT_FLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    scope: {
+                        type: 'string',
+                        enum: ['selection', 'current-tab', 'all-flows'],
+                        description: 'Scope specifies what should be exported. Options are "selection" to export currently selected nodes, "current-tab" to export all nodes on the active flow tab, "all-flows" to export all flows on all workspace tabs including config nodes and subflows'
+                    },
+                    tabId: {
+                        type: 'string',
+                        description: '(optional) The ID of the tab to switch to before exporting. Only valid when scope is "current-tab". If the tab does not exist, an error will be thrown.'
+                    }
+                },
+                required: ['scope']
             }
         },
         [SET_DEPLOY_MODE]: {
@@ -1833,6 +1852,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case EXPORT_FLOW: {
+            if (params.tabId) {
+                if (params.scope !== 'current-tab') {
+                    result.error = '"tabId" is only valid when scope is "current-tab"'
+                    result.success = false
+                    break
+                }
+                this.showWorkspace(params.tabId)
+            }
+            const scopeButtonId = {
+                selection: 'red-ui-clipboard-dialog-export-rng-selected',
+                'current-tab': 'red-ui-clipboard-dialog-export-rng-flow',
+                'all-flows': 'red-ui-clipboard-dialog-export-rng-full'
+            }[params.scope]
+            this.RED.actions.invoke('core:show-export-dialog')
+            document.getElementById(scopeButtonId)?.click()
+            result.success = true
+            break
+        }
         case SET_DEPLOY_MODE: {
             const modeMap = {
                 full: 'core:set-deploy-type-to-full',
