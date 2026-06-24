@@ -100,6 +100,7 @@ describeMain('expertAutomations', () => {
                 'automation/remove-nodes',
                 'automation/set-wires',
                 'automation/set-links',
+                'automation/create-subroutine',
                 'automation/import-flow',
                 'automation/close-editor-tray',
                 'automation/get-node-types',
@@ -826,6 +827,128 @@ describeMain('expertAutomations', () => {
                 const historyArg = mockRED.history.push.firstCall.args[0]
                 historyArg.events[0].changes.links.should.deepEqual(['existing1'])
                 historyArg.events[1].changes.links.should.deepEqual(['existing2'])
+            })
+        })
+        describe('createSubroutine action', () => {
+            let idc
+            beforeEach(() => {
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                idc = 0
+                mockRED.nodes.id = sinon.stub().callsFake(() => `gen-${++idc}`)
+                // Orchestration is tested here; addNodes/setWires/setLinks have their own tests.
+                sinon.stub(expertAutomations, 'addNodes')
+                sinon.stub(expertAutomations, 'setWires')
+                sinon.stub(expertAutomations, 'setLinks')
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false), show: sinon.stub() }
+            })
+
+            // inject -> function 1 -> debug, wrapping function 1 only
+            function setupSingleNode () {
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100 }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+                return { inject, fn, dbg }
+            }
+
+            it('wraps a single node, reusing addNodes/setWires/setLinks', () => {
+                setupSingleNode()
+                const data = expertAutomations.createSubroutine({ ids: ['f1'], name: 'My Sub' })
+
+                data.entryId.should.equal('f1')
+                data.exitId.should.equal('f1')
+                data.should.have.properties(['linkInId', 'linkOutId', 'linkCallId'])
+
+                // 1. three link nodes created via addNodes in one call
+                expertAutomations.addNodes.calledOnce.should.be.true()
+                const createdNodes = expertAutomations.addNodes.firstCall.args[0]
+                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call'])
+                const linkOut = createdNodes.find(n => n.type === 'link out')
+                const linkCall = createdNodes.find(n => n.type === 'link call')
+                linkOut.mode.should.equal('return')
+                linkCall.linkType.should.equal('static')
+
+                // 2. wiring via setWires: remove inject->f1 / f1->dbg, add the 4 new wires
+                const wireCalls = expertAutomations.setWires.getCalls().map(c => c.args[0])
+                wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'inj' && w.target === 'f1')
+                wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'f1' && w.target === 'dbg')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'inj' && w.target === data.linkCallId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkCallId && w.target === 'dbg')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkInId && w.target === 'f1')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'f1' && w.target === data.linkOutId)
+
+                // 3. virtual link call -> link in via setLinks
+                expertAutomations.setLinks.calledWithMatch({ mode: 'add', source: data.linkCallId, target: data.linkInId }).should.be.true()
+            })
+
+            it('wraps a linear chain, leaving the internal wire intact', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['n1', 'n2'] })
+                data.entryId.should.equal('n1')
+                data.exitId.should.equal('n2')
+                // only the two external wires are removed; the internal n1 -> n2 is untouched
+                const removes = expertAutomations.setWires.getCalls().map(c => c.args[0]).filter(w => w.mode === 'remove')
+                removes.should.have.lengthOf(2)
+                removes.should.matchAny(w => w.source === 'up' && w.target === 'n1')
+                removes.should.matchAny(w => w.source === 'n2' && w.target === 'down')
+            })
+
+            it('moves the body to another tab when targetTabId is given (link call stays inline)', () => {
+                const { fn } = setupSingleNode()
+                mockRED.nodes.moveNodeToTab = sinon.stub()
+                const linkIn = { id: 'gen-1', type: 'link in', z: 'tab1' }
+                const linkOut = { id: 'gen-2', type: 'link out', z: 'tab1' }
+                mockRED.nodes.node.withArgs('gen-1').returns(linkIn)
+                mockRED.nodes.node.withArgs('gen-2').returns(linkOut)
+                expertAutomations.createSubroutine({ ids: ['f1'], targetTabId: 'tab2' })
+                // link in, the function node and link out move; the link call (gen-3) does not
+                mockRED.nodes.moveNodeToTab.callCount.should.equal(3)
+                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === fn && c.args[1] === 'tab2').should.be.true()
+                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === linkIn).should.be.true()
+            })
+
+            it('rejects a selection with multiple exit points', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'debug', z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', z: 'tab1' }
+                const ext = { id: 'ext', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }, { source: n1, sourcePort: 1, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: ext }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([{ source: n1, sourcePort: 1, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ source: n3, sourcePort: 0, target: ext }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['n1', 'n2', 'n3'] })).should.throw(/single exit node/)
+            })
+
+            it('rejects a link node in the selection', () => {
+                mockRED.nodes.node.withArgs('lc').returns({ id: 'lc', type: 'link call', z: 'tab1' });
+                (() => expertAutomations.createSubroutine({ ids: ['lc'] })).should.throw(/cannot be placed inside a subroutine/)
+            })
+
+            it('throws when ids is empty', () => {
+                (() => expertAutomations.createSubroutine({ ids: [] })).should.throw(/non-empty/)
             })
         })
         describe('addNodes action', () => {

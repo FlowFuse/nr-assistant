@@ -19,6 +19,7 @@ const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
 const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
+const CREATE_SUBROUTINE = 'automation/create-subroutine'
 const IMPORT_FLOW = 'automation/import-flow'
 const CLOSE_EDITOR_TRAY = 'automation/close-editor-tray'
 const GET_NODE_TYPES = 'automation/get-node-types'
@@ -61,6 +62,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |REMOVE_NODES
  *   |SET_WIRES
  *   |SET_LINKS
+ *   |CREATE_SUBROUTINE
  *   |IMPORT_FLOW
  *   |CLOSE_EDITOR_TRAY
  *   |GET_NODE_TYPES
@@ -333,6 +335,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     target: { type: 'string', description: 'Target link node ID (link in)' }
                 },
                 required: ['mode', 'source', 'target']
+            }
+        },
+        [CREATE_SUBROUTINE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    ids: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        minItems: 1,
+                        description: 'IDs of the existing node(s) to move into the subroutine body. Must form a single-entry, single-exit subgraph (a single node or a linear chain).'
+                    },
+                    name: { type: 'string', description: 'Name for the subroutine, used to label the created link nodes. Defaults to "Subroutine".' },
+                    targetTabId: { type: 'string', description: 'Optional tab ID to move the subroutine body (link in, the selected nodes, link out) onto. The link call stays inline with the caller. Omit to keep the body on the same tab.' }
+                },
+                required: ['ids']
             }
         },
         [IMPORT_FLOW]: {
@@ -1482,6 +1500,171 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.view.redraw()
     }
 
+    /**
+     * Wrap one or more existing nodes into a callable subroutine built from core
+     * link nodes, replacing them inline with a single `link call`. The selected
+     * nodes must form a single-entry, single-exit subgraph (the common case is a
+     * single node, or a linear chain). The result is:
+     *   caller:  <upstream> -> [link call] -> <downstream>
+     *   body:    [link in] -> <entry> ... <exit> -> [link out, mode: return]
+     * The link call targets the link in, so at runtime the message is routed into
+     * the body and returned to the caller by the return-mode link out.
+     *
+     * Rather than hand-building node JSON, this orchestrates the module's own
+     * validated actions (addNodes / setWires / setLinks), so node-type, port,
+     * same-tab, link-type and duplicate-wire validation (and undo/redo history)
+     * all come from those existing actions.
+     *
+     * @param {object} params
+     * @param {string[]} params.ids - IDs of the node(s) to move into the subroutine body
+     * @param {string} [params.name] - name used to label the created link nodes
+     * @param {string} [params.targetTabId] - if given, move the body (link in, selected nodes, link out) to this tab; the link call stays inline with the caller
+     * @returns {{linkInId:string, linkOutId:string, linkCallId:string, entryId:string, exitId:string}}
+     */
+    createSubroutine ({ ids, name, targetTabId } = {}) {
+        if (!Array.isArray(ids) || ids.length === 0) {
+            throw new Error('createSubroutine requires a non-empty "ids" array of node IDs to wrap')
+        }
+        const uniqueIds = [...new Set(ids)]
+        const selection = uniqueIds.map(id => {
+            const n = this.RED.nodes.node(id)
+            if (!n) throw new Error(`Node ${id} not found`)
+            return n
+        })
+
+        // All body nodes must be regular nodes on the same tab
+        const tabIds = [...new Set(selection.map(n => n.z))]
+        if (tabIds.length !== 1 || !tabIds[0]) {
+            throw new Error('All subroutine nodes must be regular (non-config) nodes on the same tab')
+        }
+        const z = tabIds[0]
+        this._assertWorkspaceIsEditable(z)
+        if (targetTabId && targetTabId !== z) {
+            this._assertWorkspaceIsEditable(targetTabId)
+        }
+
+        // Link nodes, subflow instances and groups cannot be wrapped
+        for (const n of selection) {
+            if (LINK_NODE_TYPES.includes(n.type)) {
+                throw new Error(`Node ${n.id} is a "${n.type}" node and cannot be placed inside a subroutine`)
+            }
+            if (typeof n.type === 'string' && n.type.startsWith('subflow:')) {
+                throw new Error(`Node ${n.id} is a subflow instance and cannot be placed inside a subroutine`)
+            }
+            if (n.type === 'group' || n.type === 'junction') {
+                throw new Error(`Node ${n.id} is a "${n.type}" and cannot be placed inside a subroutine`)
+            }
+        }
+
+        const idSet = new Set(uniqueIds)
+
+        // Classify the wires at the boundary of the selection (PORT_TYPE_INPUT = 1, PORT_TYPE_OUTPUT = 0)
+        const externalInboundByNode = new Map()
+        const externalOutboundByNode = new Map()
+        const internalInboundCount = new Map()
+        const internalOutboundCount = new Map()
+        for (const n of selection) {
+            for (const w of this.RED.nodes.getNodeLinks(n.id, 1)) {
+                if (idSet.has(w.source.id)) {
+                    internalInboundCount.set(n.id, (internalInboundCount.get(n.id) || 0) + 1)
+                } else {
+                    if (!externalInboundByNode.has(n.id)) externalInboundByNode.set(n.id, [])
+                    externalInboundByNode.get(n.id).push(w)
+                }
+            }
+            for (const w of this.RED.nodes.getNodeLinks(n.id, 0)) {
+                if (idSet.has(w.target.id)) {
+                    internalOutboundCount.set(n.id, (internalOutboundCount.get(n.id) || 0) + 1)
+                } else {
+                    if (!externalOutboundByNode.has(n.id)) externalOutboundByNode.set(n.id, [])
+                    externalOutboundByNode.get(n.id).push(w)
+                }
+            }
+        }
+
+        // Entry = unique subgraph source (no inbound from a selected node);
+        // exit  = unique subgraph sink   (no outbound to a selected node).
+        const sources = selection.filter(n => !internalInboundCount.get(n.id))
+        const sinks = selection.filter(n => !internalOutboundCount.get(n.id))
+        if (sources.length !== 1) {
+            throw new Error(`A subroutine needs a single entry node, but the selection has ${sources.length} (${sources.map(n => n.id).join(', ')}). Select a single node or a linear chain, or use add_subflow for a multi-input component.`)
+        }
+        if (sinks.length !== 1) {
+            throw new Error(`A subroutine needs a single exit node, but the selection has ${sinks.length} (${sinks.map(n => n.id).join(', ')}). Select a single node or a linear chain, or use add_subflow for a multi-output component.`)
+        }
+        const entryNode = sources[0]
+        const exitNode = sinks[0]
+
+        // All external traffic must converge on the single entry/exit
+        const strayIn = [...externalInboundByNode.keys()].filter(id => id !== entryNode.id)
+        if (strayIn.length) {
+            throw new Error(`External wires enter non-entry node(s) ${strayIn.join(', ')}. A subroutine can only be entered through its single entry node.`)
+        }
+        const strayOut = [...externalOutboundByNode.keys()].filter(id => id !== exitNode.id)
+        if (strayOut.length) {
+            throw new Error(`External wires leave non-exit node(s) ${strayOut.join(', ')}. A subroutine can only return through its single exit node.`)
+        }
+
+        // The exit must return on a single output port
+        const exitOutbound = externalOutboundByNode.get(exitNode.id) || []
+        const exitPorts = [...new Set(exitOutbound.map(w => w.sourcePort || 0))]
+        if (exitPorts.length > 1) {
+            throw new Error(`The exit node ${exitNode.id} returns on multiple output ports (${exitPorts.join(', ')}); a subroutine returns through a single port.`)
+        }
+        const exitPort = exitPorts.length ? exitPorts[0] : 0
+        const entryInbound = externalInboundByNode.get(entryNode.id) || []
+
+        // --- build the subroutine by orchestrating this module's own validated
+        // actions (addNodes / setWires / setLinks) rather than poking RED directly,
+        // so node-type, port, same-tab, link-type and duplicate validation all apply.
+        this.RED.workspaces.show(z)
+        const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
+        const label = (typeof name === 'string' && name.trim()) ? name.trim() : 'Subroutine'
+
+        const linkInId = this.RED.nodes.id()
+        const linkOutId = this.RED.nodes.id()
+        const linkCallId = this.RED.nodes.id()
+
+        // 1. Create the link nodes (addNodes applies node defaults + history).
+        //    The link call's target is set afterwards via setLinks.
+        this.addNodes([
+            { id: linkInId, type: 'link in', z, x: entryNode.x - gridSize * 8, y: entryNode.y, name: label, links: [] },
+            { id: linkOutId, type: 'link out', z, x: exitNode.x + gridSize * 8, y: exitNode.y, name: `${label} return`, mode: 'return', links: [] },
+            { id: linkCallId, type: 'link call', z, x: entryNode.x, y: entryNode.y + gridSize * 6, name: `Call ${label}`, linkType: 'static', links: [] }
+        ])
+
+        // 2. Redirect the caller: upstream now feeds the link call, and the link
+        //    call's return feeds whatever was downstream of the exit.
+        for (const w of entryInbound) {
+            this.setWires({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
+            this.setWires({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
+        }
+        for (const w of exitOutbound) {
+            this.setWires({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
+            this.setWires({ mode: 'add', source: linkCallId, output: 0, target: w.target.id })
+        }
+
+        // 3. Wire the body (link in -> entry, exit -> link out) and point the
+        //    link call at the link in.
+        this.setWires({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
+        this.setWires({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
+        this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
+
+        // 4. Optionally relocate the body to another tab; the link call stays
+        //    inline with the caller and reaches the body via the cross-tab link.
+        if (targetTabId && targetTabId !== z) {
+            for (const id of [linkInId, ...uniqueIds, linkOutId]) {
+                const node = this.RED.nodes.node(id)
+                if (node) this.RED.nodes.moveNodeToTab(node, targetTabId)
+            }
+        }
+
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw(true)
+
+        return { linkInId, linkOutId, linkCallId, entryId: entryNode.id, exitId: exitNode.id }
+    }
+
     get supportedActions () {
         return this.actions
     }
@@ -1751,6 +1934,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case SET_LINKS:
             this.setLinks(params)
             result.data = { mode: params.mode, source: params.source, target: params.target }
+            result.success = true
+            break
+
+        case CREATE_SUBROUTINE:
+            result.data = this.createSubroutine(params)
             result.success = true
             break
 
