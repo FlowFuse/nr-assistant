@@ -836,6 +836,9 @@ describeMain('expertAutomations', () => {
                 mockRED.view.redraw = sinon.stub()
                 idc = 0
                 mockRED.nodes.id = sinon.stub().callsFake(() => `gen-${++idc}`)
+                // isConfigNode falls back to getType when a node has no _def; plain test
+                // nodes resolve to no def (treated as regular, non-config).
+                mockRED.nodes.getType = sinon.stub().returns(undefined)
                 // Orchestration is tested here; addNodes/setWires/setLinks have their own tests.
                 sinon.stub(expertAutomations, 'addNodes')
                 sinon.stub(expertAutomations, 'setWires')
@@ -883,6 +886,32 @@ describeMain('expertAutomations', () => {
 
                 // 3. virtual link call -> link in via setLinks
                 expertAutomations.setLinks.calledWithMatch({ mode: 'add', source: data.linkCallId, target: data.linkInId }).should.be.true()
+            })
+
+            it('rejects a config node in the selection (config nodes are global, with no x/y)', () => {
+                // A config node is scoped to a flow but has no canvas position, so it can't
+                // be wrapped into a flow-anchored subroutine body.
+                const cfg = { id: 'cfg', type: 'mqtt-broker', z: 'tab1', _def: { category: 'config' } }
+                mockRED.nodes.node.withArgs('cfg').returns(cfg);
+                (() => expertAutomations.createSubroutine({ ids: ['cfg'] })).should.throw(/config node and cannot be placed inside a subroutine/)
+            })
+
+            it('anchors the link nodes off 50/50 if the entry node has non-finite coords', () => {
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: null, y: null }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+
+                expertAutomations.createSubroutine({ ids: ['f1'] })
+
+                const createdNodes = expertAutomations.addNodes.firstCall.args[0]
+                createdNodes.forEach((n) => {
+                    Number.isFinite(n.x).should.be.true(`${n.type}.x should be finite, got ${n.x}`)
+                    Number.isFinite(n.y).should.be.true(`${n.type}.y should be finite, got ${n.y}`)
+                })
             })
 
             it('wraps a linear chain, leaving the internal wire intact', () => {

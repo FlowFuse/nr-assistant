@@ -1547,8 +1547,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this._assertWorkspaceIsEditable(targetTabId)
         }
 
-        // Link nodes, subflow instances and groups cannot be wrapped
+        // Config, link, subflow-instance, group and junction nodes cannot be wrapped.
+        // Config nodes are global (no x/y) so they have no place in a flow-anchored body.
         for (const n of selection) {
+            if (this.isConfigNode(n.id)) {
+                throw new Error(`Node ${n.id} is a "${n.type}" config node and cannot be placed inside a subroutine`)
+            }
             if (LINK_NODE_TYPES.includes(n.type)) {
                 throw new Error(`Node ${n.id} is a "${n.type}" node and cannot be placed inside a subroutine`)
             }
@@ -1624,6 +1628,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.show(z)
         const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
         const label = (typeof name === 'string' && name.trim()) ? name.trim() : 'Subroutine'
+
+        // Defensive: the link nodes below are positioned relative to the entry/exit
+        // coordinates. If those are ever non-finite, anchor off 50/50 rather than the origin.
+        const finiteOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)) ? v : fallback
+        entryNode.x = finiteOr(entryNode.x, 50)
+        entryNode.y = finiteOr(entryNode.y, 50)
+        exitNode.x = finiteOr(exitNode.x, entryNode.x + gridSize * 16)
+        exitNode.y = finiteOr(exitNode.y, entryNode.y)
 
         const linkInId = this.RED.nodes.id()
         const linkOutId = this.RED.nodes.id()
