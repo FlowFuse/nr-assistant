@@ -3335,6 +3335,88 @@ describeMain('expertAutomations', () => {
                 result.data[1].should.have.property('op', 'update')
                 existingGroup.name.should.equal('Renamed')
             })
+
+            function setupMoveMocks () {
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                mockRED.view.select = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false), show: sinon.stub() }
+                mockRED.nodes.moveNodeToTab = sinon.stub()
+                mockRED.nodes.getNodeLinks = sinon.stub().returns([])
+            }
+
+            it('should move a group and all its members to the target tab', async () => {
+                setupMoveMocks()
+                const linkIn = { id: 'li', type: 'link in', z: 'tab1', g: 'grp' }
+                const fn = { id: 'fn', type: 'function', z: 'tab1', g: 'grp' }
+                const linkOut = { id: 'lo', type: 'link out', z: 'tab1', g: 'grp' }
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['li', 'fn', 'lo'] }
+                mockRED.nodes.group = sinon.stub().callsFake(id => (id === 'grp' ? grp : null))
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ li: linkIn, fn, lo: linkOut }[id] || null))
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'move', id: 'grp', z: 'tab2' }] }
+                }, result)
+                result.should.have.property('success', true)
+                result.data[0].should.have.property('op', 'move')
+                // the three members and the group container all move to tab2
+                const moved = mockRED.nodes.moveNodeToTab.args.map(a => ({ id: a[0].id, z: a[1] }))
+                moved.map(m => m.id).should.containEql('li')
+                moved.map(m => m.id).should.containEql('fn')
+                moved.map(m => m.id).should.containEql('lo')
+                moved.map(m => m.id).should.containEql('grp')
+                moved.every(m => m.z === 'tab2').should.be.true()
+            })
+
+            it('should move nested groups recursively', async () => {
+                setupMoveMocks()
+                const fn = { id: 'fn', type: 'function', z: 'tab1', g: 'inner' }
+                const inner = { id: 'inner', type: 'group', z: 'tab1', g: 'outer', nodes: ['fn'] }
+                const outer = { id: 'outer', type: 'group', z: 'tab1', nodes: ['inner'] }
+                mockRED.nodes.group = sinon.stub().callsFake(id => ({ outer, inner }[id] || null))
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ fn }[id] || null))
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'move', id: 'outer', z: 'tab2' }] }
+                }, result)
+                result.should.have.property('success', true)
+                const movedIds = mockRED.nodes.moveNodeToTab.args.map(a => a[0].id)
+                movedIds.should.containEql('fn') // member node
+                movedIds.should.containEql('inner') // nested group container
+                movedIds.should.containEql('outer') // outer group container
+            })
+
+            it('is a no-op when the group is already on the target tab', async () => {
+                setupMoveMocks()
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub().callsFake(id => (id === 'grp' ? grp : null))
+                const result = {}
+                await expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'move', id: 'grp', z: 'tab1' }] }
+                }, result)
+                result.should.have.property('success', true)
+                mockRED.nodes.moveNodeToTab.called.should.be.false()
+            })
+
+            it('should throw if group not found for move', async () => {
+                setupMoveMocks()
+                mockRED.nodes.group = sinon.stub().returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'move', id: 'nope', z: 'tab2' }] }
+                }, result)).rejectedWith(/Group nope not found/)
+            })
+
+            it('should throw if z is missing for move', async () => {
+                setupMoveMocks()
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub().callsFake(id => (id === 'grp' ? grp : null))
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/manage-groups', {
+                    params: { operations: [{ op: 'move', id: 'grp' }] }
+                }, result)).rejectedWith(/z \(target tab id\) is required/)
+            })
         })
         describe('arrangeNodes action', () => {
             beforeEach(() => {

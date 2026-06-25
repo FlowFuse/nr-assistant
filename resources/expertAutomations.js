@@ -446,12 +446,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
                             properties: {
                                 op: {
                                     type: 'string',
-                                    enum: ['create', 'update', 'manage-members', 'delete'],
+                                    enum: ['create', 'update', 'manage-members', 'move', 'delete'],
                                     description: 'Operation to perform'
                                 },
                                 id: {
                                     type: 'string',
-                                    description: 'Group ID (required for update, manage-members, and delete)'
+                                    description: 'Group ID (required for update, manage-members, move, and delete)'
+                                },
+                                z: {
+                                    type: 'string',
+                                    description: 'move only — destination tab ID. Moves the group and all its contents (member nodes and nested groups) to that tab, keeping it intact.'
                                 },
                                 nodeIds: {
                                     type: 'array',
@@ -2109,6 +2113,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     results.push({ op: 'manage-members', mode, ...this._summarizeGroup(group) })
                     break
                 }
+                case 'move': {
+                    if (!entry.id) throw new Error('id is required for move')
+                    if (!entry.z) throw new Error('z (target tab id) is required for move')
+                    const group = this.moveGroupToTab(entry.id, entry.z)
+                    results.push({ op: 'move', ...this._summarizeGroup(group) })
+                    break
+                }
                 case 'delete': {
                     if (!entry.id) throw new Error('id is required for delete')
                     this.deleteGroup(entry.id)
@@ -2407,6 +2418,65 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.actions.invoke('core:ungroup-selection')
         this.RED.nodes.dirty(true)
         this.RED.view.redraw()
+    }
+
+    /**
+     * Move a group and everything it contains to another tab, preserving membership.
+     * Member nodes, junctions and nested groups (recursively) all move together, so the
+     * group stays intact; wires between co-moving members are kept, and any wire to a node
+     * left behind is bridged with link nodes (via _moveNodeToTab). A virtual link (e.g. a
+     * subroutine's link call -> link in) keeps working across tabs, which is what makes
+     * relocating a subroutine body to its own tab safe.
+     * @param {string} id - group ID to move
+     * @param {string} targetTabId - destination tab ID
+     * @returns {object} the moved group
+     */
+    moveGroupToTab (id, targetTabId) {
+        const group = this.RED.nodes.group(id)
+        if (!group) throw new Error(`Group ${id} not found`)
+        if (!targetTabId) throw new Error('targetTabId is required to move a group')
+        this._assertWorkspaceIsEditable(group.z)
+        this._assertWorkspaceIsEditable(targetTabId)
+        if (group.z === targetTabId) return group
+
+        // Collect the group and all its descendants: nested group containers (moved
+        // directly, they carry no wires) and member nodes (moved with wire handling).
+        // Every member co-moves, so wires between members survive without splitting.
+        const groupContainers = []
+        const memberNodes = []
+        const seen = new Set()
+        const descend = (g) => {
+            if (seen.has(g.id)) return
+            seen.add(g.id)
+            groupContainers.push(g)
+            for (const member of (g.nodes || [])) {
+                const memberId = typeof member === 'object' ? member.id : member
+                const childGroup = this.RED.nodes.group(memberId)
+                if (childGroup) {
+                    descend(childGroup)
+                    continue
+                }
+                const node = this.RED.nodes.node(memberId)
+                if (node) memberNodes.push(node)
+            }
+        }
+        descend(group)
+
+        const coMovingIds = new Set(memberNodes.map(n => n.id))
+        this.RED.workspaces.show(group.z)
+        for (const node of memberNodes) {
+            this._moveNodeToTab(node.id, targetTabId, coMovingIds)
+        }
+        // Move the group containers themselves; moveNodeToTab routes group nodes to the
+        // core moveGroupToTab, and each member node's g (membership) is left untouched.
+        for (const g of groupContainers) {
+            this.RED.nodes.moveNodeToTab(g, targetTabId)
+        }
+
+        this.RED.nodes.dirty(true)
+        this.RED.view.redraw(true)
+        this.RED.workspaces.show(targetTabId)
+        return group
     }
 
     /**
