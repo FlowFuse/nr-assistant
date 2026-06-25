@@ -345,10 +345,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         minItems: 1,
-                        description: 'IDs of the existing node(s) to move into the subroutine body. Must form a single-entry, single-exit subgraph (a single node or a linear chain).'
+                        description: 'IDs of the existing node(s) to move into the subroutine body. Must form a single-entry, single-exit subgraph: a single node, or connected nodes with one way in and one way out (a branch that reconverges is fine, not only a straight chain).'
                     },
-                    name: { type: 'string', description: 'Name for the subroutine, used to label the created link nodes. Defaults to "Subroutine".' },
-                    targetTabId: { type: 'string', description: 'Optional tab ID to move the subroutine body (link in, the selected nodes, link out) onto. The link call stays inline with the caller. Omit to keep the body on the same tab.' }
+                    name: { type: 'string', description: 'Name for the subroutine, used to label the created link nodes and the group. Defaults to "Subroutine".' },
+                    targetTabId: { type: 'string', description: 'Optional tab ID to move the subroutine body (link in, the selected nodes, link out, catch) onto. The link call and error switch stay inline with the caller. Omit to keep the body on the same tab.' },
+                    timeout: { type: 'number', description: 'Link call timeout in seconds. Defaults to 5.', default: 5 }
                 },
                 required: ['ids']
             }
@@ -1509,23 +1510,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * link nodes, replacing them inline with a single `link call`. The selected
      * nodes must form a single-entry, single-exit subgraph (the common case is a
      * single node, or a linear chain). The result is:
-     *   caller:  <upstream> -> [link call] -> <downstream>
+     *   caller:  <upstream> -> [link call] -> [switch on msg.error] -> <downstream>
      *   body:    [link in] -> <entry> ... <exit> -> [link out, mode: return]
+     *            [catch (group scope)] -> [link out]
      * The link call targets the link in, so at runtime the message is routed into
-     * the body and returned to the caller by the return-mode link out.
+     * the body and returned to the caller by the return-mode link out. A group-scoped
+     * catch routes body errors back out the same link out, and a switch on the
+     * caller side splits the returned message into an error branch and a normal
+     * branch. The body (link in, the selected nodes, link out and the catch) is
+     * wrapped in a named group.
      *
      * Rather than hand-building node JSON, this orchestrates the module's own
-     * validated actions (addNodes / setWires / setLinks), so node-type, port,
-     * same-tab, link-type and duplicate-wire validation (and undo/redo history)
+     * validated actions (addNodes / setWires / setLinks / createGroup), so node-type,
+     * port, same-tab, link-type and duplicate-wire validation (and undo/redo history)
      * all come from those existing actions.
      *
      * @param {object} params
      * @param {string[]} params.ids - IDs of the node(s) to move into the subroutine body
-     * @param {string} [params.name] - name used to label the created link nodes
-     * @param {string} [params.targetTabId] - if given, move the body (link in, selected nodes, link out) to this tab; the link call stays inline with the caller
-     * @returns {{linkInId:string, linkOutId:string, linkCallId:string, entryId:string, exitId:string}}
+     * @param {string} [params.name] - name used to label the created link nodes and group
+     * @param {string} [params.targetTabId] - if given, move the body (link in, selected nodes, link out, catch) to this tab; the link call and switch stay inline with the caller
+     * @param {number|string} [params.timeout=5] - link call timeout in seconds
+     * @returns {{linkInId:string, linkOutId:string, linkCallId:string, switchId:string, catchId:string, entryId:string, exitId:string}}
      */
-    createSubroutine ({ ids, name, targetTabId } = {}) {
+    createSubroutine ({ ids, name, targetTabId, timeout } = {}) {
         if (!Array.isArray(ids) || ids.length === 0) {
             throw new Error('createSubroutine requires a non-empty "ids" array of node IDs to wrap')
         }
@@ -1547,8 +1554,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this._assertWorkspaceIsEditable(targetTabId)
         }
 
-        // Config, link, subflow-instance, group and junction nodes cannot be wrapped.
-        // Config nodes are global (no x/y) so they have no place in a flow-anchored body.
+        // Config, link and group nodes cannot be wrapped.
+        // Config nodes are global (no x/y) so they have no place in a flow-anchored body;
+        // a group is a visual container, not a node on the message path.
         for (const n of selection) {
             if (this.isConfigNode(n.id)) {
                 throw new Error(`Node ${n.id} is a "${n.type}" config node and cannot be placed inside a subroutine`)
@@ -1556,10 +1564,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (LINK_NODE_TYPES.includes(n.type)) {
                 throw new Error(`Node ${n.id} is a "${n.type}" node and cannot be placed inside a subroutine`)
             }
-            if (typeof n.type === 'string' && n.type.startsWith('subflow:')) {
-                throw new Error(`Node ${n.id} is a subflow instance and cannot be placed inside a subroutine`)
-            }
-            if (n.type === 'group' || n.type === 'junction') {
+            if (n.type === 'group') {
                 throw new Error(`Node ${n.id} is a "${n.type}" and cannot be placed inside a subroutine`)
             }
         }
@@ -1595,10 +1600,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const sources = selection.filter(n => !internalInboundCount.get(n.id))
         const sinks = selection.filter(n => !internalOutboundCount.get(n.id))
         if (sources.length !== 1) {
-            throw new Error(`A subroutine needs a single entry node, but the selection has ${sources.length} (${sources.map(n => n.id).join(', ')}). Select a single node or a linear chain, or use add_subflow for a multi-input component.`)
+            throw new Error(`A subroutine needs a single entry node, but the selection has ${sources.length} (${sources.map(n => n.id).join(', ')}). Select a single-entry, single-exit subgraph: a single node, or connected nodes with one way in and one way out.`)
         }
         if (sinks.length !== 1) {
-            throw new Error(`A subroutine needs a single exit node, but the selection has ${sinks.length} (${sinks.map(n => n.id).join(', ')}). Select a single node or a linear chain, or use add_subflow for a multi-output component.`)
+            throw new Error(`A subroutine needs a single exit node, but the selection has ${sinks.length} (${sinks.map(n => n.id).join(', ')}). Select a single-entry, single-exit subgraph: a single node, or connected nodes with one way in and one way out.`)
         }
         const entryNode = sources[0]
         const exitNode = sinks[0]
@@ -1628,6 +1633,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         this.RED.workspaces.show(z)
         const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
         const label = (typeof name === 'string' && name.trim()) ? name.trim() : 'Subroutine'
+        // Link call timeout in seconds; defaults to 5. Stored as a string, as the core link call expects.
+        const callTimeout = (timeout === undefined || timeout === null || timeout === '') ? 5 : timeout
 
         // Defensive: the link nodes below are positioned relative to the entry/exit
         // coordinates. If those are ever non-finite, anchor off 50/50 rather than the origin.
@@ -1640,45 +1647,62 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const linkInId = this.RED.nodes.id()
         const linkOutId = this.RED.nodes.id()
         const linkCallId = this.RED.nodes.id()
+        const switchId = this.RED.nodes.id()
+        const catchId = this.RED.nodes.id()
 
-        // 1. Create the link nodes (addNodes applies node defaults + history).
-        //    The link call's target is set afterwards via setLinks.
+        // 1. Create the link nodes, the caller-side error switch and the group catch
+        //    (addNodes applies node defaults + history). The link call's target is
+        //    set afterwards via setLinks; the catch's group scope is bound by createGroup.
         this.addNodes([
             { id: linkInId, type: 'link in', z, x: entryNode.x - gridSize * 8, y: entryNode.y, name: label, links: [] },
             { id: linkOutId, type: 'link out', z, x: exitNode.x + gridSize * 8, y: exitNode.y, name: `${label} return`, mode: 'return', links: [] },
-            { id: linkCallId, type: 'link call', z, x: entryNode.x, y: entryNode.y + gridSize * 6, name: `Call ${label}`, linkType: 'static', links: [] }
+            { id: linkCallId, type: 'link call', z, x: entryNode.x, y: entryNode.y + gridSize * 6, name: `Call ${label}`, linkType: 'static', timeout: String(callTimeout), links: [] },
+            { id: switchId, type: 'switch', z, x: entryNode.x + gridSize * 8, y: entryNode.y + gridSize * 6, name: 'error?', property: 'error', propertyType: 'msg', rules: [{ t: 'nempty' }, { t: 'else' }], checkall: 'true', repair: false, outputs: 2, outputLabels: ['error', 'ok'] },
+            { id: catchId, type: 'catch', z, x: exitNode.x, y: exitNode.y + gridSize * 4, name: '', scope: 'group', uncaught: false }
         ])
 
-        // 2. Redirect the caller: upstream now feeds the link call, and the link
-        //    call's return feeds whatever was downstream of the exit.
+        // 2. Redirect the caller: upstream now feeds the link call; the link call's
+        //    return feeds a switch on msg.error. The "no error" branch continues to
+        //    whatever was downstream of the exit; the "error" branch is left for the
+        //    caller to wire up.
         for (const w of entryInbound) {
             this.setWires({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
             this.setWires({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
         }
+        this.setWires({ mode: 'add', source: linkCallId, output: 0, target: switchId })
         for (const w of exitOutbound) {
             this.setWires({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
-            this.setWires({ mode: 'add', source: linkCallId, output: 0, target: w.target.id })
+            this.setWires({ mode: 'add', source: switchId, output: 1, target: w.target.id })
         }
 
-        // 3. Wire the body (link in -> entry, exit -> link out) and point the
-        //    link call at the link in.
+        // 3. Wire the body (link in -> entry, exit -> link out), route caught body
+        //    errors back through the link out, and point the link call at the link in.
         this.setWires({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
         this.setWires({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
+        this.setWires({ mode: 'add', source: catchId, output: 0, target: linkOutId })
         this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
 
-        // 4. Optionally relocate the body to another tab; the link call stays
-        //    inline with the caller and reaches the body via the cross-tab link.
-        if (targetTabId && targetTabId !== z) {
-            for (const id of [linkInId, ...uniqueIds, linkOutId]) {
+        // 4. Optionally relocate the body to another tab; the link call and switch
+        //    stay inline with the caller and reach the body via the cross-tab link.
+        const bodyIds = [linkInId, ...uniqueIds, linkOutId, catchId]
+        const bodyTab = (targetTabId && targetTabId !== z) ? targetTabId : z
+        if (bodyTab !== z) {
+            for (const id of bodyIds) {
                 const node = this.RED.nodes.node(id)
-                if (node) this.RED.nodes.moveNodeToTab(node, targetTabId)
+                if (node) this.RED.nodes.moveNodeToTab(node, bodyTab)
             }
         }
+
+        // 5. Wrap the body (link in, the selected nodes, link out and the catch) in a
+        //    named group so the subroutine reads as one unit; the catch's group scope
+        //    binds to this group.
+        this.RED.workspaces.show(bodyTab)
+        this.createGroup(bodyIds, label)
 
         this.RED.nodes.dirty(true)
         this.RED.view.redraw(true)
 
-        return { linkInId, linkOutId, linkCallId, entryId: entryNode.id, exitId: exitNode.id }
+        return { linkInId, linkOutId, linkCallId, switchId, catchId, entryId: entryNode.id, exitId: exitNode.id }
     }
 
     get supportedActions () {

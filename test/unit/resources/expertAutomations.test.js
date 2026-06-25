@@ -843,6 +843,7 @@ describeMain('expertAutomations', () => {
                 sinon.stub(expertAutomations, 'addNodes')
                 sinon.stub(expertAutomations, 'setWires')
                 sinon.stub(expertAutomations, 'setLinks')
+                sinon.stub(expertAutomations, 'createGroup')
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false), show: sinon.stub() }
             })
 
@@ -858,34 +859,57 @@ describeMain('expertAutomations', () => {
                 return { inject, fn, dbg }
             }
 
-            it('wraps a single node, reusing addNodes/setWires/setLinks', () => {
+            it('wraps a single node, reusing addNodes/setWires/setLinks/createGroup', () => {
                 setupSingleNode()
                 const data = expertAutomations.createSubroutine({ ids: ['f1'], name: 'My Sub' })
 
                 data.entryId.should.equal('f1')
                 data.exitId.should.equal('f1')
-                data.should.have.properties(['linkInId', 'linkOutId', 'linkCallId'])
+                data.should.have.properties(['linkInId', 'linkOutId', 'linkCallId', 'switchId', 'catchId'])
 
-                // 1. three link nodes created via addNodes in one call
+                // 1. link nodes, the error switch and the group catch created via addNodes in one call
                 expertAutomations.addNodes.calledOnce.should.be.true()
                 const createdNodes = expertAutomations.addNodes.firstCall.args[0]
-                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call'])
+                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call', 'switch', 'catch'])
                 const linkOut = createdNodes.find(n => n.type === 'link out')
                 const linkCall = createdNodes.find(n => n.type === 'link call')
+                const errSwitch = createdNodes.find(n => n.type === 'switch')
+                const errCatch = createdNodes.find(n => n.type === 'catch')
                 linkOut.mode.should.equal('return')
                 linkCall.linkType.should.equal('static')
+                linkCall.timeout.should.equal('5')
+                errSwitch.property.should.equal('error')
+                errSwitch.propertyType.should.equal('msg')
+                errSwitch.outputs.should.equal(2)
+                errCatch.scope.should.equal('group')
 
-                // 2. wiring via setWires: remove inject->f1 / f1->dbg, add the 4 new wires
+                // 2. wiring via setWires: remove inject->f1 / f1->dbg, then route through
+                //    the link call, the error switch and the group catch
                 const wireCalls = expertAutomations.setWires.getCalls().map(c => c.args[0])
                 wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'inj' && w.target === 'f1')
                 wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'f1' && w.target === 'dbg')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'inj' && w.target === data.linkCallId)
-                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkCallId && w.target === 'dbg')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkCallId && w.target === data.switchId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.switchId && w.output === 1 && w.target === 'dbg')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkInId && w.target === 'f1')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'f1' && w.target === data.linkOutId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.catchId && w.target === data.linkOutId)
 
                 // 3. virtual link call -> link in via setLinks
                 expertAutomations.setLinks.calledWithMatch({ mode: 'add', source: data.linkCallId, target: data.linkInId }).should.be.true()
+
+                // 4. the body (link in, node, link out, catch) is wrapped in a named group
+                expertAutomations.createGroup.calledOnce.should.be.true()
+                const [groupIds, groupName] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
+                groupName.should.equal('My Sub')
+            })
+
+            it('uses the supplied timeout for the link call', () => {
+                setupSingleNode()
+                expertAutomations.createSubroutine({ ids: ['f1'], timeout: 30 })
+                const linkCall = expertAutomations.addNodes.firstCall.args[0].find(n => n.type === 'link call')
+                linkCall.timeout.should.equal('30')
             })
 
             it('rejects a config node in the selection (config nodes are global, with no x/y)', () => {
@@ -942,13 +966,16 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.moveNodeToTab = sinon.stub()
                 const linkIn = { id: 'gen-1', type: 'link in', z: 'tab1' }
                 const linkOut = { id: 'gen-2', type: 'link out', z: 'tab1' }
+                const errCatch = { id: 'gen-5', type: 'catch', z: 'tab1' }
                 mockRED.nodes.node.withArgs('gen-1').returns(linkIn)
                 mockRED.nodes.node.withArgs('gen-2').returns(linkOut)
+                mockRED.nodes.node.withArgs('gen-5').returns(errCatch)
                 expertAutomations.createSubroutine({ ids: ['f1'], targetTabId: 'tab2' })
-                // link in, the function node and link out move; the link call (gen-3) does not
-                mockRED.nodes.moveNodeToTab.callCount.should.equal(3)
+                // link in, the function node, link out and the catch move; the link call (gen-3) and switch (gen-4) do not
+                mockRED.nodes.moveNodeToTab.callCount.should.equal(4)
                 mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === fn && c.args[1] === 'tab2').should.be.true()
                 mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === linkIn).should.be.true()
+                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === errCatch).should.be.true()
             })
 
             it('rejects a selection with multiple exit points', () => {
@@ -969,6 +996,30 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ source: n3, sourcePort: 0, target: ext }]);
 
                 (() => expertAutomations.createSubroutine({ ids: ['n1', 'n2', 'n3'] })).should.throw(/single exit node/)
+            })
+
+            it('rejects an external wire into a middle (non-entry) node', () => {
+                // up -> n1 -> n2 -> n3 -> down, wrapping {n1, n2, n3}, but an external
+                // node X also feeds the middle node n2. The body would then be reachable
+                // bypassing the entry, so it must be rejected.
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const x = { id: 'x', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100 }
+                const n3 = { id: 'n3', type: 'function', z: 'tab1', x: 600, y: 100 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }, { source: x, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([{ source: n2, sourcePort: 0, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ source: n3, sourcePort: 0, target: down }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['n1', 'n2', 'n3'] })).should.throw(/can only be entered through its single entry node/)
             })
 
             it('rejects a link node in the selection', () => {
