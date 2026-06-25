@@ -870,18 +870,21 @@ describeMain('expertAutomations', () => {
                 // 1. link nodes, the error switch and the group catch created via addNodes in one call
                 expertAutomations.addNodes.calledOnce.should.be.true()
                 const createdNodes = expertAutomations.addNodes.firstCall.args[0]
-                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call', 'switch', 'catch'])
+                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call', 'switch', 'debug', 'catch'])
                 const linkOut = createdNodes.find(n => n.type === 'link out')
                 const linkCall = createdNodes.find(n => n.type === 'link call')
                 const errSwitch = createdNodes.find(n => n.type === 'switch')
                 const errCatch = createdNodes.find(n => n.type === 'catch')
+                const errDebug = createdNodes.find(n => n.type === 'debug')
                 linkOut.mode.should.equal('return')
                 linkCall.linkType.should.equal('static')
                 linkCall.timeout.should.equal('5')
                 errSwitch.property.should.equal('error')
                 errSwitch.propertyType.should.equal('msg')
                 errSwitch.outputs.should.equal(2)
+                errSwitch.outputLabels.should.deepEqual(['Error', 'Success'])
                 errCatch.scope.should.equal('group')
+                errDebug.id.should.equal(data.debugId)
 
                 // 2. wiring via setWires: remove inject->f1 / f1->dbg, then route through
                 //    the link call, the error switch and the group catch
@@ -890,6 +893,7 @@ describeMain('expertAutomations', () => {
                 wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'f1' && w.target === 'dbg')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'inj' && w.target === data.linkCallId)
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkCallId && w.target === data.switchId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.switchId && w.output === 0 && w.target === data.debugId)
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.switchId && w.output === 1 && w.target === 'dbg')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkInId && w.target === 'f1')
                 wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'f1' && w.target === data.linkOutId)
@@ -961,21 +965,35 @@ describeMain('expertAutomations', () => {
                 removes.should.matchAny(w => w.source === 'n2' && w.target === 'down')
             })
 
-            it('moves the body to another tab when targetTabId is given (link call stays inline)', () => {
-                const { fn } = setupSingleNode()
-                mockRED.nodes.moveNodeToTab = sinon.stub()
-                const linkIn = { id: 'gen-1', type: 'link in', z: 'tab1' }
-                const linkOut = { id: 'gen-2', type: 'link out', z: 'tab1' }
-                const errCatch = { id: 'gen-5', type: 'catch', z: 'tab1' }
-                mockRED.nodes.node.withArgs('gen-1').returns(linkIn)
-                mockRED.nodes.node.withArgs('gen-2').returns(linkOut)
-                mockRED.nodes.node.withArgs('gen-5').returns(errCatch)
-                expertAutomations.createSubroutine({ ids: ['f1'], targetTabId: 'tab2' })
-                // link in, the function node, link out and the catch move; the link call (gen-3) and switch (gen-4) do not
-                mockRED.nodes.moveNodeToTab.callCount.should.equal(4)
-                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === fn && c.args[1] === 'tab2').should.be.true()
-                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === linkIn).should.be.true()
-                mockRED.nodes.moveNodeToTab.getCalls().some(c => c.args[0] === errCatch).should.be.true()
+            it('expands a selected group into its member nodes', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100, g: 'grp' }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp' }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['n1', 'n2'] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('grp').returns(grp)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['grp'] })
+                data.entryId.should.equal('n1')
+                data.exitId.should.equal('n2')
+                // the body group is built from the expanded members, not the original group id
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'n1', 'n2', data.linkOutId, data.catchId])
+            })
+
+            it('throws when the selection expands to no nodes (empty group)', () => {
+                const grp = { id: 'empty', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('empty').returns(grp);
+                (() => expertAutomations.createSubroutine({ ids: ['empty'] })).should.throw(/no nodes to wrap/)
             })
 
             it('rejects a selection with multiple exit points', () => {
