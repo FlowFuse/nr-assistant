@@ -1657,84 +1657,123 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const exitPort = exitPorts.length ? exitPorts[0] : 0
         const entryInbound = externalInboundByNode.get(entryNode.id) || []
 
-        // --- build the subroutine by orchestrating this module's own validated
-        // actions (addNodes / setWires / setLinks) rather than poking RED directly,
-        // so node-type, port, same-tab, link-type and duplicate validation all apply.
-        this.RED.workspaces.show(z)
-        const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
-        const label = (typeof name === 'string' && name.trim()) ? name.trim() : 'Subroutine'
-        // Link call timeout in seconds; defaults to 5. Stored as a string, as the core link call expects.
-        const callTimeout = (timeout === undefined || timeout === null || timeout === '') ? 5 : timeout
-
-        // The link call replaces the selection inline, where the nodes were; the body
-        // (link in, the selected nodes, link out, catch) is dropped below the caller row
-        // so the group does not sit on top of the call. Coordinates are defended against
-        // non-finite values (anchor off 50/50, and the exit off to the entry's right).
-        const finiteOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)) ? v : fallback
-        const callerX = finiteOr(entryNode.x, 50)
-        const callerY = finiteOr(entryNode.y, 50)
-        const bodyTopBefore = Math.min(...selection.map(n => finiteOr(n.y, callerY)))
-        const drop = (callerY + gridSize * 8) - bodyTopBefore
-        for (const n of selection) {
-            n.x = finiteOr(n.x, n === exitNode ? callerX + gridSize * 16 : callerX)
-            n.y = finiteOr(n.y, callerY) + drop
-            n.dirty = true
+        // Pre-flight the boundary nodes before mutating anything. The SESE check above
+        // only proves the topology (one source, one sink); it does not prove the entry
+        // can be wired into or the exit can be wired out of. setWires enforces both, but
+        // only in step 3 below — after the scaffolding and caller rewiring are already in
+        // place — so an inject entry (no inputs) or a debug exit (no output port) would
+        // otherwise fail mid-build. Reject them here, while the flow is still untouched.
+        const entryDef = this.RED.nodes.getType(entryNode.type)
+        if (entryDef && entryDef.inputs === 0) {
+            throw new Error(`The entry node ${entryNode.id} (${entryNode.type}) does not accept inputs, so a subroutine cannot be called into it. Pick an entry node that accepts an input.`)
+        }
+        if ((exitNode.outputs || 0) <= exitPort) {
+            throw new Error(`The exit node ${exitNode.id} (${exitNode.type}) has no output port ${exitPort}, so the subroutine has no way to return. Pick an exit node with an output.`)
         }
 
-        const linkInId = this.RED.nodes.id()
-        const linkOutId = this.RED.nodes.id()
-        const linkCallId = this.RED.nodes.id()
-        const switchId = this.RED.nodes.id()
-        const catchId = this.RED.nodes.id()
-        const debugId = this.RED.nodes.id()
+        // Snapshot for rollback. The build below performs many mutating sub-actions
+        // (the body move, addNodes, setWires, setLinks, createGroup), each of which records
+        // a Node-RED history event. If any step throws partway, rewind every recorded event
+        // (LIFO) so a failed createSubroutine leaves the flow exactly as it found it, rather
+        // than stranding half-built scaffolding on the canvas.
+        const historyDepth = this.RED.history.depth()
+        try {
+            // --- build the subroutine by orchestrating this module's own validated
+            // actions (addNodes / setWires / setLinks) rather than poking RED directly,
+            // so node-type, port, same-tab, link-type and duplicate validation all apply.
+            this.RED.workspaces.show(z)
+            const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
+            const label = (typeof name === 'string' && name.trim()) ? name.trim() : 'Subroutine'
+            // Link call timeout in seconds; defaults to 5. Stored as a string, as the core link call expects.
+            const callTimeout = (timeout === undefined || timeout === null || timeout === '') ? 5 : timeout
 
-        // 1. Create the link nodes, the caller-side error switch, an error debug and the
-        //    group catch (addNodes applies node defaults + history). The link call's target
-        //    is set afterwards via setLinks; the catch's group scope is bound by createGroup.
-        //    The caller (link call, switch, debug) stays on the original row; the body sits below.
-        this.addNodes([
-            { id: linkInId, type: 'link in', z, x: entryNode.x - gridSize * 8, y: entryNode.y, name: label, links: [] },
-            { id: linkOutId, type: 'link out', z, x: exitNode.x + gridSize * 8, y: exitNode.y, name: `${label} return`, mode: 'return', links: [] },
-            { id: linkCallId, type: 'link call', z, x: callerX, y: callerY, name: `Call ${label}`, linkType: 'static', timeout: String(callTimeout), links: [] },
-            { id: switchId, type: 'switch', z, x: callerX + gridSize * 8, y: callerY, name: 'error?', property: 'error', propertyType: 'msg', rules: [{ t: 'nempty' }, { t: 'else' }], checkall: 'true', repair: false, outputs: 2, outputLabels: ['Error', 'Success'] },
-            { id: debugId, type: 'debug', z, x: callerX + gridSize * 16, y: callerY - gridSize * 2, name: `${label} error`, active: true, tosidebar: true, console: false, tostatus: false, complete: 'true', statusType: 'auto' },
-            { id: catchId, type: 'catch', z, x: exitNode.x, y: exitNode.y + gridSize * 4, name: '', scope: 'group', uncaught: false }
-        ])
+            // The link call replaces the selection inline, where the nodes were; the body
+            // (link in, the selected nodes, link out, catch) is dropped below the caller row
+            // so the group does not sit on top of the call. Coordinates are defended against
+            // non-finite values (anchor off 50/50, and the exit off to the entry's right).
+            const finiteOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v)) ? v : fallback
+            const callerX = finiteOr(entryNode.x, 50)
+            const callerY = finiteOr(entryNode.y, 50)
+            const bodyTopBefore = Math.min(...selection.map(n => finiteOr(n.y, callerY)))
+            const drop = (callerY + gridSize * 8) - bodyTopBefore
+            const wasDirtyBeforeMove = this.RED.nodes.dirty()
+            const movedNodes = []
+            for (const n of selection) {
+                movedNodes.push({ n, ox: n.x, oy: n.y, moved: n.moved })
+                n.x = finiteOr(n.x, n === exitNode ? callerX + gridSize * 16 : callerX)
+                n.y = finiteOr(n.y, callerY) + drop
+                n.dirty = true
+                n.moved = true
+            }
+            // Record the repositioning as a native 'move' history event (rather than a bare
+            // x/y write) so it is undoable along with the rest of the subroutine, and so the
+            // transactional rollback below reverts it via history.pop like every other step.
+            this.RED.history.push({ t: 'move', nodes: movedNodes, dirty: wasDirtyBeforeMove })
 
-        // 2. Redirect the caller: upstream now feeds the link call; the link call's
-        //    return feeds a switch on msg.error. The "Success" branch continues to
-        //    whatever was downstream of the exit; the "Error" branch goes to a debug node
-        //    so failures are visible by default (the caller can rewire it to a notification,
-        //    a log, or further handling).
-        for (const w of entryInbound) {
-            this.setWires({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
-            this.setWires({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
+            const linkInId = this.RED.nodes.id()
+            const linkOutId = this.RED.nodes.id()
+            const linkCallId = this.RED.nodes.id()
+            const switchId = this.RED.nodes.id()
+            const catchId = this.RED.nodes.id()
+            const debugId = this.RED.nodes.id()
+
+            // 1. Create the link nodes, the caller-side error switch, an error debug and the
+            //    group catch (addNodes applies node defaults + history). The link call's target
+            //    is set afterwards via setLinks; the catch's group scope is bound by createGroup.
+            //    The caller (link call, switch, debug) stays on the original row; the body sits below.
+            this.addNodes([
+                { id: linkInId, type: 'link in', z, x: entryNode.x - gridSize * 8, y: entryNode.y, name: label, links: [] },
+                { id: linkOutId, type: 'link out', z, x: exitNode.x + gridSize * 8, y: exitNode.y, name: `${label} return`, mode: 'return', links: [] },
+                { id: linkCallId, type: 'link call', z, x: callerX, y: callerY, name: `Call ${label}`, linkType: 'static', timeout: String(callTimeout), links: [] },
+                { id: switchId, type: 'switch', z, x: callerX + gridSize * 8, y: callerY, name: 'error?', property: 'error', propertyType: 'msg', rules: [{ t: 'nempty' }, { t: 'else' }], checkall: 'true', repair: false, outputs: 2, outputLabels: ['Error', 'Success'] },
+                { id: debugId, type: 'debug', z, x: callerX + gridSize * 16, y: callerY - gridSize * 2, name: `${label} error`, active: true, tosidebar: true, console: false, tostatus: false, complete: 'true', statusType: 'auto' },
+                { id: catchId, type: 'catch', z, x: exitNode.x, y: exitNode.y + gridSize * 4, name: '', scope: 'group', uncaught: false }
+            ])
+
+            // 2. Redirect the caller: upstream now feeds the link call; the link call's
+            //    return feeds a switch on msg.error. The "Success" branch continues to
+            //    whatever was downstream of the exit; the "Error" branch goes to a debug node
+            //    so failures are visible by default (the caller can rewire it to a notification,
+            //    a log, or further handling).
+            for (const w of entryInbound) {
+                this.setWires({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
+                this.setWires({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
+            }
+            this.setWires({ mode: 'add', source: linkCallId, output: 0, target: switchId })
+            this.setWires({ mode: 'add', source: switchId, output: 0, target: debugId })
+            for (const w of exitOutbound) {
+                this.setWires({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
+                this.setWires({ mode: 'add', source: switchId, output: 1, target: w.target.id })
+            }
+
+            // 3. Wire the body (link in -> entry, exit -> link out), route caught body
+            //    errors back through the link out, and point the link call at the link in.
+            this.setWires({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
+            this.setWires({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
+            this.setWires({ mode: 'add', source: catchId, output: 0, target: linkOutId })
+            this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
+
+            // 4. Wrap the body (link in, the selected nodes, link out and the catch) in a
+            //    named group so the subroutine reads as one unit; the catch's group scope
+            //    binds to this group. This action only creates the subroutine on its tab;
+            //    relocating, renaming or deleting it afterwards is done with the group/node tools.
+            const bodyIds = [linkInId, ...bodyNodeIds, linkOutId, catchId]
+            this.createGroup(bodyIds, label)
+
+            this.RED.nodes.dirty(true)
+            this.RED.view.redraw(true)
+
+            return { linkInId, linkOutId, linkCallId, switchId, catchId, debugId, entryId: entryNode.id, exitId: exitNode.id }
+        } catch (err) {
+            // Roll the flow back to its pre-build state by undoing every history event
+            // recorded above (newest first): the body group, the wiring, the scaffolding
+            // nodes, and the body move all revert through history.pop.
+            while (this.RED.history.depth() > historyDepth) {
+                this.RED.history.pop()
+            }
+            this.RED.view.redraw(true)
+            throw err
         }
-        this.setWires({ mode: 'add', source: linkCallId, output: 0, target: switchId })
-        this.setWires({ mode: 'add', source: switchId, output: 0, target: debugId })
-        for (const w of exitOutbound) {
-            this.setWires({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
-            this.setWires({ mode: 'add', source: switchId, output: 1, target: w.target.id })
-        }
-
-        // 3. Wire the body (link in -> entry, exit -> link out), route caught body
-        //    errors back through the link out, and point the link call at the link in.
-        this.setWires({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
-        this.setWires({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
-        this.setWires({ mode: 'add', source: catchId, output: 0, target: linkOutId })
-        this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
-
-        // 4. Wrap the body (link in, the selected nodes, link out and the catch) in a
-        //    named group so the subroutine reads as one unit; the catch's group scope
-        //    binds to this group. This action only creates the subroutine on its tab;
-        //    relocating, renaming or deleting it afterwards is done with the group/node tools.
-        const bodyIds = [linkInId, ...bodyNodeIds, linkOutId, catchId]
-        this.createGroup(bodyIds, label)
-
-        this.RED.nodes.dirty(true)
-        this.RED.view.redraw(true)
-
-        return { linkInId, linkOutId, linkCallId, switchId, catchId, debugId, entryId: entryNode.id, exitId: exitNode.id }
     }
 
     get supportedActions () {

@@ -839,6 +839,10 @@ describeMain('expertAutomations', () => {
                 // isConfigNode falls back to getType when a node has no _def; plain test
                 // nodes resolve to no def (treated as regular, non-config).
                 mockRED.nodes.getType = sinon.stub().returns(undefined)
+                // The build phase is transactional: it snapshots history.depth() up front,
+                // pushes a 'move' event for the body, and pops back to the snapshot on
+                // failure. Stub all three so the orchestration tests run.
+                mockRED.history = { depth: sinon.stub().returns(0), pop: sinon.stub(), push: sinon.stub() }
                 // Orchestration is tested here; addNodes/setWires/setLinks have their own tests.
                 sinon.stub(expertAutomations, 'addNodes')
                 sinon.stub(expertAutomations, 'setWires')
@@ -850,7 +854,7 @@ describeMain('expertAutomations', () => {
             // inject -> function 1 -> debug, wrapping function 1 only
             function setupSingleNode () {
                 const inject = { id: 'inj', type: 'inject', z: 'tab1' }
-                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100 }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100, outputs: 1 }
                 const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
                 mockRED.nodes.node.withArgs('f1').returns(fn)
                 mockRED.nodes.getNodeLinks = sinon.stub()
@@ -941,7 +945,7 @@ describeMain('expertAutomations', () => {
 
             it('anchors the link nodes off 50/50 if the entry node has non-finite coords', () => {
                 const inject = { id: 'inj', type: 'inject', z: 'tab1' }
-                const fn = { id: 'f1', type: 'function', z: 'tab1', x: null, y: null }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: null, y: null, outputs: 1 }
                 const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
                 mockRED.nodes.node.withArgs('f1').returns(fn)
                 mockRED.nodes.getNodeLinks = sinon.stub()
@@ -960,7 +964,7 @@ describeMain('expertAutomations', () => {
             it('wraps a linear chain, leaving the internal wire intact', () => {
                 const up = { id: 'up', type: 'inject', z: 'tab1' }
                 const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
-                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100 }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, outputs: 1 }
                 const down = { id: 'down', type: 'debug', z: 'tab1' }
                 mockRED.nodes.node.withArgs('n1').returns(n1)
                 mockRED.nodes.node.withArgs('n2').returns(n2)
@@ -983,7 +987,7 @@ describeMain('expertAutomations', () => {
             it('expands a selected group into its member nodes', () => {
                 const up = { id: 'up', type: 'inject', z: 'tab1' }
                 const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100, g: 'grp' }
-                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp' }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp', outputs: 1 }
                 const down = { id: 'down', type: 'debug', z: 'tab1' }
                 const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['n1', 'n2'] }
                 mockRED.nodes.group = sinon.stub()
@@ -1062,6 +1066,62 @@ describeMain('expertAutomations', () => {
 
             it('throws when ids is empty', () => {
                 (() => expertAutomations.createSubroutine({ ids: [] })).should.throw(/non-empty/)
+            })
+
+            it('rejects an exit node with no output port before mutating anything', () => {
+                // f1 -> dbg, wrapping both: the exit (debug) has no output to return through,
+                // so it must be rejected up front, leaving the flow untouched.
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const f1 = { id: 'f1', type: 'function', z: 'tab1', x: 200, y: 100, outputs: 1 }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1', x: 400, y: 100, outputs: 0 }
+                mockRED.nodes.node.withArgs('f1').returns(f1)
+                mockRED.nodes.node.withArgs('dbg').returns(dbg)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: f1, sourcePort: 0, target: dbg }])
+                mockRED.nodes.getNodeLinks.withArgs('dbg', 1).returns([{ source: f1, sourcePort: 0, target: dbg }])
+                mockRED.nodes.getNodeLinks.withArgs('dbg', 0).returns([]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['f1', 'dbg'] })).should.throw(/no output port/)
+                expertAutomations.addNodes.called.should.be.false()
+                mockRED.history.push.called.should.be.false()
+            })
+
+            it('rejects an entry node that does not accept inputs before mutating anything', () => {
+                // inj -> f1, wrapping both: the entry (inject) cannot be called into, so the
+                // subroutine cannot be built. getType reports inject as inputs: 0.
+                const inj = { id: 'inj', type: 'inject', z: 'tab1', x: 200, y: 100 }
+                const f1 = { id: 'f1', type: 'function', z: 'tab1', x: 400, y: 100, outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('inj').returns(inj)
+                mockRED.nodes.node.withArgs('f1').returns(f1)
+                mockRED.nodes.getType.withArgs('inject').returns({ inputs: 0 })
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('inj', 1).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('inj', 0).returns([{ source: inj, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inj, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: f1, sourcePort: 0, target: down }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['inj', 'f1'] })).should.throw(/does not accept inputs/)
+                expertAutomations.addNodes.called.should.be.false()
+            })
+
+            it('rolls back every recorded history event when a build step throws', () => {
+                setupSingleNode()
+                // Simulate a failure partway through the build, after some history events
+                // have been recorded. depth() reports the snapshot (0), then a stack that
+                // unwinds back down to it as pop() is called.
+                const depth = sinon.stub()
+                depth.onCall(0).returns(0) // snapshot taken before the build
+                depth.onCall(1).returns(2)
+                depth.onCall(2).returns(1)
+                depth.onCall(3).returns(0)
+                mockRED.history = { depth, pop: sinon.stub(), push: sinon.stub() }
+                expertAutomations.setLinks.throws(new Error('boom'));
+
+                (() => expertAutomations.createSubroutine({ ids: ['f1'] })).should.throw(/boom/)
+                // rewound back to the snapshot depth, and the partial group was never left behind
+                mockRED.history.pop.calledTwice.should.be.true()
             })
         })
         describe('addNodes action', () => {
