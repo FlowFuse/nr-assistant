@@ -1567,11 +1567,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (uniqueIds.length === 0) {
             throw new Error('createSubroutine found no nodes to wrap; the selected group(s) are empty')
         }
-        const selection = uniqueIds.map(id => {
+        const resolved = uniqueIds.map(id => {
             const n = this.RED.nodes.node(id)
             if (!n) throw new Error(`Node ${id} not found`)
             return n
         })
+
+        // Config nodes in the selection are ignored, not wrapped. A config node is
+        // global (it has no x/y and no tab) and belongs to whichever node references
+        // it: the owner node is what moves into the body, while the config node stays
+        // put. Drop them so they don't break the same-tab check or land in the body
+        // group. (Group containers never reach here — they are expanded above.)
+        const selection = resolved.filter(n => !this.isConfigNode(n.id))
+        if (selection.length === 0) {
+            throw new Error('createSubroutine found no nodes to wrap; the selection contains only config nodes')
+        }
 
         // All body nodes must be regular nodes on the same tab
         const tabIds = [...new Set(selection.map(n => n.z))]
@@ -1581,19 +1591,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const z = tabIds[0]
         this._assertWorkspaceIsEditable(z)
 
-        // Config and link nodes cannot be wrapped. Config nodes are global (no x/y) so
-        // they have no place in a flow-anchored body; link nodes are the subroutine's own
-        // plumbing. (Group containers never reach here — they are expanded above.)
+        // Link nodes cannot be wrapped: they are the subroutine's own plumbing.
         for (const n of selection) {
-            if (this.isConfigNode(n.id)) {
-                throw new Error(`Node ${n.id} is a "${n.type}" config node and cannot be placed inside a subroutine`)
-            }
             if (LINK_NODE_TYPES.includes(n.type)) {
                 throw new Error(`Node ${n.id} is a "${n.type}" node and cannot be placed inside a subroutine`)
             }
         }
 
-        const idSet = new Set(uniqueIds)
+        const bodyNodeIds = selection.map(n => n.id)
+        const idSet = new Set(bodyNodeIds)
 
         // Classify the wires at the boundary of the selection (PORT_TYPE_INPUT = 1, PORT_TYPE_OUTPUT = 0)
         const externalInboundByNode = new Map()
@@ -1722,7 +1728,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         //    named group so the subroutine reads as one unit; the catch's group scope
         //    binds to this group. This action only creates the subroutine on its tab;
         //    relocating, renaming or deleting it afterwards is done with the group/node tools.
-        const bodyIds = [linkInId, ...uniqueIds, linkOutId, catchId]
+        const bodyIds = [linkInId, ...bodyNodeIds, linkOutId, catchId]
         this.createGroup(bodyIds, label)
 
         this.RED.nodes.dirty(true)

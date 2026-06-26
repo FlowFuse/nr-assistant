@@ -916,12 +916,27 @@ describeMain('expertAutomations', () => {
                 linkCall.timeout.should.equal('30')
             })
 
-            it('rejects a config node in the selection (config nodes are global, with no x/y)', () => {
-                // A config node is scoped to a flow but has no canvas position, so it can't
-                // be wrapped into a flow-anchored subroutine body.
-                const cfg = { id: 'cfg', type: 'mqtt-broker', z: 'tab1', _def: { category: 'config' } }
+            it('ignores config nodes in the selection, wrapping only the regular nodes', () => {
+                // A config node has no canvas position and belongs to whichever node
+                // references it; the owner node moves into the body while the config node
+                // stays put, so it is dropped from the selection rather than rejected.
+                setupSingleNode()
+                const cfg = { id: 'cfg', type: 'mqtt-broker', _def: { category: 'config' } }
+                mockRED.nodes.node.withArgs('cfg').returns(cfg)
+
+                const data = expertAutomations.createSubroutine({ ids: ['f1', 'cfg'], name: 'My Sub' })
+
+                data.entryId.should.equal('f1')
+                data.exitId.should.equal('f1')
+                // the config node is not wrapped into the body group
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
+            })
+
+            it('rejects a selection of only config nodes', () => {
+                const cfg = { id: 'cfg', type: 'mqtt-broker', _def: { category: 'config' } }
                 mockRED.nodes.node.withArgs('cfg').returns(cfg);
-                (() => expertAutomations.createSubroutine({ ids: ['cfg'] })).should.throw(/config node and cannot be placed inside a subroutine/)
+                (() => expertAutomations.createSubroutine({ ids: ['cfg'] })).should.throw(/only config nodes/)
             })
 
             it('anchors the link nodes off 50/50 if the entry node has non-finite coords', () => {
