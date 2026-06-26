@@ -1717,6 +1717,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
             const catchId = this.RED.nodes.id()
             const debugId = this.RED.nodes.id()
 
+            // Space the caller row by the nodes' rendered widths rather than a fixed offset.
+            // Node-RED sizes a node from its label: w = max(100, 20*ceil((labelPx+57)/20)),
+            // and x is the node centre. The link call is labelled "Call <name>", so a long
+            // subroutine name widens it and a fixed gridSize*8 gap would let it overrun the
+            // switch. Estimate each width (~7px/char), then place each node centre-to-centre
+            // by half of both widths plus a one-grid margin, snapped to the grid.
+            const estWidth = (text) => Math.max(100, 20 * Math.ceil(((String(text).length * 7) + 57) / 20))
+            const gapTo = (fromX, fromW, toW) => fromX + Math.ceil((fromW / 2 + toW / 2 + gridSize) / gridSize) * gridSize
+            const linkCallW = estWidth(`Call ${label}`)
+            const switchW = estWidth('error?')
+            const debugW = estWidth(`${label} error`)
+            const switchX = gapTo(callerX, linkCallW, switchW)
+            const debugX = gapTo(switchX, switchW, debugW)
+
             // 1. Create the link nodes, the caller-side error switch, an error debug and the
             //    group catch (addNodes applies node defaults + history). The link call's target
             //    is set afterwards via setLinks; the catch's group scope is bound by createGroup.
@@ -1725,8 +1739,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 { id: linkInId, type: 'link in', z, x: entryNode.x - gridSize * 8, y: entryNode.y, name: label, links: [] },
                 { id: linkOutId, type: 'link out', z, x: exitNode.x + gridSize * 8, y: exitNode.y, name: `${label} return`, mode: 'return', links: [] },
                 { id: linkCallId, type: 'link call', z, x: callerX, y: callerY, name: `Call ${label}`, linkType: 'static', timeout: String(callTimeout), links: [] },
-                { id: switchId, type: 'switch', z, x: callerX + gridSize * 8, y: callerY, name: 'error?', property: 'error', propertyType: 'msg', rules: [{ t: 'nempty' }, { t: 'else' }], checkall: 'true', repair: false, outputs: 2, outputLabels: ['Error', 'Success'] },
-                { id: debugId, type: 'debug', z, x: callerX + gridSize * 16, y: callerY - gridSize * 2, name: `${label} error`, active: true, tosidebar: true, console: false, tostatus: false, complete: 'true', statusType: 'auto' },
+                { id: switchId, type: 'switch', z, x: switchX, y: callerY, name: 'error?', property: 'error', propertyType: 'msg', rules: [{ t: 'nempty' }, { t: 'else' }], checkall: 'true', repair: false, outputs: 2, outputLabels: ['Error', 'Success'] },
+                { id: debugId, type: 'debug', z, x: debugX, y: callerY - gridSize * 2, name: `${label} error`, active: true, tosidebar: true, console: false, tostatus: false, complete: 'true', statusType: 'auto' },
                 { id: catchId, type: 'catch', z, x: exitNode.x, y: exitNode.y + gridSize * 4, name: '', scope: 'group', uncaught: false }
             ])
 
