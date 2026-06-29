@@ -848,6 +848,25 @@ describeMain('expertAutomations', () => {
                 sinon.stub(expertAutomations, 'setWires')
                 sinon.stub(expertAutomations, 'setLinks')
                 sinon.stub(expertAutomations, 'createGroup')
+                // Detaching a body node from its original group is exercised through updateGroup(remove);
+                // the real path invokes a core action, so the stub simulates the detach by clearing
+                // each node's `g` and splicing it out of the group's nodes array (as removeFromGroup
+                // does). Clearing `g` lets createSubroutine's detach loop converge; emptying the group
+                // lets the husk-cleanup step see it as empty.
+                sinon.stub(expertAutomations, 'updateGroup').callsFake((groupId, { nodeIds, remove } = {}) => {
+                    if (remove) {
+                        const g = mockRED.nodes.group(groupId)
+                        for (const nid of nodeIds || []) {
+                            const n = mockRED.nodes.node(nid)
+                            if (n) delete n.g
+                            if (g && Array.isArray(g.nodes)) {
+                                const i = g.nodes.indexOf(nid)
+                                if (i !== -1) g.nodes.splice(i, 1)
+                            }
+                        }
+                    }
+                })
+                sinon.stub(expertAutomations, 'deleteGroup')
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false), show: sinon.stub() }
             })
 
@@ -1006,6 +1025,56 @@ describeMain('expertAutomations', () => {
                 // the body group is built from the expanded members, not the original group id
                 const [groupIds] = expertAutomations.createGroup.firstCall.args
                 groupIds.should.deepEqual([data.linkInId, 'n1', 'n2', data.linkOutId, data.catchId])
+                // wrapping the whole group empties the original, so it is removed (no husk left)
+                expertAutomations.deleteGroup.calledWith('grp').should.be.true()
+            })
+
+            it('leaves the original group in place when it still has other members', () => {
+                // Only n1/n2 are wrapped; sibling 's1' stays in 'grp', so the group is not emptied
+                // and must not be deleted.
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100, g: 'grp' }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp', outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['n1', 'n2', 's1'] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('grp').returns(grp)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                expertAutomations.createSubroutine({ ids: ['n1', 'n2'] })
+
+                expertAutomations.updateGroup.calledWithMatch('grp', { nodeIds: ['n1', 'n2'], remove: true }).should.be.true()
+                grp.nodes.should.deepEqual(['s1'])
+                expertAutomations.deleteGroup.called.should.be.false()
+            })
+
+            it('detaches body nodes from their existing group before re-grouping them', () => {
+                // A node that is already a group member still carries its `g`. Node-RED's
+                // group-selection refuses to group a mixed set (the freshly-created link
+                // nodes are ungrouped), so the body must be detached from its original group
+                // first or the build would fail and roll back. Here f1 lives in 'oldgrp'.
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100, outputs: 1, g: 'oldgrp' }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['f1'], name: 'My Sub' })
+
+                // f1 is removed from 'oldgrp' before the body group is created...
+                expertAutomations.updateGroup.calledWithMatch('oldgrp', { nodeIds: ['f1'], remove: true }).should.be.true()
+                expertAutomations.updateGroup.calledBefore(expertAutomations.createGroup).should.be.true()
+                // ...so the body group is created cleanly from the now-ungrouped node.
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
             })
 
             it('throws when the selection expands to no nodes (empty group)', () => {

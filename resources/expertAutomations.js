@@ -345,9 +345,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         type: 'array',
                         items: { type: 'string' },
                         minItems: 1,
-                        description: 'IDs of the existing node(s) to move into the subroutine body. A group ID is accepted and expanded to its member nodes (nested groups recurse). The resulting nodes must form a single-entry, single-exit subgraph: a single node, or connected nodes with one way in and one way out (a branch that reconverges is fine, not only a straight chain).'
+                        description: 'Create a link-call subroutine from existing nodes. IDs of the existing node(s) to move into the subroutine body. A group ID is accepted and expanded to its member nodes (nested groups recurse). The resulting nodes must form a single-entry, single-exit subgraph: a single node, or connected nodes with one way in and one way out (a branch that reconverges is fine, not only a straight chain).'
                     },
-                    name: { type: 'string', description: 'Name for the subroutine, used to label the created link nodes and the group. Defaults to "Subroutine".' },
+                    name: { type: 'string', description: 'Name for the subroutine. Used to label the generated nodes — the "link in" (named after it), the "link out" ("<name> return"), the "link call" ("Call <name>") and the error debug ("<name> error") — and to name the group that wraps the body. Defaults to "Subroutine".' },
                     timeout: { type: 'number', description: 'Link call timeout in seconds. Defaults to 5.', default: 5 }
                 },
                 required: ['ids']
@@ -1767,7 +1767,41 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.setWires({ mode: 'add', source: catchId, output: 0, target: linkOutId })
             this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
 
-            // 4. Wrap the body (link in, the selected nodes, link out and the catch) in a
+            // 4. Free the body nodes from any group they already belong to before re-grouping.
+            //    Node-RED's group-selection refuses to group a set of nodes unless they all
+            //    share the same parent group; our freshly-created scaffolding (link in/out,
+            //    catch) is ungrouped, so any selected node still carrying its original group
+            //    (e.g. when a whole group was expanded into the selection) would make the group
+            //    call bail and the whole build roll back. Detach the body nodes from their
+            //    group(s), walking out of nested groups too, so they are free to join the
+            //    subroutine group. This goes through the validated updateGroup(remove) path, so
+            //    it is history-tracked and reverts with the rest of the build on failure.
+            const touchedGroupIds = new Set()
+            let stillGrouped = selection.filter(n => n.g)
+            while (stillGrouped.length) {
+                const idsByGroup = new Map()
+                for (const n of stillGrouped) {
+                    if (!idsByGroup.has(n.g)) idsByGroup.set(n.g, [])
+                    idsByGroup.get(n.g).push(n.id)
+                }
+                for (const [groupId, nodeIds] of idsByGroup) {
+                    touchedGroupIds.add(groupId)
+                    this.updateGroup(groupId, { nodeIds, remove: true })
+                }
+                stillGrouped = selection.filter(n => n.g)
+            }
+
+            // Drop any original group the detach emptied (the common case: a whole group was
+            // wrapped, so its members all moved into the subroutine) so no empty husk is left
+            // on the canvas. A group that still holds other, unselected members is left intact.
+            for (const groupId of touchedGroupIds) {
+                const g = this.RED.nodes.group(groupId)
+                if (g && (!g.nodes || g.nodes.length === 0)) {
+                    this.deleteGroup(groupId)
+                }
+            }
+
+            // 5. Wrap the body (link in, the selected nodes, link out and the catch) in a
             //    named group so the subroutine reads as one unit; the catch's group scope
             //    binds to this group. This action only creates the subroutine on its tab;
             //    relocating, renaming or deleting it afterwards is done with the group/node tools.
