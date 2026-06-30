@@ -100,6 +100,7 @@ describeMain('expertAutomations', () => {
                 'automation/remove-nodes',
                 'automation/set-wires',
                 'automation/set-links',
+                'automation/create-subroutine',
                 'automation/import-flow',
                 'automation/close-editor-tray',
                 'automation/get-node-types',
@@ -826,6 +827,370 @@ describeMain('expertAutomations', () => {
                 const historyArg = mockRED.history.push.firstCall.args[0]
                 historyArg.events[0].changes.links.should.deepEqual(['existing1'])
                 historyArg.events[1].changes.links.should.deepEqual(['existing2'])
+            })
+        })
+        describe('createSubroutine action', () => {
+            let idc
+            beforeEach(() => {
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.view.redraw = sinon.stub()
+                idc = 0
+                mockRED.nodes.id = sinon.stub().callsFake(() => `gen-${++idc}`)
+                // isConfigNode falls back to getType when a node has no _def; plain test
+                // nodes resolve to no def (treated as regular, non-config).
+                mockRED.nodes.getType = sinon.stub().returns(undefined)
+                // The build phase is transactional: it snapshots history.depth() up front,
+                // pushes a 'move' event for the body, and pops back to the snapshot on
+                // failure. Stub all three so the orchestration tests run.
+                mockRED.history = { depth: sinon.stub().returns(0), pop: sinon.stub(), push: sinon.stub() }
+                // Orchestration is tested here; addNodes/setWires/setLinks have their own tests.
+                sinon.stub(expertAutomations, 'addNodes')
+                sinon.stub(expertAutomations, 'setWires')
+                sinon.stub(expertAutomations, 'setLinks')
+                sinon.stub(expertAutomations, 'createGroup')
+                // Detaching a body node from its original group is exercised through updateGroup(remove);
+                // the real path invokes a core action, so the stub simulates the detach by clearing
+                // each node's `g` and splicing it out of the group's nodes array (as removeFromGroup
+                // does). Clearing `g` lets createSubroutine's detach loop converge; emptying the group
+                // lets the husk-cleanup step see it as empty.
+                sinon.stub(expertAutomations, 'updateGroup').callsFake((groupId, { nodeIds, remove } = {}) => {
+                    if (remove) {
+                        const g = mockRED.nodes.group(groupId)
+                        for (const nid of nodeIds || []) {
+                            const n = mockRED.nodes.node(nid)
+                            if (n) delete n.g
+                            if (g && Array.isArray(g.nodes)) {
+                                const i = g.nodes.indexOf(nid)
+                                if (i !== -1) g.nodes.splice(i, 1)
+                            }
+                        }
+                    }
+                })
+                sinon.stub(expertAutomations, 'deleteGroup')
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false), show: sinon.stub() }
+            })
+
+            // inject -> function 1 -> debug, wrapping function 1 only
+            function setupSingleNode () {
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100, outputs: 1 }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+                return { inject, fn, dbg }
+            }
+
+            it('wraps a single node, reusing addNodes/setWires/setLinks/createGroup', () => {
+                setupSingleNode()
+                const data = expertAutomations.createSubroutine({ ids: ['f1'], name: 'My Sub' })
+
+                data.entryId.should.equal('f1')
+                data.exitId.should.equal('f1')
+                data.should.have.properties(['linkInId', 'linkOutId', 'linkCallId', 'switchId', 'catchId'])
+
+                // 1. link nodes, the error switch and the group catch created via addNodes in one call
+                expertAutomations.addNodes.calledOnce.should.be.true()
+                const createdNodes = expertAutomations.addNodes.firstCall.args[0]
+                createdNodes.map(n => n.type).should.deepEqual(['link in', 'link out', 'link call', 'switch', 'debug', 'catch'])
+                const linkOut = createdNodes.find(n => n.type === 'link out')
+                const linkCall = createdNodes.find(n => n.type === 'link call')
+                const errSwitch = createdNodes.find(n => n.type === 'switch')
+                const errCatch = createdNodes.find(n => n.type === 'catch')
+                const errDebug = createdNodes.find(n => n.type === 'debug')
+                linkOut.mode.should.equal('return')
+                linkCall.linkType.should.equal('static')
+                linkCall.timeout.should.equal('5')
+                errSwitch.property.should.equal('error')
+                errSwitch.propertyType.should.equal('msg')
+                errSwitch.outputs.should.equal(2)
+                errSwitch.outputLabels.should.deepEqual(['Error', 'Success'])
+                errCatch.scope.should.equal('group')
+                errDebug.id.should.equal(data.debugId)
+
+                // 2. wiring via setWires: remove inject->f1 / f1->dbg, then route through
+                //    the link call, the error switch and the group catch
+                const wireCalls = expertAutomations.setWires.getCalls().map(c => c.args[0])
+                wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'inj' && w.target === 'f1')
+                wireCalls.should.matchAny(w => w.mode === 'remove' && w.source === 'f1' && w.target === 'dbg')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'inj' && w.target === data.linkCallId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkCallId && w.target === data.switchId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.switchId && w.output === 0 && w.target === data.debugId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.switchId && w.output === 1 && w.target === 'dbg')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.linkInId && w.target === 'f1')
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === 'f1' && w.target === data.linkOutId)
+                wireCalls.should.matchAny(w => w.mode === 'add' && w.source === data.catchId && w.target === data.linkOutId)
+
+                // 3. virtual link call -> link in via setLinks
+                expertAutomations.setLinks.calledWithMatch({ mode: 'add', source: data.linkCallId, target: data.linkInId }).should.be.true()
+
+                // 4. the body (link in, node, link out, catch) is wrapped in a named group
+                expertAutomations.createGroup.calledOnce.should.be.true()
+                const [groupIds, groupName] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
+                groupName.should.equal('My Sub')
+            })
+
+            it('uses the supplied timeout for the link call', () => {
+                setupSingleNode()
+                expertAutomations.createSubroutine({ ids: ['f1'], timeout: 30 })
+                const linkCall = expertAutomations.addNodes.firstCall.args[0].find(n => n.type === 'link call')
+                linkCall.timeout.should.equal('30')
+            })
+
+            it('ignores config nodes in the selection, wrapping only the regular nodes', () => {
+                // A config node has no canvas position and belongs to whichever node
+                // references it; the owner node moves into the body while the config node
+                // stays put, so it is dropped from the selection rather than rejected.
+                setupSingleNode()
+                const cfg = { id: 'cfg', type: 'mqtt-broker', _def: { category: 'config' } }
+                mockRED.nodes.node.withArgs('cfg').returns(cfg)
+
+                const data = expertAutomations.createSubroutine({ ids: ['f1', 'cfg'], name: 'My Sub' })
+
+                data.entryId.should.equal('f1')
+                data.exitId.should.equal('f1')
+                // the config node is not wrapped into the body group
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
+            })
+
+            it('rejects a selection of only config nodes', () => {
+                const cfg = { id: 'cfg', type: 'mqtt-broker', _def: { category: 'config' } }
+                mockRED.nodes.node.withArgs('cfg').returns(cfg);
+                (() => expertAutomations.createSubroutine({ ids: ['cfg'] })).should.throw(/only config nodes/)
+            })
+
+            it('anchors the link nodes off 50/50 if the entry node has non-finite coords', () => {
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: null, y: null, outputs: 1 }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+
+                expertAutomations.createSubroutine({ ids: ['f1'] })
+
+                const createdNodes = expertAutomations.addNodes.firstCall.args[0]
+                createdNodes.forEach((n) => {
+                    Number.isFinite(n.x).should.be.true(`${n.type}.x should be finite, got ${n.x}`)
+                    Number.isFinite(n.y).should.be.true(`${n.type}.y should be finite, got ${n.y}`)
+                })
+            })
+
+            it('wraps a linear chain, leaving the internal wire intact', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['n1', 'n2'] })
+                data.entryId.should.equal('n1')
+                data.exitId.should.equal('n2')
+                // only the two external wires are removed; the internal n1 -> n2 is untouched
+                const removes = expertAutomations.setWires.getCalls().map(c => c.args[0]).filter(w => w.mode === 'remove')
+                removes.should.have.lengthOf(2)
+                removes.should.matchAny(w => w.source === 'up' && w.target === 'n1')
+                removes.should.matchAny(w => w.source === 'n2' && w.target === 'down')
+            })
+
+            it('expands a selected group into its member nodes', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100, g: 'grp' }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp', outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['n1', 'n2'] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('grp').returns(grp)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['grp'] })
+                data.entryId.should.equal('n1')
+                data.exitId.should.equal('n2')
+                // the body group is built from the expanded members, not the original group id
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'n1', 'n2', data.linkOutId, data.catchId])
+                // wrapping the whole group empties the original, so it is removed (no husk left)
+                expertAutomations.deleteGroup.calledWith('grp').should.be.true()
+            })
+
+            it('leaves the original group in place when it still has other members', () => {
+                // Only n1/n2 are wrapped; sibling 's1' stays in 'grp', so the group is not emptied
+                // and must not be deleted.
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100, g: 'grp' }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100, g: 'grp', outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                const grp = { id: 'grp', type: 'group', z: 'tab1', nodes: ['n1', 'n2', 's1'] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('grp').returns(grp)
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: down }])
+
+                expertAutomations.createSubroutine({ ids: ['n1', 'n2'] })
+
+                expertAutomations.updateGroup.calledWithMatch('grp', { nodeIds: ['n1', 'n2'], remove: true }).should.be.true()
+                grp.nodes.should.deepEqual(['s1'])
+                expertAutomations.deleteGroup.called.should.be.false()
+            })
+
+            it('detaches body nodes from their existing group before re-grouping them', () => {
+                // A node that is already a group member still carries its `g`. Node-RED's
+                // group-selection refuses to group a mixed set (the freshly-created link
+                // nodes are ungrouped), so the body must be detached from its original group
+                // first or the build would fail and roll back. Here f1 lives in 'oldgrp'.
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const fn = { id: 'f1', type: 'function', z: 'tab1', x: 300, y: 100, outputs: 1, g: 'oldgrp' }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('f1').returns(fn)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: fn }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: fn, sourcePort: 0, target: dbg }])
+
+                const data = expertAutomations.createSubroutine({ ids: ['f1'], name: 'My Sub' })
+
+                // f1 is removed from 'oldgrp' before the body group is created...
+                expertAutomations.updateGroup.calledWithMatch('oldgrp', { nodeIds: ['f1'], remove: true }).should.be.true()
+                expertAutomations.updateGroup.calledBefore(expertAutomations.createGroup).should.be.true()
+                // ...so the body group is created cleanly from the now-ungrouped node.
+                const [groupIds] = expertAutomations.createGroup.firstCall.args
+                groupIds.should.deepEqual([data.linkInId, 'f1', data.linkOutId, data.catchId])
+            })
+
+            it('throws when the selection expands to no nodes (empty group)', () => {
+                const grp = { id: 'empty', type: 'group', z: 'tab1', nodes: [] }
+                mockRED.nodes.group = sinon.stub()
+                mockRED.nodes.group.withArgs('empty').returns(grp);
+                (() => expertAutomations.createSubroutine({ ids: ['empty'] })).should.throw(/no nodes to wrap/)
+            })
+
+            it('rejects a selection with multiple exit points', () => {
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'debug', z: 'tab1' }
+                const n3 = { id: 'n3', type: 'debug', z: 'tab1' }
+                const ext = { id: 'ext', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }, { source: n1, sourcePort: 1, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: ext }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([{ source: n1, sourcePort: 1, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ source: n3, sourcePort: 0, target: ext }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['n1', 'n2', 'n3'] })).should.throw(/single exit node/)
+            })
+
+            it('rejects an external wire into a middle (non-entry) node', () => {
+                // up -> n1 -> n2 -> n3 -> down, wrapping {n1, n2, n3}, but an external
+                // node X also feeds the middle node n2. The body would then be reachable
+                // bypassing the entry, so it must be rejected.
+                const up = { id: 'up', type: 'inject', z: 'tab1' }
+                const x = { id: 'x', type: 'inject', z: 'tab1' }
+                const n1 = { id: 'n1', type: 'function', z: 'tab1', x: 200, y: 100 }
+                const n2 = { id: 'n2', type: 'function', z: 'tab1', x: 400, y: 100 }
+                const n3 = { id: 'n3', type: 'function', z: 'tab1', x: 600, y: 100 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('n1').returns(n1)
+                mockRED.nodes.node.withArgs('n2').returns(n2)
+                mockRED.nodes.node.withArgs('n3').returns(n3)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('n1', 1).returns([{ source: up, sourcePort: 0, target: n1 }])
+                mockRED.nodes.getNodeLinks.withArgs('n1', 0).returns([{ source: n1, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 1).returns([{ source: n1, sourcePort: 0, target: n2 }, { source: x, sourcePort: 0, target: n2 }])
+                mockRED.nodes.getNodeLinks.withArgs('n2', 0).returns([{ source: n2, sourcePort: 0, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 1).returns([{ source: n2, sourcePort: 0, target: n3 }])
+                mockRED.nodes.getNodeLinks.withArgs('n3', 0).returns([{ source: n3, sourcePort: 0, target: down }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['n1', 'n2', 'n3'] })).should.throw(/can only be entered through its single entry node/)
+            })
+
+            it('rejects a link node in the selection', () => {
+                mockRED.nodes.node.withArgs('lc').returns({ id: 'lc', type: 'link call', z: 'tab1' });
+                (() => expertAutomations.createSubroutine({ ids: ['lc'] })).should.throw(/cannot be placed inside a subroutine/)
+            })
+
+            it('throws when ids is empty', () => {
+                (() => expertAutomations.createSubroutine({ ids: [] })).should.throw(/non-empty/)
+            })
+
+            it('rejects an exit node with no output port before mutating anything', () => {
+                // f1 -> dbg, wrapping both: the exit (debug) has no output to return through,
+                // so it must be rejected up front, leaving the flow untouched.
+                const inject = { id: 'inj', type: 'inject', z: 'tab1' }
+                const f1 = { id: 'f1', type: 'function', z: 'tab1', x: 200, y: 100, outputs: 1 }
+                const dbg = { id: 'dbg', type: 'debug', z: 'tab1', x: 400, y: 100, outputs: 0 }
+                mockRED.nodes.node.withArgs('f1').returns(f1)
+                mockRED.nodes.node.withArgs('dbg').returns(dbg)
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inject, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: f1, sourcePort: 0, target: dbg }])
+                mockRED.nodes.getNodeLinks.withArgs('dbg', 1).returns([{ source: f1, sourcePort: 0, target: dbg }])
+                mockRED.nodes.getNodeLinks.withArgs('dbg', 0).returns([]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['f1', 'dbg'] })).should.throw(/no output port/)
+                expertAutomations.addNodes.called.should.be.false()
+                mockRED.history.push.called.should.be.false()
+            })
+
+            it('rejects an entry node that does not accept inputs before mutating anything', () => {
+                // inj -> f1, wrapping both: the entry (inject) cannot be called into, so the
+                // subroutine cannot be built. getType reports inject as inputs: 0.
+                const inj = { id: 'inj', type: 'inject', z: 'tab1', x: 200, y: 100 }
+                const f1 = { id: 'f1', type: 'function', z: 'tab1', x: 400, y: 100, outputs: 1 }
+                const down = { id: 'down', type: 'debug', z: 'tab1' }
+                mockRED.nodes.node.withArgs('inj').returns(inj)
+                mockRED.nodes.node.withArgs('f1').returns(f1)
+                mockRED.nodes.getType.withArgs('inject').returns({ inputs: 0 })
+                mockRED.nodes.getNodeLinks = sinon.stub()
+                mockRED.nodes.getNodeLinks.withArgs('inj', 1).returns([])
+                mockRED.nodes.getNodeLinks.withArgs('inj', 0).returns([{ source: inj, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 1).returns([{ source: inj, sourcePort: 0, target: f1 }])
+                mockRED.nodes.getNodeLinks.withArgs('f1', 0).returns([{ source: f1, sourcePort: 0, target: down }]);
+
+                (() => expertAutomations.createSubroutine({ ids: ['inj', 'f1'] })).should.throw(/does not accept inputs/)
+                expertAutomations.addNodes.called.should.be.false()
+            })
+
+            it('rolls back every recorded history event when a build step throws', () => {
+                setupSingleNode()
+                // Simulate a failure partway through the build, after some history events
+                // have been recorded. depth() reports the snapshot (0), then a stack that
+                // unwinds back down to it as pop() is called.
+                const depth = sinon.stub()
+                depth.onCall(0).returns(0) // snapshot taken before the build
+                depth.onCall(1).returns(2)
+                depth.onCall(2).returns(1)
+                depth.onCall(3).returns(0)
+                mockRED.history = { depth, pop: sinon.stub(), push: sinon.stub() }
+                expertAutomations.setLinks.throws(new Error('boom'));
+
+                (() => expertAutomations.createSubroutine({ ids: ['f1'] })).should.throw(/boom/)
+                // rewound back to the snapshot depth, and the partial group was never left behind
+                mockRED.history.pop.calledTwice.should.be.true()
             })
         })
         describe('addNodes action', () => {
