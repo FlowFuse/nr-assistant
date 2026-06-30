@@ -39,20 +39,24 @@
         "node": ">=16.x"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.27.1",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "base64url": "^3.0.1",
         "got": "^11.8.6",
-        "onnxruntime-web": "^1.22.0",
-        "semver": "^7.7.2",
+        "onnxruntime-web": "^1.27.0",
+        "semver": "^7.8.5",
         "zod": "^3.25.76"
     },
     "devDependencies": {
         "eslint": "^8.48.0",
         "eslint-config-standard": "^17.1.0",
         "eslint-plugin-html": "7.1.0",
-        "eslint-plugin-no-only-tests": "^3.1.0",
-        "mocha": "^11.7.5",
+        "eslint-plugin-no-only-tests": "^3.4.0",
+        "mocha": "^11.7.6",
         "should": "^13.2.3",
         "sinon": "^21.0.1"
+    },
+    "overrides": {
+        "serialize-javascript@6": "7.0.7",
+        "serialize-javascript@7": "7.0.7"
     }
 }
