@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.17.0](https://github.com/FlowFuse/nr-assistant/compare/v0.16.0...v0.17.0) (2026-06-30)
+
+
+### Features
+
+* add create-subroutine automation action ([#371](https://github.com/FlowFuse/nr-assistant/issues/371)) ([6899050](https://github.com/FlowFuse/nr-assistant/commit/68990501f3b757fb90a34291ead9fda641c02be2))
+* add move-to-tab for groups via manage-groups ([#373](https://github.com/FlowFuse/nr-assistant/issues/373)) ([4db3964](https://github.com/FlowFuse/nr-assistant/commit/4db3964fd0f2584cfae3ccb3d7a9b8fb27e29c50))
+
 ## [0.16.0](https://github.com/FlowFuse/nr-assistant/compare/v0.15.0...v0.16.0) (2026-05-26)
 
 
