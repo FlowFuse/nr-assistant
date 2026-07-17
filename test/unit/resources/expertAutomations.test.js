@@ -98,6 +98,7 @@ describeMain('expertAutomations', () => {
                 'automation/remove-tab',
                 'automation/add-nodes',
                 'automation/remove-nodes',
+                'automation/remove-subflow',
                 'automation/set-wires',
                 'automation/set-links',
                 'automation/create-subroutine',
@@ -393,7 +394,7 @@ describeMain('expertAutomations', () => {
                 mockRED.actions.invoke.calledWith('core:delete-selection').should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('handled', true)
-                result.should.have.property('data').which.deepEqual({ removed: ['n1'] })
+                result.should.have.property('data').which.deepEqual({ removed: ['n1'], notFound: [] })
             })
             it('should use core:delete-selection-and-reconnect when reconnectWires is true', async () => {
                 const mockNode = { id: 'n1' }
@@ -405,22 +406,28 @@ describeMain('expertAutomations', () => {
                 mockRED.actions.invoke.calledWith('core:delete-selection-and-reconnect').should.be.true()
                 result.should.have.property('success', true)
             })
-            it('should throw if any node ID does not exist', async () => {
+            it('should report all IDs as notFound and remove nothing when none exist', async () => {
                 mockRED.nodes.node.returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                await expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['nonexistent'] }
-                }, result)).rejectedWith(/Node nonexistent not found/)
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.deepEqual({ removed: [], notFound: ['nonexistent'] })
                 mockRED.actions.invoke.called.should.be.false()
             })
-            it('should throw without removing anything if mix of valid and invalid IDs', async () => {
-                mockRED.nodes.node.withArgs('n1').returns({ id: 'n1' })
+            it('should remove existing IDs and report missing ones when given a mix', async () => {
+                const mockNode = { id: 'n1' }
+                mockRED.nodes.node.withArgs('n1').returns(mockNode)
                 mockRED.nodes.node.withArgs('bad').returns(null)
                 const result = {}
-                await should(expertAutomations.invokeAction('automation/remove-nodes', {
+                await expertAutomations.invokeAction('automation/remove-nodes', {
                     params: { ids: ['n1', 'bad'] }
-                }, result)).rejectedWith(/Node bad not found/)
-                mockRED.actions.invoke.called.should.be.false()
+                }, result)
+                mockRED.view.select.calledWith({ nodes: [mockNode] }).should.be.true()
+                mockRED.actions.invoke.calledWith('core:delete-selection').should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.deepEqual({ removed: ['n1'], notFound: ['bad'] })
             })
             it('should throw if node workspace is locked', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'locked-tab' })
@@ -453,6 +460,51 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('errorCode', 'FORBIDDEN_PROPERTY')
                 result.should.have.property('error').which.match(/member of a group/)
                 mockRED.actions.invoke.called.should.be.false()
+            })
+        })
+        describe('removeSubflow action', () => {
+            beforeEach(() => {
+                mockRED.nodes.dirty = sinon.stub().returns(false)
+                mockRED.nodes.subflow = sinon.stub()
+                mockRED.subflow = { removeSubflow: sinon.stub().returns({ subflows: [] }) }
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
+            })
+            it('should remove a subflow and push an undoable delete history event', async () => {
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [{ id: 'i1', z: 'tab1' }] })
+                const removalResult = { subflows: [{ id: 'sf1' }] }
+                mockRED.subflow.removeSubflow.withArgs('sf1').returns(removalResult)
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'sf1' }
+                }, result)
+                mockRED.subflow.removeSubflow.calledWith('sf1').should.be.true()
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'delete')
+                historyArg.should.have.property('dirty', false)
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+                result.should.have.property('data').which.deepEqual({ removed: 'sf1', instances: ['i1'] })
+            })
+            it('should throw if the subflow does not exist', async () => {
+                mockRED.nodes.subflow.returns(null)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'missing' }
+                }, result)).rejectedWith(/Subflow missing not found/)
+                mockRED.subflow.removeSubflow.called.should.be.false()
+                mockRED.history.push.called.should.be.false()
+            })
+            it('should throw if an instance sits on a locked workspace', async () => {
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [{ id: 'i1', z: 'locked-tab' }] })
+                mockRED.workspaces.isLocked = sinon.stub().withArgs('locked-tab').returns(true)
+                const result = {}
+                await should(expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'sf1' }
+                }, result)).rejectedWith(/cannot be deleted while an instance is on locked workspace locked-tab/)
+                mockRED.subflow.removeSubflow.called.should.be.false()
+                mockRED.history.push.called.should.be.false()
             })
         })
         describe('setWires action', () => {
@@ -1769,6 +1821,74 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/update-nodes', {
                     params: { nodes: [{ id: 'missing', updates: [{ property: 'name', op: 'replace', content: 'x' }] }] }
                 }, result)).rejectedWith(/Node missing not found/)
+            })
+            describe('property name validation', () => {
+                it('should reject an unknown property and not mutate the node', async () => {
+                    const mockNode = { id: 'n1', readOnlyHint: false, changed: false, _def: { defaults: { readOnlyHint: {} } } }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'readonly', op: 'replace', content: true }] }] }
+                    }, result)).rejectedWith(/Unknown property \[readonly\] for node type "[^"]*" — not a valid property/)
+                    mockNode.should.not.have.property('readonly')
+                    mockRED.history.push.called.should.be.false()
+                })
+                it('should reject an unknown patch property and not mutate the node', async () => {
+                    const mockNode = { id: 'n1', func: 'a\nb', changed: false, _def: { defaults: { func: {} } } }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
+                    const result = {}
+                    await should(expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'fnc', op: 'replace', start: 1, end: 1, content: 'X' }] }] }
+                    }, result)).rejectedWith(/Unknown property \[fnc\]/)
+                    mockNode.func.should.equal('a\nb')
+                    mockRED.history.push.called.should.be.false()
+                })
+                it('should accept a valid declared property', async () => {
+                    const mockNode = { id: 'n1', readOnlyHint: false, changed: false, _def: { defaults: { readOnlyHint: {} } } }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
+                    mockRED.editor = { validateNode: sinon.stub() }
+                    mockRED.view.redraw = sinon.stub()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'readOnlyHint', op: 'replace', content: true }] }] }
+                    }, result)
+                    mockNode.readOnlyHint.should.equal(true)
+                    result.should.have.property('success', true)
+                })
+                it('should accept a structural meta property not declared in defaults', async () => {
+                    const mockNode = { id: 'n1', info: 'old', changed: false, _def: { defaults: { readOnlyHint: {} } } }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
+                    mockRED.editor = { validateNode: sinon.stub() }
+                    mockRED.view.redraw = sinon.stub()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'info', op: 'replace', content: 'new' }] }] }
+                    }, result)
+                    mockNode.info.should.equal('new')
+                    result.should.have.property('success', true)
+                })
+                it('should pass through unvalidated when the node type has no declared defaults', async () => {
+                    const mockNode = { id: 'n1', anything: 'old', changed: false, _def: {} }
+                    mockRED.nodes.node.withArgs('n1').returns(mockNode)
+                    mockRED.nodes.dirty = sinon.stub()
+                    mockRED.history = { push: sinon.stub() }
+                    mockRED.editor = { validateNode: sinon.stub() }
+                    mockRED.view.redraw = sinon.stub()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/update-nodes', {
+                        params: { nodes: [{ id: 'n1', updates: [{ property: 'anything', op: 'replace', content: 'new' }] }] }
+                    }, result)
+                    mockNode.anything.should.equal('new')
+                    result.should.have.property('success', true)
+                })
             })
             describe('patches', () => {
                 function setupPatchNode (overrides = {}) {
@@ -3778,6 +3898,14 @@ describeMain('expertAutomations', () => {
                     params: { ids: ['n1'] }
                 }, {})).rejectedWith(/Permission denied.*write permission/)
                 mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject remove-subflow', async () => {
+                mockRED.nodes.subflow = sinon.stub().withArgs('sf1').returns({ id: 'sf1', instances: [] })
+                mockRED.subflow = { removeSubflow: sinon.stub() }
+                await should(expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'sf1' }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                mockRED.subflow.removeSubflow.called.should.be.false()
             })
             it('should reject update-nodes', async () => {
                 mockRED.nodes.node.withArgs('n1').returns({ id: 'n1', z: 'tab1', type: 'inject', name: 'old' })

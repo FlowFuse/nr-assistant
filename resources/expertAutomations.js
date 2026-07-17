@@ -17,6 +17,7 @@ const ADD_TAB = 'automation/add-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
+const REMOVE_SUBFLOW = 'automation/remove-subflow'
 const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const CREATE_SUBROUTINE = 'automation/create-subroutine'
@@ -60,6 +61,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |REMOVE_TAB
  *   |ADD_NODES
  *   |REMOVE_NODES
+ *   |REMOVE_SUBFLOW
  *   |SET_WIRES
  *   |SET_LINKS
  *   |CREATE_SUBROUTINE
@@ -312,6 +314,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids']
+            }
+        },
+        [REMOVE_SUBFLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the subflow definition to remove. This removes the definition, its internal nodes, and every placed instance.' }
+                },
+                required: ['id']
             }
         },
         [SET_WIRES]: {
@@ -862,6 +873,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const node = this.RED.nodes.node(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
+        // Skipped when defaults are unknown (e.g. some subflow instances): the valid property set can't be determined.
+        const declaredDefaults = node._def?.defaults
+        if (declaredDefaults) {
+            const allowedKeys = new Set([
+                'id', 'type', 'z', 'x', 'y', 'wires', 'g', 'name', 'info', 'd', 'l', 'icon', 'inputLabels', 'outputLabels', 'credentials',
+                ...Object.keys(declaredDefaults)
+            ])
+            const updatedKeys = [...Object.keys(properties), ...patches.map(patch => patch.property)]
+            const unknownKeys = [...new Set(updatedKeys.filter(key => !allowedKeys.has(key)))]
+            if (unknownKeys.length > 0) {
+                const noun = unknownKeys.length > 1 ? 'properties' : 'property'
+                throw new Error(`Unknown ${noun} [${unknownKeys.join(', ')}] for node type "${node.type}" — not a valid property for this node. Use describe_node_type to confirm the exact property name.`)
+            }
+        }
+
         this._assertWorkspaceIsEditable(node.z)
 
         const changes = {}
@@ -1320,24 +1346,63 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      * @param {object} [options]
      * @param {boolean} [options.reconnectWires=false] - reconnect wires around removed nodes
+     * @returns {{removed: string[], notFound: string[]}} IDs that were removed and IDs that did not resolve to a node
      */
     removeNodes (ids, { reconnectWires = false } = {}) {
-        // Resolve all nodes once and check for missing
-        const nodes = ids.map(id => {
+        // Partition into found nodes and missing IDs so a partial batch still removes what it can.
+        const nodes = []
+        const notFound = []
+        for (const id of ids) {
             const node = this.RED.nodes.node(id)
-            if (!node) throw new Error(`Node ${id} not found`)
-            return node
-        })
-        // Check if any node's workspace is locked
-        for (const node of nodes) {
-            this._assertWorkspaceIsEditable(node.z)
+            if (node) {
+                nodes.push(node)
+            } else {
+                notFound.push(id)
+            }
         }
-        this.RED.view.select({ nodes })
-        this._verifySelection(nodes)
-        if (reconnectWires) {
-            this.RED.actions.invoke('core:delete-selection-and-reconnect')
-        } else {
-            this.RED.actions.invoke('core:delete-selection')
+        const removed = nodes.map(node => node.id)
+        if (nodes.length > 0) {
+            for (const node of nodes) {
+                this._assertWorkspaceIsEditable(node.z)
+            }
+            this.RED.view.select({ nodes })
+            this._verifySelection(nodes)
+            if (reconnectWires) {
+                this.RED.actions.invoke('core:delete-selection-and-reconnect')
+            } else {
+                this.RED.actions.invoke('core:delete-selection')
+            }
+        }
+        return { removed, notFound }
+    }
+
+    /**
+     * Remove a subflow definition from the live NR4 canvas by ID.
+     * Delegates to RED.subflow.removeSubflow, which removes the definition together with
+     * its internal nodes, its placed instances, and its groups, junctions and tab. The
+     * returned removal is recorded on the editor history so it can be undone.
+     * @param {string} id - subflow ID to remove
+     * @returns {{removed: string, instances: string[]}} the removed subflow ID and the IDs of its removed instances
+     */
+    removeSubflow (id) {
+        const subflow = this.RED.nodes.subflow(id)
+        if (!subflow) throw new Error(`Subflow ${id} not found`)
+        this._assertWritePermission()
+        // A subflow cannot be removed while one of its instances sits on a locked flow.
+        const instances = subflow.instances || []
+        for (const instance of instances) {
+            if (instance.z && this.RED.workspaces.isLocked(instance.z)) {
+                throw new Error(`Subflow ${id} cannot be deleted while an instance is on locked workspace ${instance.z}`)
+            }
+        }
+        const wasDirty = this.RED.nodes.dirty()
+        const historyEvent = this.RED.subflow.removeSubflow(id)
+        historyEvent.t = 'delete'
+        historyEvent.dirty = wasDirty
+        this.RED.history.push(historyEvent)
+        return {
+            removed: id,
+            instances: instances.map(instance => instance.id)
         }
     }
 
@@ -2078,8 +2143,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
-            result.data = { removed: params.ids }
+            const removal = this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
+            result.data = { removed: removal.removed, notFound: removal.notFound }
+            result.success = true
+        }
+            break
+
+        case REMOVE_SUBFLOW: {
+            const removal = this.removeSubflow(params.id)
+            result.data = { removed: removal.removed, instances: removal.instances }
             result.success = true
         }
             break
