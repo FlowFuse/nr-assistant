@@ -498,6 +498,15 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('handled', true)
                 result.should.have.property('data').which.deepEqual({ removed: 'sf1', instances: ['i1'] })
             })
+            it('should force an immediate, synchronous repaint rather than a deferred one', async () => {
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1' })
+                mockRED.nodes.filterNodes.withArgs({ type: 'subflow:sf1' }).returns([{ id: 'i1', z: 'tab1' }])
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'sf1' }
+                }, result)
+                mockRED.view.redraw.calledWith(true, true).should.be.true()
+            })
             it('should scan all workspaces for instances rather than trust a stale subflow.instances', async () => {
                 // subflow.instances deliberately omitted/stale — the scan must not depend on it.
                 mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [] })

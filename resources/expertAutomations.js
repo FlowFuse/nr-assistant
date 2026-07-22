@@ -1470,6 +1470,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         historyEvent.t = 'delete'
         historyEvent.dirty = wasDirty
         this.RED.history.push(historyEvent)
+        // Force a synchronous repaint from a freshly refreshed node cache: redraw()'s
+        // default deferred paint can be starved while the tab is unfocused, and without
+        // updateActive it repaints the stale pre-deletion node list either way.
+        this.RED.view.redraw(true, true)
         return {
             removed: id,
             instances: instances.map(instance => instance.id)
