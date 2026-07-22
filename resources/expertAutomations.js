@@ -14,6 +14,7 @@ const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
 const ADD_TAB = 'automation/add-tab'
+const UPDATE_TAB = 'automation/update-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
@@ -58,6 +59,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |CLOSE_TYPE_SEARCH
  *   |CLOSE_ACTION_LIST
  *   |ADD_TAB
+ *   |UPDATE_TAB
  *   |REMOVE_TAB
  *   |ADD_NODES
  *   |REMOVE_NODES
@@ -263,6 +265,41 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['label']
+            }
+        },
+        [UPDATE_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the tab to update' },
+                    properties: {
+                        type: 'object',
+                        description: 'Tab properties to update',
+                        properties: {
+                            label: { type: 'string', description: 'New label' },
+                            disabled: { type: 'boolean', description: 'Enable/disable tab' },
+                            info: { type: 'string', description: 'Tab notes' },
+                            env: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        name: { type: 'string', description: 'Environment variable name' },
+                                        value: { type: 'string', description: 'Environment variable value' },
+                                        type: {
+                                            type: 'string',
+                                            enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
+                                            description: 'Environment variable type'
+                                        }
+                                    },
+                                    required: ['name', 'value', 'type']
+                                },
+                                description: 'Environment variables'
+                            }
+                        }
+                    }
+                },
+                required: ['id', 'properties']
             }
         },
         [REMOVE_TAB]: {
@@ -1270,6 +1307,37 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Update label, disabled state, info, or env of an existing flow tab.
+     * Mirrors the editor's own flow-properties save behaviour (redraw only needed
+     * when disabling/enabling, since that is the only change affecting node rendering).
+     * @param {string} id - tab ID to update
+     * @param {Object} properties - subset of {label, disabled, info, env}
+     */
+    updateTab (id, properties = {}) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this._assertWorkspaceIsEditable(id)
+        const changes = {}
+        for (const key of Object.keys(properties)) {
+            changes[key] = ws[key]
+            ws[key] = properties[key]
+        }
+        ws.changed = true
+        this.RED.history.push({ t: 'edit', changes, node: ws, dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        if (Object.prototype.hasOwnProperty.call(changes, 'disabled')) {
+            this.RED.nodes.eachNode(n => {
+                if (n.z === ws.id) n.dirty = true
+            })
+            this.RED.view.redraw()
+        }
+        this.RED.workspaces.refresh()
+        this.RED.sidebar.config.refresh()
+        this.RED.events.emit('flows:change', ws)
+        return ws
+    }
+
+    /**
      * Remove an existing flow tab from the NR4 editor.
      * @param {string} z - tab ID to remove
      */
@@ -1278,6 +1346,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!ws) throw new Error(`Workspace ${z} not found`)
         this._assertWorkspaceIsEditable(z)
         this.RED.workspaces.delete(ws)
+        this.RED.view.redraw()
     }
 
     /**
@@ -1388,8 +1457,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const subflow = this.RED.nodes.subflow(id)
         if (!subflow) throw new Error(`Subflow ${id} not found`)
         this._assertWritePermission()
-        // A subflow cannot be removed while one of its instances sits on a locked flow.
-        const instances = subflow.instances || []
+        // Scan the live canvas rather than trusting subflow.instances, which is not
+        // guaranteed to be kept in sync with every instance placed across all workspaces.
+        const instances = this.RED.nodes.filterNodes({ type: `subflow:${id}` })
         for (const instance of instances) {
             if (instance.z && this.RED.workspaces.isLocked(instance.z)) {
                 throw new Error(`Subflow ${id} cannot be deleted while an instance is on locked workspace ${instance.z}`)
@@ -2075,6 +2145,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         case ADD_TAB: {
             const newTab = this.addTab(params)
             result.data = this._summarizeNode(newTab)
+            result.success = true
+        }
+            break
+
+        case UPDATE_TAB: {
+            const ws = this.updateTab(params.id, params.properties)
+            result.data = this._summarizeWorkspace(ws)
             result.success = true
         }
             break

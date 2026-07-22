@@ -39,7 +39,15 @@ describeMain('expertAutomations', () => {
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub(),
                 workspace: sinon.stub().returns({ id: 'default-tab', type: 'tab' }),
-                updateConfigNodeUsers: sinon.stub()
+                updateConfigNodeUsers: sinon.stub(),
+                filterNodes: sinon.stub().returns([]),
+                eachNode: sinon.stub()
+            },
+            sidebar: {
+                config: { refresh: sinon.stub() }
+            },
+            events: {
+                emit: sinon.stub()
             },
             settings: {
                 version: '4.1.4'
@@ -95,6 +103,7 @@ describeMain('expertAutomations', () => {
                 'automation/close-type-search',
                 'automation/close-action-list',
                 'automation/add-tab',
+                'automation/update-tab',
                 'automation/remove-tab',
                 'automation/add-nodes',
                 'automation/remove-nodes',
@@ -466,12 +475,14 @@ describeMain('expertAutomations', () => {
             beforeEach(() => {
                 mockRED.nodes.dirty = sinon.stub().returns(false)
                 mockRED.nodes.subflow = sinon.stub()
+                mockRED.nodes.filterNodes = sinon.stub().returns([])
                 mockRED.subflow = { removeSubflow: sinon.stub().returns({ subflows: [] }) }
                 mockRED.history = { push: sinon.stub() }
                 mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().returns(false) }
             })
             it('should remove a subflow and push an undoable delete history event', async () => {
-                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [{ id: 'i1', z: 'tab1' }] })
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1' })
+                mockRED.nodes.filterNodes.withArgs({ type: 'subflow:sf1' }).returns([{ id: 'i1', z: 'tab1' }])
                 const removalResult = { subflows: [{ id: 'sf1' }] }
                 mockRED.subflow.removeSubflow.withArgs('sf1').returns(removalResult)
                 const result = {}
@@ -487,6 +498,16 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('handled', true)
                 result.should.have.property('data').which.deepEqual({ removed: 'sf1', instances: ['i1'] })
             })
+            it('should scan all workspaces for instances rather than trust a stale subflow.instances', async () => {
+                // subflow.instances deliberately omitted/stale — the scan must not depend on it.
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [] })
+                mockRED.nodes.filterNodes.withArgs({ type: 'subflow:sf1' }).returns([{ id: 'i1', z: 'tab1' }, { id: 'i2', z: 'tab2' }])
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-subflow', {
+                    params: { id: 'sf1' }
+                }, result)
+                result.should.have.property('data').which.deepEqual({ removed: 'sf1', instances: ['i1', 'i2'] })
+            })
             it('should throw if the subflow does not exist', async () => {
                 mockRED.nodes.subflow.returns(null)
                 const result = {}
@@ -497,7 +518,8 @@ describeMain('expertAutomations', () => {
                 mockRED.history.push.called.should.be.false()
             })
             it('should throw if an instance sits on a locked workspace', async () => {
-                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1', instances: [{ id: 'i1', z: 'locked-tab' }] })
+                mockRED.nodes.subflow.withArgs('sf1').returns({ id: 'sf1' })
+                mockRED.nodes.filterNodes.withArgs({ type: 'subflow:sf1' }).returns([{ id: 'i1', z: 'locked-tab' }])
                 mockRED.workspaces.isLocked = sinon.stub().withArgs('locked-tab').returns(true)
                 const result = {}
                 await should(expertAutomations.invokeAction('automation/remove-subflow', {
@@ -1523,6 +1545,7 @@ describeMain('expertAutomations', () => {
                     params: { id: 'tab1' }
                 }, result)
                 mockRED.workspaces.delete.calledWith(mockWs).should.be.true()
+                mockRED.view.redraw.calledOnce.should.be.true()
                 result.should.have.property('success', true)
                 result.should.have.property('data')
                 result.data.should.have.property('removed', 'tab1')
@@ -1549,6 +1572,64 @@ describeMain('expertAutomations', () => {
                     params: { id: 'locked-tab' }
                 }, {})).rejectedWith(/Workspace locked-tab is locked/)
                 mockRED.workspaces.delete.called.should.be.false()
+            })
+        })
+        describe('updateTab action', () => {
+            let mockWs
+            beforeEach(() => {
+                mockWs = { id: 'tab1', type: 'tab', label: 'Old Label', locked: false, disabled: false }
+                mockRED.nodes.workspace = sinon.stub().withArgs('tab1').returns(mockWs)
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.history = { push: sinon.stub() }
+                mockRED.workspaces = { ...mockRED.workspaces, refresh: sinon.stub() }
+                mockRED.sidebar = { config: { refresh: sinon.stub() } }
+                mockRED.events = { emit: sinon.stub() }
+            })
+            it('should rename a tab without redrawing the canvas', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-tab', {
+                    params: { id: 'tab1', properties: { label: 'New Label' } }
+                }, result)
+                mockWs.label.should.equal('New Label')
+                mockRED.history.push.calledOnce.should.be.true()
+                const historyArg = mockRED.history.push.firstCall.args[0]
+                historyArg.should.have.property('t', 'edit')
+                historyArg.changes.should.have.property('label', 'Old Label')
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.workspaces.refresh.calledOnce.should.be.true()
+                mockRED.sidebar.config.refresh.calledOnce.should.be.true()
+                mockRED.events.emit.calledWith('flows:change', mockWs).should.be.true()
+                mockRED.view.redraw.called.should.be.false()
+                result.should.have.property('success', true)
+                result.data.should.have.property('label', 'New Label')
+            })
+            it('should redraw and mark member nodes dirty when disabling a tab', async () => {
+                const memberNode = { id: 'n1', z: 'tab1', dirty: false }
+                const otherNode = { id: 'n2', z: 'tab2', dirty: false }
+                mockRED.nodes.eachNode = sinon.stub().callsFake(fn => { fn(memberNode); fn(otherNode) })
+                const result = {}
+                await expertAutomations.invokeAction('automation/update-tab', {
+                    params: { id: 'tab1', properties: { disabled: true } }
+                }, result)
+                mockWs.disabled.should.be.true()
+                memberNode.dirty.should.be.true()
+                otherNode.dirty.should.be.false()
+                mockRED.view.redraw.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+            })
+            it('should throw if tab not found', async () => {
+                mockRED.nodes.workspace = sinon.stub().returns(null)
+                await should(expertAutomations.invokeAction('automation/update-tab', {
+                    params: { id: 'does-not-exist', properties: { label: 'New Label' } }
+                }, {})).rejectedWith(/Workspace does-not-exist not found/)
+            })
+            it('should throw if tab is locked', async () => {
+                mockRED.nodes.workspace = sinon.stub().withArgs('locked-tab').returns({ id: 'locked-tab', type: 'tab', locked: true })
+                mockRED.workspaces = { ...mockRED.workspaces, isLocked: sinon.stub().withArgs('locked-tab').returns(true) }
+                await should(expertAutomations.invokeAction('automation/update-tab', {
+                    params: { id: 'locked-tab', properties: { label: 'New Label' } }
+                }, {})).rejectedWith(/Workspace locked-tab is locked/)
+                mockRED.history.push.called.should.be.false()
             })
         })
         describe('addTab action', () => {
