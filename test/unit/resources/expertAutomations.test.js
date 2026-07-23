@@ -35,6 +35,7 @@ describeMain('expertAutomations', () => {
             nodes: {
                 node: sinon.stub(),
                 group: sinon.stub().returns(null),
+                junction: sinon.stub().returns(null),
                 getAllFlowNodes: sinon.stub(),
                 createExportableNodeSet: sinon.stub().callsFake((nodes) => nodes || []),
                 dirty: sinon.stub(),
@@ -470,6 +471,19 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('error').which.match(/member of a group/)
                 mockRED.actions.invoke.called.should.be.false()
             })
+            it('should remove a junction, which is only resolvable via RED.nodes.junction', async () => {
+                const mockJunction = { id: 'j1', type: 'junction', z: 'tab1' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.junction = sinon.stub().withArgs('j1').returns(mockJunction)
+                const result = {}
+                await expertAutomations.invokeAction('automation/remove-nodes', {
+                    params: { ids: ['j1'] }
+                }, result)
+                mockRED.view.select.calledWith({ nodes: [mockJunction] }).should.be.true()
+                mockRED.actions.invoke.calledWith('core:delete-selection').should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('data').which.deepEqual({ removed: ['j1'], notFound: [] })
+            })
         })
         describe('removeSubflow action', () => {
             beforeEach(() => {
@@ -605,6 +619,19 @@ describeMain('expertAutomations', () => {
                 }, result)
                 const linkArg = mockRED.nodes.addLink.firstCall.args[0]
                 linkArg.should.have.property('sourcePort', 2)
+                result.should.have.property('success', true)
+            })
+            it('should wire a junction, which is only resolvable via RED.nodes.junction', async () => {
+                const junction = { id: 'j1', z: 'tab1', type: 'junction', outputs: 1, dirty: false, changed: false }
+                const target = { id: 'n2', z: 'tab1', type: 'debug' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.node.withArgs('n2').returns(target)
+                mockRED.nodes.junction = sinon.stub().withArgs('j1').returns(junction)
+                const result = {}
+                await expertAutomations.invokeAction('automation/set-wires', {
+                    params: { mode: 'add', source: 'j1', target: 'n2' }
+                }, result)
+                mockRED.nodes.addLink.calledOnce.should.be.true()
                 result.should.have.property('success', true)
             })
             it('should throw if source node not found', async () => {
@@ -1338,6 +1365,27 @@ describeMain('expertAutomations', () => {
                 await should(expertAutomations.invokeAction('automation/add-nodes', {
                     params: { nodes: [{ id: 'n1', type: 'unknown', z: 'tab1' }] }
                 }, result)).rejectedWith(/Unknown node type/)
+            })
+            it('should accept a junction node, which has no registered node type definition', async () => {
+                const junctionNode = { id: 'j1', type: 'junction', z: 'tab1', x: 100, y: 200 }
+                mockRED.nodes.getType = sinon.stub().returns(null)
+                mockRED.nodes.workspace = sinon.stub().returns({ id: 'tab1', type: 'tab' })
+                mockRED.nodes.node = sinon.stub().returns(null)
+                mockRED.nodes.junction = sinon.stub()
+                mockRED.nodes.junction.withArgs('j1').onFirstCall().returns(null) // pre-import existence check
+                mockRED.nodes.junction.withArgs('j1').returns(junctionNode) // post-import lookup
+                mockRED.view.importNodes = sinon.stub()
+                mockRED.nodes.dirty = sinon.stub()
+                mockRED.editor = { validateNode: sinon.stub().callsFake(n => { n.valid = true }) }
+                const nodes = [{ id: 'j1', type: 'junction', z: 'tab1', x: 100, y: 200 }]
+                const result = {}
+                await expertAutomations.invokeAction('automation/add-nodes', {
+                    params: { nodes }
+                }, result)
+                mockRED.view.importNodes.calledOnce.should.be.true()
+                result.should.have.property('success', true)
+                result.data[0].should.have.property('id', 'j1')
+                result.data[0].should.have.property('type', 'junction')
             })
             // it('should switch to target tab when nodes target a different workspace', async () => {
             //     mockRED.nodes.getType = sinon.stub().returns({ inputs: 1, outputs: 1, defaults: {} })

@@ -778,7 +778,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      *   wires between co-moving nodes are kept intact (no splitting).
      */
     _moveNodeToTab (id, targetTabId, coMovingIds = new Set()) {
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
         this._assertWorkspaceIsEditable(targetTabId)
@@ -907,7 +907,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
         // Skipped when defaults are unknown (e.g. some subflow instances): the valid property set can't be determined.
@@ -1254,11 +1254,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     isConfigNode (id) {
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) { throw new Error(`Node ${id} not found`) }
         const def = node._def || this.RED.nodes.getType(node.type)
         if (!def) { return false }
         return def.category === 'config'
+    }
+
+    /**
+     * Look up a node by ID. Junctions live in their own registry (RED.nodes.junction),
+     * separate from the main node map, so a plain RED.nodes.node(id) lookup misses them.
+     * @param {string} id - node or junction ID
+     */
+    _resolveNode (id) {
+        return this.RED.nodes.node(id) || this.RED.nodes.junction(id)
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -1363,9 +1372,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            const def = this.RED.nodes.getType(rawNode.type)
-            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
-            const isConfigNode = def.category === 'config'
+            // Junctions have no palette definition (RED.nodes.getType returns nothing for
+            // them), so they're recognised by type name rather than a registry lookup.
+            const isJunction = rawNode.type === 'junction'
+            const def = isJunction ? null : this.RED.nodes.getType(rawNode.type)
+            if (!isJunction && !def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            const isConfigNode = !isJunction && def.category === 'config'
             if (!isConfigNode && !rawNode.z) throw new Error('Node is missing required property: z')
             return { ...rawNode }
         })
@@ -1381,7 +1393,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
-            const existing = prepared.filter(n => this.RED.nodes.node(n.id))
+            const existing = prepared.filter(n => this._resolveNode(n.id))
             if (existing.length > 0) {
                 throw new Error(`Node ID(s) already exist: ${existing.map(n => n.id).join(', ')} — use generateIds: true to auto-assign new IDs`)
             }
@@ -1422,7 +1434,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const nodes = []
         const notFound = []
         for (const id of ids) {
-            const node = this.RED.nodes.node(id)
+            const node = this._resolveNode(id)
             if (node) {
                 nodes.push(node)
             } else {
@@ -1490,9 +1502,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     setWires ({ mode, source, output, target }) {
         if (source === target) throw new Error('Cannot wire a node to itself')
-        const sourceNode = this.RED.nodes.node(source)
+        const sourceNode = this._resolveNode(source)
         if (!sourceNode) throw new Error(`Source node ${source} not found`)
-        const targetNode = this.RED.nodes.node(target)
+        const targetNode = this._resolveNode(target)
         if (!targetNode) throw new Error(`Target node ${target} not found`)
         // wires can only be set on workspace nodes (not config nodes)
         if (this.isConfigNode(source)) {
@@ -2199,7 +2211,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
-            const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
+            const addedNodes = params.nodes.map(n => this._resolveNode(n.id)).filter(Boolean)
             if (this.RED.editor?.validateNode) {
                 addedNodes.forEach(n => this.RED.editor.validateNode(n))
             }
