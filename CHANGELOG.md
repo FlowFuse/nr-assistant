@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.18.0](https://github.com/FlowFuse/nr-assistant/compare/v0.17.0...v0.18.0) (2026-07-27)
+
+
+### Features
+
+* add update-tab and remove-subflow automation actions ([#379](https://github.com/FlowFuse/nr-assistant/issues/379)) ([7e0848f](https://github.com/FlowFuse/nr-assistant/commit/7e0848f19a16ba6bac357847f732ef61dc82f4e9)), closes [#378](https://github.com/FlowFuse/nr-assistant/issues/378)
+
 ## [0.17.0](https://github.com/FlowFuse/nr-assistant/compare/v0.16.0...v0.17.0) (2026-06-30)
 
 
