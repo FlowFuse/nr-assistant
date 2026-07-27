@@ -14,9 +14,11 @@ const CLOSE_SEARCH = 'automation/close-search'
 const CLOSE_TYPE_SEARCH = 'automation/close-type-search'
 const CLOSE_ACTION_LIST = 'automation/close-action-list'
 const ADD_TAB = 'automation/add-tab'
+const UPDATE_TAB = 'automation/update-tab'
 const REMOVE_TAB = 'automation/remove-tab'
 const ADD_NODES = 'automation/add-nodes'
 const REMOVE_NODES = 'automation/remove-nodes'
+const REMOVE_SUBFLOW = 'automation/remove-subflow'
 const SET_WIRES = 'automation/set-wires'
 const SET_LINKS = 'automation/set-links'
 const CREATE_SUBROUTINE = 'automation/create-subroutine'
@@ -57,9 +59,11 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |CLOSE_TYPE_SEARCH
  *   |CLOSE_ACTION_LIST
  *   |ADD_TAB
+ *   |UPDATE_TAB
  *   |REMOVE_TAB
  *   |ADD_NODES
  *   |REMOVE_NODES
+ *   |REMOVE_SUBFLOW
  *   |SET_WIRES
  *   |SET_LINKS
  *   |CREATE_SUBROUTINE
@@ -263,6 +267,41 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 required: ['label']
             }
         },
+        [UPDATE_TAB]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the tab to update' },
+                    properties: {
+                        type: 'object',
+                        description: 'Tab properties to update',
+                        properties: {
+                            label: { type: 'string', description: 'New label' },
+                            disabled: { type: 'boolean', description: 'Enable/disable tab' },
+                            info: { type: 'string', description: 'Tab notes' },
+                            env: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        name: { type: 'string', description: 'Environment variable name' },
+                                        value: { type: 'string', description: 'Environment variable value' },
+                                        type: {
+                                            type: 'string',
+                                            enum: ['str', 'num', 'bool', 'json', 'env', 'cred', 'jsonata'],
+                                            description: 'Environment variable type'
+                                        }
+                                    },
+                                    required: ['name', 'value', 'type']
+                                },
+                                description: 'Environment variables'
+                            }
+                        }
+                    }
+                },
+                required: ['id', 'properties']
+            }
+        },
         [REMOVE_TAB]: {
             params: {
                 type: 'object',
@@ -312,6 +351,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids']
+            }
+        },
+        [REMOVE_SUBFLOW]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'ID of the subflow definition to remove. This removes the definition, its internal nodes, and every placed instance.' }
+                },
+                required: ['id']
             }
         },
         [SET_WIRES]: {
@@ -730,7 +778,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      *   wires between co-moving nodes are kept intact (no splitting).
      */
     _moveNodeToTab (id, targetTabId, coMovingIds = new Set()) {
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) throw new Error(`Node ${id} not found`)
 
         this._assertWorkspaceIsEditable(targetTabId)
@@ -859,8 +907,23 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!hasProperties && !hasPatches) {
             throw new Error('At least one of "properties" or "patches" must be provided')
         }
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) throw new Error(`Node ${id} not found`)
+
+        // Skipped when defaults are unknown (e.g. some subflow instances): the valid property set can't be determined.
+        const declaredDefaults = node._def?.defaults
+        if (declaredDefaults) {
+            const allowedKeys = new Set([
+                'id', 'type', 'z', 'x', 'y', 'wires', 'g', 'name', 'info', 'd', 'l', 'icon', 'inputLabels', 'outputLabels', 'credentials',
+                ...Object.keys(declaredDefaults)
+            ])
+            const updatedKeys = [...Object.keys(properties), ...patches.map(patch => patch.property)]
+            const unknownKeys = [...new Set(updatedKeys.filter(key => !allowedKeys.has(key)))]
+            if (unknownKeys.length > 0) {
+                const noun = unknownKeys.length > 1 ? 'properties' : 'property'
+                throw new Error(`Unknown ${noun} [${unknownKeys.join(', ')}] for node type "${node.type}" — not a valid property for this node. Use describe_node_type to confirm the exact property name.`)
+            }
+        }
 
         this._assertWorkspaceIsEditable(node.z)
 
@@ -1191,11 +1254,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     isConfigNode (id) {
-        const node = this.RED.nodes.node(id)
+        const node = this._resolveNode(id)
         if (!node) { throw new Error(`Node ${id} not found`) }
         const def = node._def || this.RED.nodes.getType(node.type)
         if (!def) { return false }
         return def.category === 'config'
+    }
+
+    /**
+     * Look up a node by ID. Junctions live in their own registry (RED.nodes.junction),
+     * separate from the main node map, so a plain RED.nodes.node(id) lookup misses them.
+     * @param {string} id - node or junction ID
+     */
+    _resolveNode (id) {
+        return this.RED.nodes.node(id) || this.RED.nodes.junction(id)
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -1244,6 +1316,37 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * Update label, disabled state, info, or env of an existing flow tab.
+     * Mirrors the editor's own flow-properties save behaviour (redraw only needed
+     * when disabling/enabling, since that is the only change affecting node rendering).
+     * @param {string} id - tab ID to update
+     * @param {Object} properties - subset of {label, disabled, info, env}
+     */
+    updateTab (id, properties = {}) {
+        const ws = this.RED.nodes.workspace(id)
+        if (!ws) throw new Error(`Workspace ${id} not found`)
+        this._assertWorkspaceIsEditable(id)
+        const changes = {}
+        for (const key of Object.keys(properties)) {
+            changes[key] = ws[key]
+            ws[key] = properties[key]
+        }
+        ws.changed = true
+        this.RED.history.push({ t: 'edit', changes, node: ws, dirty: this.RED.nodes.dirty() })
+        this.RED.nodes.dirty(true)
+        if (Object.prototype.hasOwnProperty.call(changes, 'disabled')) {
+            this.RED.nodes.eachNode(n => {
+                if (n.z === ws.id) n.dirty = true
+            })
+            this.RED.view.redraw()
+        }
+        this.RED.workspaces.refresh()
+        this.RED.sidebar.config.refresh()
+        this.RED.events.emit('flows:change', ws)
+        return ws
+    }
+
+    /**
      * Remove an existing flow tab from the NR4 editor.
      * @param {string} z - tab ID to remove
      */
@@ -1252,6 +1355,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (!ws) throw new Error(`Workspace ${z} not found`)
         this._assertWorkspaceIsEditable(z)
         this.RED.workspaces.delete(ws)
+        this.RED.view.redraw()
     }
 
     /**
@@ -1268,9 +1372,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const prepared = nodes.map(rawNode => {
             if (!rawNode.id) throw new Error('Node is missing required property: id')
             if (!rawNode.type) throw new Error('Node is missing required property: type')
-            const def = this.RED.nodes.getType(rawNode.type)
-            if (!def) throw new Error(`Unknown node type: ${rawNode.type}`)
-            const isConfigNode = def.category === 'config'
+            // Junctions have no palette definition (RED.nodes.getType returns nothing for
+            // them), so they're recognised by type name rather than a registry lookup.
+            const isJunction = rawNode.type === 'junction'
+            const def = isJunction ? null : this.RED.nodes.getType(rawNode.type)
+            if (!isJunction && !def) throw new Error(`Unknown node type: ${rawNode.type}`)
+            const isConfigNode = !isJunction && def.category === 'config'
             if (!isConfigNode && !rawNode.z) throw new Error('Node is missing required property: z')
             return { ...rawNode }
         })
@@ -1286,7 +1393,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         // Pre-import: reject if any node ID already exists on the canvas
         if (!generateIds) {
-            const existing = prepared.filter(n => this.RED.nodes.node(n.id))
+            const existing = prepared.filter(n => this._resolveNode(n.id))
             if (existing.length > 0) {
                 throw new Error(`Node ID(s) already exist: ${existing.map(n => n.id).join(', ')} — use generateIds: true to auto-assign new IDs`)
             }
@@ -1320,24 +1427,68 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string[]} ids - node IDs to remove
      * @param {object} [options]
      * @param {boolean} [options.reconnectWires=false] - reconnect wires around removed nodes
+     * @returns {{removed: string[], notFound: string[]}} IDs that were removed and IDs that did not resolve to a node
      */
     removeNodes (ids, { reconnectWires = false } = {}) {
-        // Resolve all nodes once and check for missing
-        const nodes = ids.map(id => {
-            const node = this.RED.nodes.node(id)
-            if (!node) throw new Error(`Node ${id} not found`)
-            return node
-        })
-        // Check if any node's workspace is locked
-        for (const node of nodes) {
-            this._assertWorkspaceIsEditable(node.z)
+        // Partition into found nodes and missing IDs so a partial batch still removes what it can.
+        const nodes = []
+        const notFound = []
+        for (const id of ids) {
+            const node = this._resolveNode(id)
+            if (node) {
+                nodes.push(node)
+            } else {
+                notFound.push(id)
+            }
         }
-        this.RED.view.select({ nodes })
-        this._verifySelection(nodes)
-        if (reconnectWires) {
-            this.RED.actions.invoke('core:delete-selection-and-reconnect')
-        } else {
-            this.RED.actions.invoke('core:delete-selection')
+        const removed = nodes.map(node => node.id)
+        if (nodes.length > 0) {
+            for (const node of nodes) {
+                this._assertWorkspaceIsEditable(node.z)
+            }
+            this.RED.view.select({ nodes })
+            this._verifySelection(nodes)
+            if (reconnectWires) {
+                this.RED.actions.invoke('core:delete-selection-and-reconnect')
+            } else {
+                this.RED.actions.invoke('core:delete-selection')
+            }
+        }
+        return { removed, notFound }
+    }
+
+    /**
+     * Remove a subflow definition from the live NR4 canvas by ID.
+     * Delegates to RED.subflow.removeSubflow, which removes the definition together with
+     * its internal nodes, its placed instances, and its groups, junctions and tab. The
+     * returned removal is recorded on the editor history so it can be undone.
+     * @param {string} id - subflow ID to remove
+     * @returns {{removed: string, instances: string[]}} the removed subflow ID and the IDs of its removed instances
+     */
+    removeSubflow (id) {
+        const subflow = this.RED.nodes.subflow(id)
+        if (!subflow) throw new Error(`Subflow ${id} not found`)
+        this._assertWritePermission()
+        // Scan the live canvas rather than trusting subflow.instances, which is not
+        // guaranteed to be kept in sync with every instance placed across all workspaces.
+        const instances = this.RED.nodes.filterNodes({ type: `subflow:${id}` })
+        for (const instance of instances) {
+            if (instance.z && this.RED.workspaces.isLocked(instance.z)) {
+                throw new Error(`Subflow ${id} cannot be deleted while an instance is on locked workspace ${instance.z}`)
+            }
+        }
+        const wasDirty = this.RED.nodes.dirty()
+        const historyEvent = this.RED.subflow.removeSubflow(id)
+        historyEvent.t = 'delete'
+        historyEvent.dirty = wasDirty
+        this.RED.history.push(historyEvent)
+        // Force a synchronous repaint from a freshly refreshed node cache: redraw()'s
+        // default deferred paint can be starved while the tab is unfocused, and without
+        // updateActive it repaints the stale pre-deletion node list either way.
+        this.RED.view.redraw(true, true)
+        return {
+            removed: id,
+            instances: instances.map(instance => instance.id)
         }
     }
 
@@ -1351,9 +1502,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     setWires ({ mode, source, output, target }) {
         if (source === target) throw new Error('Cannot wire a node to itself')
-        const sourceNode = this.RED.nodes.node(source)
+        const sourceNode = this._resolveNode(source)
         if (!sourceNode) throw new Error(`Source node ${source} not found`)
-        const targetNode = this.RED.nodes.node(target)
+        const targetNode = this._resolveNode(target)
         if (!targetNode) throw new Error(`Target node ${target} not found`)
         // wires can only be set on workspace nodes (not config nodes)
         if (this.isConfigNode(source)) {
@@ -2014,6 +2165,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case UPDATE_TAB: {
+            const ws = this.updateTab(params.id, params.properties)
+            result.data = this._summarizeWorkspace(ws)
+            result.success = true
+        }
+            break
+
         case REMOVE_TAB:
             this.removeTab(params.id)
             result.data = {
@@ -2053,7 +2211,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
             this.addNodes(params.nodes, { generateIds: params.generateIds ?? false })
-            const addedNodes = params.nodes.map(n => this.RED.nodes.node(n.id)).filter(Boolean)
+            const addedNodes = params.nodes.map(n => this._resolveNode(n.id)).filter(Boolean)
             if (this.RED.editor?.validateNode) {
                 addedNodes.forEach(n => this.RED.editor.validateNode(n))
             }
@@ -2078,8 +2236,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
-            result.data = { removed: params.ids }
+            const removal = this.removeNodes(params.ids, { reconnectWires: params.reconnectWires ?? false })
+            result.data = { removed: removal.removed, notFound: removal.notFound }
+            result.success = true
+        }
+            break
+
+        case REMOVE_SUBFLOW: {
+            const removal = this.removeSubflow(params.id)
+            result.data = { removed: removal.removed, instances: removal.instances }
             result.success = true
         }
             break
