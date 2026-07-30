@@ -210,7 +210,15 @@ describeMain('expertAutomations', () => {
                     makeEntry('c', 'debug', 'node3')
                 ])
                 const result = expertAutomations.getDebugMessages({ count: 2 })
-                mockExpertComms.collectDebugLogEntries.calledWith({ visibleOnly: false }).should.be.true()
+                mockExpertComms.collectDebugLogEntries.calledWith({
+                    visibleOnly: false,
+                    fatal: true,
+                    error: true,
+                    warn: true,
+                    info: true,
+                    debug: true,
+                    trace: true
+                }).should.be.true()
                 result.map(e => e.uuid).should.deepEqual(['b', 'c'])
             })
             it('should default count to 20 and cap at 100', () => {
@@ -221,13 +229,18 @@ describeMain('expertAutomations', () => {
                 const resultCapped = expertAutomations.getDebugMessages({ count: 500 })
                 resultCapped.length.should.equal(100)
             })
-            it('should filter by level', () => {
-                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
-                    makeEntry('a', 'error', 'node1'),
-                    makeEntry('b', 'debug', 'node2')
-                ])
-                const result = expertAutomations.getDebugMessages({ error: false })
-                result.map(e => e.uuid).should.deepEqual(['b'])
+            it('should forward level flags to collectDebugLogEntries', () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([])
+                expertAutomations.getDebugMessages({ error: false, trace: false })
+                mockExpertComms.collectDebugLogEntries.calledWith({
+                    visibleOnly: false,
+                    fatal: true,
+                    error: false,
+                    warn: true,
+                    info: true,
+                    debug: true,
+                    trace: false
+                }).should.be.true()
             })
             it('should filter by nodeIds, matching source or ancestors', () => {
                 mockExpertComms.collectDebugLogEntries = sinon.stub().returns([

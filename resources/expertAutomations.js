@@ -725,18 +725,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             select = false
         } = params || {}
 
-        const wantLevels = []
-        if (fatal) wantLevels.push('fatal')
-        if (error) wantLevels.push('error')
-        if (warn) wantLevels.push('warn')
-        if (info) wantLevels.push('info')
-        if (debug) wantLevels.push('debug')
-        if (trace) wantLevels.push('trace')
-
         const wantNodeIds = Array.isArray(nodeIds) && nodeIds.length > 0 ? new Set(nodeIds) : null
 
-        let entries = this.expertComms.collectDebugLogEntries({ visibleOnly: false })
-            .filter(entry => wantLevels.includes(entry?.level))
+        let entries = this.expertComms.collectDebugLogEntries({ visibleOnly: false, fatal, error, warn, info, debug, trace })
 
         if (wantNodeIds) {
             entries = entries.filter(entry => {
