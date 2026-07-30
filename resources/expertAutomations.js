@@ -34,6 +34,7 @@ const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
+const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -615,6 +616,34 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 },
                 required: ['side']
             }
+        },
+        [GET_DEBUG_MESSAGES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    count: {
+                        type: 'number',
+                        default: 20,
+                        description: 'Maximum number of debug messages to return. Defaults to 20. The Node-RED debug sidebar itself only ever retains the last 100 messages, so this is capped at 100 regardless of the value provided.'
+                    },
+                    nodeIds: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Optional. Only include messages sourced from one of these node ids, or from a node nested within one of these ids (e.g. a node inside a subflow instance listed here).'
+                    },
+                    fatal: { type: 'boolean', default: true, description: 'Include "fatal" level messages. Defaults to true.' },
+                    error: { type: 'boolean', default: true, description: 'Include "error" level messages. Defaults to true.' },
+                    warn: { type: 'boolean', default: true, description: 'Include "warn" level messages. Defaults to true.' },
+                    info: { type: 'boolean', default: true, description: 'Include "info" level messages. Defaults to true.' },
+                    debug: { type: 'boolean', default: true, description: 'Include "debug" level messages. Defaults to true.' },
+                    trace: { type: 'boolean', default: true, description: 'Include "trace" level messages. Defaults to true.' },
+                    select: {
+                        type: 'boolean',
+                        default: false,
+                        description: 'If true, also select the source nodes of the returned messages on the canvas. Defaults to false.'
+                    }
+                }
+            }
         }
 
     })
@@ -665,6 +694,68 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.view.select({ nodes })
         }
         return nodes
+    }
+
+    /**
+     * Get the most recent messages from the Node-RED debug sidebar, optionally filtered by source node id(s) and/or level.
+     * Only ever sees messages received while this editor tab has been open and connected - Node-RED's own debug comms
+     * channel keeps no server-side history, and the sidebar itself only ever retains the last 100 messages.
+     * @param {Object} [params]
+     * @param {number} [params.count] - maximum number of messages to return. Defaults to 20, capped at 100.
+     * @param {string[]} [params.nodeIds] - only include messages sourced from one of these node ids, or nested within one (e.g. inside a subflow instance)
+     * @param {boolean} [params.fatal]
+     * @param {boolean} [params.error]
+     * @param {boolean} [params.warn]
+     * @param {boolean} [params.info]
+     * @param {boolean} [params.debug]
+     * @param {boolean} [params.trace]
+     * @param {boolean} [params.select] - if true, also select the source nodes of the returned messages on the canvas
+     * @returns {Array} formatted debug message entries, oldest first (matching the order shown in the debug sidebar)
+     */
+    getDebugMessages (params) {
+        const {
+            count = 20,
+            nodeIds,
+            fatal = true,
+            error = true,
+            warn = true,
+            info = true,
+            debug = true,
+            trace = true,
+            select = false
+        } = params || {}
+
+        const wantLevels = []
+        if (fatal) wantLevels.push('fatal')
+        if (error) wantLevels.push('error')
+        if (warn) wantLevels.push('warn')
+        if (info) wantLevels.push('info')
+        if (debug) wantLevels.push('debug')
+        if (trace) wantLevels.push('trace')
+
+        const wantNodeIds = Array.isArray(nodeIds) && nodeIds.length > 0 ? new Set(nodeIds) : null
+
+        let entries = this.expertComms.collectDebugLogEntries({ visibleOnly: false })
+            .filter(entry => wantLevels.includes(entry?.level))
+
+        if (wantNodeIds) {
+            entries = entries.filter(entry => {
+                const sourceIds = [entry.source?.id, ...(entry.ancestors || []).map(a => a.id)]
+                return sourceIds.some(id => id && wantNodeIds.has(id))
+            })
+        }
+
+        const maxCount = Math.min(Math.max(Number(count) || 20, 1), 100)
+        const messages = entries.slice(-maxCount)
+
+        if (select) {
+            const sourceIds = [...new Set(messages.map(m => m.source?.id).filter(id => id && this.RED.nodes.node(id)))]
+            if (sourceIds.length > 0) {
+                this.selectNodes(sourceIds)
+            }
+        }
+
+        return messages
     }
 
     /**
@@ -2459,6 +2550,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.success = true
             break
         }
+        case GET_DEBUG_MESSAGES:
+            result.messages = this.getDebugMessages(params)
+            result.success = true
+            break
         default:
             result.handled = false
             result.success = false
