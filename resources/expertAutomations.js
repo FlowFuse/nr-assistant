@@ -2343,49 +2343,58 @@ export class ExpertAutomations extends ExpertActionsInterface {
             for (const entry of operations) {
                 const op = entry.op
                 if (!op) throw new Error('op is required for each manage-groups operation')
-                switch (op) {
-                case 'create': {
-                    const group = this.createGroup(entry.nodeIds, entry.name, { style: entry.style, env: entry.env, id: entry.id })
-                    results.push({ op: 'create', ...this._summarizeGroup(group) })
-                    break
-                }
-                case 'update': {
-                    if (!entry.id) throw new Error('id is required for update')
-                    const group = this.updateGroup(entry.id, {
-                        name: entry.name,
-                        style: entry.style,
-                        env: entry.env
-                    })
-                    results.push({ op: 'update', ...this._summarizeGroup(group) })
-                    break
-                }
-                case 'manage-members': {
-                    if (!entry.id) throw new Error('id is required for manage-members')
-                    if (!entry.nodeIds || entry.nodeIds.length === 0) throw new Error('nodeIds is required for manage-members')
-                    const mode = entry.mode
-                    if (mode !== 'add' && mode !== 'remove') throw new Error('mode must be "add" or "remove"')
-                    const group = this.updateGroup(entry.id, {
-                        nodeIds: entry.nodeIds,
-                        remove: mode === 'remove'
-                    })
-                    results.push({ op: 'manage-members', mode, ...this._summarizeGroup(group) })
-                    break
-                }
-                case 'move': {
-                    if (!entry.id) throw new Error('id is required for move')
-                    if (!entry.z) throw new Error('z (target tab id) is required for move')
-                    const group = this.moveGroupToTab(entry.id, entry.z)
-                    results.push({ op: 'move', ...this._summarizeGroup(group) })
-                    break
-                }
-                case 'delete': {
-                    if (!entry.id) throw new Error('id is required for delete')
-                    this.deleteGroup(entry.id)
-                    results.push({ op: 'delete', deleted: entry.id })
-                    break
-                }
-                default:
-                    throw new Error(`Unknown manage-groups op: ${op}`)
+                try {
+                    switch (op) {
+                    case 'create': {
+                        const group = this.createGroup(entry.nodeIds, entry.name, { style: entry.style, env: entry.env, id: entry.id })
+                        results.push({ op: 'create', ...this._summarizeGroup(group) })
+                        break
+                    }
+                    case 'update': {
+                        if (!entry.id) throw new Error('id is required for update')
+                        const group = this.updateGroup(entry.id, {
+                            name: entry.name,
+                            style: entry.style,
+                            env: entry.env
+                        })
+                        results.push({ op: 'update', ...this._summarizeGroup(group) })
+                        break
+                    }
+                    case 'manage-members': {
+                        if (!entry.id) throw new Error('id is required for manage-members')
+                        if (!entry.nodeIds || entry.nodeIds.length === 0) throw new Error('nodeIds is required for manage-members')
+                        const mode = entry.mode
+                        if (mode !== 'add' && mode !== 'remove') throw new Error('mode must be "add" or "remove"')
+                        const group = this.updateGroup(entry.id, {
+                            nodeIds: entry.nodeIds,
+                            remove: mode === 'remove'
+                        })
+                        results.push({ op: 'manage-members', mode, ...this._summarizeGroup(group) })
+                        break
+                    }
+                    case 'move': {
+                        if (!entry.id) throw new Error('id is required for move')
+                        if (!entry.z) throw new Error('z (target tab id) is required for move')
+                        const group = this.moveGroupToTab(entry.id, entry.z)
+                        results.push({ op: 'move', ...this._summarizeGroup(group) })
+                        break
+                    }
+                    case 'delete': {
+                        if (!entry.id) throw new Error('id is required for delete')
+                        this.deleteGroup(entry.id)
+                        results.push({ op: 'delete', deleted: entry.id })
+                        break
+                    }
+                    default:
+                        throw new Error(`Unknown manage-groups op: ${op}`)
+                    }
+                } catch (err) {
+                    // The per-op helpers drive Node-RED core group/wire actions, which can throw
+                    // low-level errors (e.g. reading 'has' on a core selection Set) when the editor
+                    // state isn't what core expects. Re-throw scoped to the operation and its target
+                    // so the caller gets a legible message naming what failed, not a raw core detail.
+                    const target = entry.id ? ` for group "${entry.id}"` : (entry.name ? ` for "${entry.name}"` : '')
+                    throw new Error(`manage-groups "${op}" operation failed${target}: ${err.message}`)
                 }
             }
             result.data = results
