@@ -2394,7 +2394,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     // state isn't what core expects. Re-throw scoped to the operation and its target
                     // so the caller gets a legible message naming what failed, not a raw core detail.
                     const target = entry.id ? ` for group "${entry.id}"` : (entry.name ? ` for "${entry.name}"` : '')
-                    throw new Error(`manage-groups "${op}" operation failed${target}: ${err.message}`)
+                    throw new Error(`manage-groups "${op}" operation failed "${target}": ${err.message}`)
                 }
             }
             result.data = results
