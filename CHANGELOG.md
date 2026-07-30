@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.18.1](https://github.com/FlowFuse/nr-assistant/compare/v0.18.0...v0.18.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* scope manage-groups operation errors to the failing operation ([#384](https://github.com/FlowFuse/nr-assistant/issues/384)) ([b67d29b](https://github.com/FlowFuse/nr-assistant/commit/b67d29b7b7a9624ffc301b48a4072f27b9dc26ef))
+
 ## [0.18.0](https://github.com/FlowFuse/nr-assistant/compare/v0.17.0...v0.18.0) (2026-07-27)
 
 
