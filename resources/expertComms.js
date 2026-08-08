@@ -416,6 +416,37 @@ export class ExpertComms {
      */
     handleDebugLogContextGetEntries ({ event, params }) {
         const { visibleOnly = true, fatal = true, error = true, warn = true, info = true, debug = true, trace = true } = params || {}
+
+        // first remove class .selected from all entries. It will be re-added once the expert responds with the list uuids it has registered.
+        $('button.ff-expert-debug-context').removeClass('selected')
+
+        const filteredEntries = this.collectDebugLogEntries({ visibleOnly, fatal, error, warn, info, debug, trace })
+        this.postReply({ type: 'debug-log-context-add', debugLog: filteredEntries }, event)
+    }
+
+    /**
+     * Scrape and format the debug log entries currently rendered in the Node-RED debug sidebar (oldest first, matching
+     * the order they appear in the sidebar), filtered by level. Shared by the chat "add to context" feature and the
+     * automation/get-debug-messages action - neither mutates selection state here, that's handled by their respective callers.
+     * @param {Object} [options]
+     * @param {boolean} [options.visibleOnly] - only include entries currently visible in the viewport and not hidden by the sidebar's own tab/node filter. Defaults to false.
+     * @param {boolean} [options.fatal]
+     * @param {boolean} [options.error]
+     * @param {boolean} [options.warn]
+     * @param {boolean} [options.info]
+     * @param {boolean} [options.debug]
+     * @param {boolean} [options.trace]
+     * @returns {Array} formatted debug log entries, filtered to the requested levels
+     */
+    collectDebugLogEntries ({
+        visibleOnly = false,
+        fatal = true,
+        error = true,
+        warn = true,
+        info = true,
+        debug = true,
+        trace = true
+    } = {}) {
         const wantLevels = []
         if (fatal) wantLevels.push('fatal')
         if (error) wantLevels.push('error')
@@ -445,12 +476,9 @@ export class ExpertComms {
                 rect.right <= $(window).width()
             )
         }
-        // first remove class .selected from all entries. It will be re-added once the expert responds with the list uuids it has registered.
-        $('button.ff-expert-debug-context').removeClass('selected')
 
-        const filteredEntries = []
+        const entries = []
         // get buttons `.red-ui-debug-content-list button.ff-expert-debug-context` in the debug sidebar
-        // but dont include any with `.hide` on the parent `.red-ui-debug-msg` element, as those are not visible
         $('.red-ui-debug-content-list button.ff-expert-debug-context').each((i, el) => {
             const expertToolButtonEl = $(el)
             const parent = expertToolButtonEl.closest('div.red-ui-debug-msg')
@@ -458,19 +486,16 @@ export class ExpertComms {
                 return // hidden or not visible in the viewport, skip this entry
             }
             const uuid = expertToolButtonEl.attr('data-ff-expert-debug-uuid')
-            if (uuid) {
-                const data = expertToolButtonEl.data('ff-expert-debug-data')
-                if (!data) return
-                const { message, payload } = data
-                const entry = this.formatDebugMessage(uuid, message, payload)
-                const level = entry?.level
-                if (!wantLevels.includes(level)) {
-                    return // not a level we want to include, skip this entry
-                }
-                filteredEntries.push(entry)
+            if (!uuid) return
+            const data = expertToolButtonEl.data('ff-expert-debug-data')
+            if (!data) return
+            const { message, payload } = data
+            const formatted = this.formatDebugMessage(uuid, message, payload)
+            if (wantLevels.includes(formatted?.level)) {
+                entries.push(formatted)
             }
         })
-        this.postReply({ type: 'debug-log-context-add', debugLog: filteredEntries }, event)
+        return entries
     }
 
     setNodeRedEventListeners () {

@@ -123,7 +123,8 @@ describeMain('expertAutomations', () => {
                 'automation/export-flow',
                 'automation/set-deploy-mode',
                 'automation/show-sidebar-panel',
-                'automation/toggle-sidebar'
+                'automation/toggle-sidebar',
+                'automation/get-debug-messages'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -191,6 +192,83 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.returns(null)
                 const result = expertAutomations.getNodes('node1', null)
                 should(result).equal(null)
+            })
+        })
+        describe('getDebugMessages', () => {
+            const makeEntry = (uuid, level, sourceId, ancestorIds = []) => ({
+                uuid,
+                level,
+                data: `payload-${uuid}`,
+                source: { id: sourceId },
+                ancestors: ancestorIds.map(id => ({ id }))
+            })
+
+            it('should return entries from expertComms, capped to count', () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
+                    makeEntry('a', 'debug', 'node1'),
+                    makeEntry('b', 'debug', 'node2'),
+                    makeEntry('c', 'debug', 'node3')
+                ])
+                const result = expertAutomations.getDebugMessages({ count: 2 })
+                mockExpertComms.collectDebugLogEntries.calledWith({
+                    visibleOnly: false,
+                    fatal: true,
+                    error: true,
+                    warn: true,
+                    info: true,
+                    debug: true,
+                    trace: true
+                }).should.be.true()
+                result.map(e => e.uuid).should.deepEqual(['b', 'c'])
+            })
+            it('should default count to 20 and cap at 100', () => {
+                const entries = Array.from({ length: 150 }, (_, i) => makeEntry(`id${i}`, 'debug', 'node1'))
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns(entries)
+                const resultDefault = expertAutomations.getDebugMessages()
+                resultDefault.length.should.equal(20)
+                const resultCapped = expertAutomations.getDebugMessages({ count: 500 })
+                resultCapped.length.should.equal(100)
+            })
+            it('should forward level flags to collectDebugLogEntries', () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([])
+                expertAutomations.getDebugMessages({ error: false, trace: false })
+                mockExpertComms.collectDebugLogEntries.calledWith({
+                    visibleOnly: false,
+                    fatal: true,
+                    error: false,
+                    warn: true,
+                    info: true,
+                    debug: true,
+                    trace: false
+                }).should.be.true()
+            })
+            it('should filter by nodeIds, matching source or ancestors', () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
+                    makeEntry('a', 'debug', 'node1'),
+                    makeEntry('b', 'debug', 'inner-node', ['subflow1']),
+                    makeEntry('c', 'debug', 'node3')
+                ])
+                const result = expertAutomations.getDebugMessages({ nodeIds: ['subflow1'] })
+                result.map(e => e.uuid).should.deepEqual(['b'])
+            })
+            it('should select source nodes when select is true', () => {
+                const mockNode1 = { id: 'node1' }
+                mockRED.nodes.node.withArgs('node1').returns(mockNode1)
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
+                    makeEntry('a', 'debug', 'node1')
+                ])
+                sinon.spy(expertAutomations, 'selectNodes')
+                expertAutomations.getDebugMessages({ select: true })
+                expertAutomations.selectNodes.calledWith(['node1']).should.be.true()
+            })
+            it('should not select when no source nodes resolve', () => {
+                mockRED.nodes.node.returns(null)
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
+                    makeEntry('a', 'debug', 'node1')
+                ])
+                sinon.spy(expertAutomations, 'selectNodes')
+                expertAutomations.getDebugMessages({ select: true })
+                expertAutomations.selectNodes.called.should.be.false()
             })
         })
         describe('editNode', () => {
@@ -302,6 +380,27 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/get-nodes', { params: { id: 'node1' } }, result)
                 result.should.have.property('success', false)
                 result.should.have.property('error')
+            })
+        })
+        describe('getDebugMessages action', () => {
+            it('should invoke action and return messages', async () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
+                    { uuid: 'a', level: 'debug', source: { id: 'node1' }, ancestors: [] }
+                ])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-debug-messages', { params: { count: 5 } }, result)
+                result.should.have.property('messages').and.deepEqual([
+                    { uuid: 'a', level: 'debug', source: { id: 'node1' }, ancestors: [] }
+                ])
+                result.should.have.property('success', true)
+                result.should.have.property('handled', true)
+            })
+            it('should work with no params provided', async () => {
+                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/get-debug-messages', {}, result)
+                result.should.have.property('messages').and.deepEqual([])
+                result.should.have.property('success', true)
             })
         })
         describe('editNode action', () => {
