@@ -636,12 +636,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     warn: { type: 'boolean', default: true, description: 'Include "warn" level messages. Defaults to true.' },
                     info: { type: 'boolean', default: true, description: 'Include "info" level messages. Defaults to true.' },
                     debug: { type: 'boolean', default: true, description: 'Include "debug" level messages. Defaults to true.' },
-                    trace: { type: 'boolean', default: true, description: 'Include "trace" level messages. Defaults to true.' },
-                    select: {
-                        type: 'boolean',
-                        default: false,
-                        description: 'If true, also select the source nodes of the returned messages on the canvas. Defaults to false.'
-                    }
+                    trace: { type: 'boolean', default: true, description: 'Include "trace" level messages. Defaults to true.' }
                 }
             }
         }
@@ -709,7 +704,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {boolean} [params.info]
      * @param {boolean} [params.debug]
      * @param {boolean} [params.trace]
-     * @param {boolean} [params.select] - if true, also select the source nodes of the returned messages on the canvas
      * @returns {Array} formatted debug message entries, oldest first (matching the order shown in the debug sidebar)
      */
     getDebugMessages (params) {
@@ -721,8 +715,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             warn = true,
             info = true,
             debug = true,
-            trace = true,
-            select = false
+            trace = true
         } = params || {}
 
         const wantNodeIds = Array.isArray(nodeIds) && nodeIds.length > 0 ? new Set(nodeIds) : null
@@ -737,16 +730,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
 
         const maxCount = Math.min(Math.max(Number(count) || 20, 1), 100)
-        const messages = entries.slice(-maxCount)
-
-        if (select) {
-            const sourceIds = [...new Set(messages.map(m => m.source?.id).filter(id => id && this.RED.nodes.node(id)))]
-            if (sourceIds.length > 0) {
-                this.selectNodes(sourceIds)
-            }
-        }
-
-        return messages
+        return entries.slice(-maxCount)
     }
 
     /**

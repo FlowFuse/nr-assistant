@@ -251,25 +251,6 @@ describeMain('expertAutomations', () => {
                 const result = expertAutomations.getDebugMessages({ nodeIds: ['subflow1'] })
                 result.map(e => e.uuid).should.deepEqual(['b'])
             })
-            it('should select source nodes when select is true', () => {
-                const mockNode1 = { id: 'node1' }
-                mockRED.nodes.node.withArgs('node1').returns(mockNode1)
-                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
-                    makeEntry('a', 'debug', 'node1')
-                ])
-                sinon.spy(expertAutomations, 'selectNodes')
-                expertAutomations.getDebugMessages({ select: true })
-                expertAutomations.selectNodes.calledWith(['node1']).should.be.true()
-            })
-            it('should not select when no source nodes resolve', () => {
-                mockRED.nodes.node.returns(null)
-                mockExpertComms.collectDebugLogEntries = sinon.stub().returns([
-                    makeEntry('a', 'debug', 'node1')
-                ])
-                sinon.spy(expertAutomations, 'selectNodes')
-                expertAutomations.getDebugMessages({ select: true })
-                expertAutomations.selectNodes.called.should.be.false()
-            })
         })
         describe('editNode', () => {
             it('should edit a node when in default state', () => {
