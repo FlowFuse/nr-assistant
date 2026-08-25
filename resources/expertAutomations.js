@@ -375,7 +375,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                             type: 'object',
                             properties: {
                                 source: { type: 'string', description: 'Source node ID' },
-                                output: { type: 'number', description: 'Source output port index (0-based, defaults to 0)' },
+                                output: { type: 'number', default: 0, description: 'Source output port index (0-based, defaults to 0)' },
                                 target: { type: 'string', description: 'Target node ID' }
                             },
                             required: ['source', 'target']
