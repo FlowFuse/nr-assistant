@@ -367,12 +367,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
             params: {
                 type: 'object',
                 properties: {
-                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove a wire' },
-                    source: { type: 'string', description: 'Source node ID' },
-                    output: { type: 'number', description: 'Source output port index (0-based)' },
-                    target: { type: 'string', description: 'Target node ID' }
+                    mode: { type: 'string', enum: ['add', 'remove'], description: 'Whether to add or remove every wire in the batch' },
+                    wires: {
+                        type: 'array',
+                        description: 'The wires to add or remove, applied in order',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                source: { type: 'string', description: 'Source node ID' },
+                                output: { type: 'number', description: 'Source output port index (0-based, defaults to 0)' },
+                                target: { type: 'string', description: 'Target node ID' }
+                            },
+                            required: ['source', 'target']
+                        }
+                    }
                 },
-                required: ['mode', 'source', 'target']
+                required: ['mode', 'wires']
             }
         },
         [SET_LINKS]: {
@@ -1559,14 +1569,16 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Add or remove a single wire between two nodes.
-     * @param {object} params
-     * @param {'add'|'remove'} params.mode
-     * @param {string} params.source - Source node ID
-     * @param {number} [params.output] - Source output port index (0-based, defaults to 0)
-     * @param {string} params.target - Target node ID
+     * Add or remove a single wire between two nodes. Throws on any validation failure.
+     * Records the change on the editor history but does not repaint — the caller repaints
+     * once after a batch (see setWires).
+     * @param {object} wire
+     * @param {'add'|'remove'} wire.mode
+     * @param {string} wire.source - Source node ID
+     * @param {number} [wire.output] - Source output port index (0-based, defaults to 0)
+     * @param {string} wire.target - Target node ID
      */
-    setWires ({ mode, source, output, target }) {
+    _applyWire ({ mode, source, output, target }) {
         if (source === target) throw new Error('Cannot wire a node to itself')
         const sourceNode = this._resolveNode(source)
         if (!sourceNode) throw new Error(`Source node ${source} not found`)
@@ -1621,8 +1633,44 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         sourceNode.dirty = true
         this.RED.nodes.dirty(true)
-        this.RED.view.updateActive()
-        this.RED.view.redraw()
+    }
+
+    /**
+     * Add or remove one or more wires in a single call, all with the same mode. Each wire is
+     * applied independently: one that fails validation is reported in `failed` and does not
+     * stop the rest (partial success, mirroring removeNodes). The canvas is repainted once,
+     * after the batch.
+     * @param {object} params
+     * @param {'add'|'remove'} params.mode - whether to add or remove every wire in the batch
+     * @param {Array<{source: string, output?: number, target: string}>} [params.wires] - the wires to apply
+     * @param {string} [params.source] - single-wire form (used only when `wires` is absent)
+     * @param {number} [params.output] - single-wire form: source output port index (0-based)
+     * @param {string} [params.target] - single-wire form: target node ID
+     * @returns {{mode: string, applied: Array<object>, failed: Array<object>}}
+     */
+    setWires ({ mode, wires, source, output, target }) {
+        // Write permission is an action-level gate (a denial fails every wire identically), so
+        // check it once up front and reject the whole call rather than reporting it per wire.
+        this._assertWritePermission()
+        // Accept either a `wires` array or the legacy single-wire fields.
+        const batch = Array.isArray(wires) ? wires : [{ source, output, target }]
+        if (batch.length === 0) throw new Error('wires array must not be empty')
+        const applied = []
+        const failed = []
+        for (const wire of batch) {
+            const summary = { source: wire.source, output: wire.output ?? 0, target: wire.target }
+            try {
+                this._applyWire({ mode, source: wire.source, output: wire.output, target: wire.target })
+                applied.push(summary)
+            } catch (err) {
+                failed.push({ ...summary, error: err.message })
+            }
+        }
+        if (applied.length > 0) {
+            this.RED.view.updateActive()
+            this.RED.view.redraw()
+        }
+        return { mode, applied, failed }
     }
 
     /**
@@ -1967,21 +2015,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
             //    so failures are visible by default (the caller can rewire it to a notification,
             //    a log, or further handling).
             for (const w of entryInbound) {
-                this.setWires({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
-                this.setWires({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
+                this._applyWire({ mode: 'remove', source: w.source.id, output: w.sourcePort, target: entryNode.id })
+                this._applyWire({ mode: 'add', source: w.source.id, output: w.sourcePort, target: linkCallId })
             }
-            this.setWires({ mode: 'add', source: linkCallId, output: 0, target: switchId })
-            this.setWires({ mode: 'add', source: switchId, output: 0, target: debugId })
+            this._applyWire({ mode: 'add', source: linkCallId, output: 0, target: switchId })
+            this._applyWire({ mode: 'add', source: switchId, output: 0, target: debugId })
             for (const w of exitOutbound) {
-                this.setWires({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
-                this.setWires({ mode: 'add', source: switchId, output: 1, target: w.target.id })
+                this._applyWire({ mode: 'remove', source: exitNode.id, output: w.sourcePort, target: w.target.id })
+                this._applyWire({ mode: 'add', source: switchId, output: 1, target: w.target.id })
             }
 
             // 3. Wire the body (link in -> entry, exit -> link out), route caught body
             //    errors back through the link out, and point the link call at the link in.
-            this.setWires({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
-            this.setWires({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
-            this.setWires({ mode: 'add', source: catchId, output: 0, target: linkOutId })
+            this._applyWire({ mode: 'add', source: linkInId, output: 0, target: entryNode.id })
+            this._applyWire({ mode: 'add', source: exitNode.id, output: exitPort, target: linkOutId })
+            this._applyWire({ mode: 'add', source: catchId, output: 0, target: linkOutId })
             this.setLinks({ mode: 'add', source: linkCallId, target: linkInId })
 
             // 4. Free the body nodes from any group they already belong to before re-grouping.
@@ -2315,11 +2363,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
-        case SET_WIRES:
-            this.setWires(params)
-            result.data = { mode: params.mode, source: params.source, output: params.output, target: params.target }
+        case SET_WIRES: {
+            result.data = this.setWires(params)
             result.success = true
             break
+        }
 
         case SET_LINKS:
             this.setLinks(params)
