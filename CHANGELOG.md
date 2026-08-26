@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.19.0](https://github.com/FlowFuse/nr-assistant/compare/v0.18.1...v0.19.0) (2026-08-26)
+
+
+### Features
+
+* add get-debug-messages automation action ([#387](https://github.com/FlowFuse/nr-assistant/issues/387)) ([5953bd7](https://github.com/FlowFuse/nr-assistant/commit/5953bd74180467dbcfb99da3e21e24a17e2e50c5)), closes [#386](https://github.com/FlowFuse/nr-assistant/issues/386)
+* **automations:** apply set-wires as a batch with partial success ([#395](https://github.com/FlowFuse/nr-assistant/issues/395)) ([9d586a5](https://github.com/FlowFuse/nr-assistant/commit/9d586a57cb4221c8452b089a09144dec7b0c8c1c))
+
 ## [0.18.1](https://github.com/FlowFuse/nr-assistant/compare/v0.18.0...v0.18.1) (2026-07-30)
 
 
