@@ -56,6 +56,15 @@ const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
+// Sent on the install request so the platform audit log can attribute the change.
+// The postMessage contract this plugin receives actions over (type/action/params/target/
+// source/scope/correlationId - see setupMessageListeners) carries no marker for which
+// channel dispatched the action, and threading one through would mean changing that
+// contract end to end, outside of this plugin. Until that lands, every install is
+// attributed with the same value.
+const INSTALL_SOURCE_HEADER = 'x-ff-source'
+const INSTALL_SOURCE_VALUE = 'mcp'
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -1133,6 +1142,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * Checks whether a certified-nodes package is present in one of the catalogues injected
      * into this instance. Catalogues are read the same way the core palette manager reads them
      * (RED.settings.theme('palette.catalogues')) and fetched directly since they are public JSON.
+     *
+     * This does not leak the editor's session credential to the catalogue host: the editor's
+     * global $.ajaxSetup only attaches the Authorization header (and rewrites the URL against
+     * apiRootUrl) for requests whose url does not already look like an absolute URL, a root-
+     * relative path, or a dotted-relative path - see @node-red/editor-client's settings.js
+     * beforeSend hook. Catalogue entries are always full "https://" URLs, so that check never
+     * matches here and no credential is attached; this is the exact same request shape core's
+     * own palette manager already uses for its catalogue fetches.
      * @param {string} module - the certified package name to look up
      * @returns {Promise<boolean>} true if any catalogue lists the module
      */
@@ -2532,6 +2549,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
+                headers: { [INSTALL_SOURCE_HEADER]: INSTALL_SOURCE_VALUE },
                 data: JSON.stringify(installPayload)
             }).catch(err => {
                 console.error(`Failed to start install of module "${module}":`, err?.responseJSON?.message || err?.statusText || err)

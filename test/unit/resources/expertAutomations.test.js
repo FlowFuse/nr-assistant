@@ -3473,7 +3473,23 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('module', 'node-red-contrib-influxdb')
                 mockAjax.calledOnce.should.be.true()
                 mockAjax.firstCall.args[0].should.match({ url: 'nodes', method: 'POST' })
+                mockAjax.firstCall.args[0].should.have.propertyByPath('headers', 'x-ff-source').eql('mcp')
                 mockRED.settings.theme.called.should.be.false()
+            })
+
+            it('should set the x-ff-source attribution header on the install POST for a certified package too', async () => {
+                mockRED.settings.theme = sinon.stub().returns(['https://example.com/catalogue.json'])
+                mockAjax.withArgs(sinon.match({ url: 'https://example.com/catalogue.json' })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/some-package' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', true)
+                const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
+                installCall.args[0].should.have.propertyByPath('headers', 'x-ff-source').eql('mcp')
             })
 
             it('should respond immediately without waiting for the install POST to settle', async () => {
