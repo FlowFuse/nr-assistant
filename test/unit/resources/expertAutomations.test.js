@@ -122,6 +122,7 @@ describeMain('expertAutomations', () => {
                 'automation/arrange-nodes',
                 'automation/export-flow',
                 'automation/set-deploy-mode',
+                'automation/deploy-flows',
                 'automation/show-sidebar-panel',
                 'automation/toggle-sidebar',
                 'automation/get-debug-messages'

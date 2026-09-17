@@ -32,6 +32,7 @@ const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
+const DEPLOY_FLOWS = 'automation/deploy-flows'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
@@ -78,6 +79,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE
+ *   |DEPLOY_FLOWS
  *   |SHOW_SIDEBAR_PANEL
  *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
  */
@@ -601,6 +603,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 required: ['mode']
             }
         },
+        [DEPLOY_FLOWS]: { params: null },
         [SHOW_SIDEBAR_PANEL]: {
             params: {
                 type: 'object',
@@ -2558,6 +2561,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             this.RED.actions.invoke(coreAction)
             result.success = true
+            break
+        }
+        case DEPLOY_FLOWS: {
+            let policy
+            try {
+                policy = await $.ajax({
+                    url: 'nr-assistant/deploy-policy',
+                    method: 'GET',
+                    headers: { Accept: 'application/json' }
+                })
+            } catch (err) {
+                policy = { autoDeploy: false }
+            }
+            if (!policy?.autoDeploy) {
+                result.success = true
+                result.deployed = false
+                result.message = 'Agent-initiated deploy is not enabled for this team, so the flow changes were saved but not deployed. Offer to take the user to the setting now: call ui_navigate with route "team-settings-danger" (pass the current team\'s slug as the team_slug param) so a team owner can turn on "Agent-Initiated Deploy". If ui_navigate is not available, tell the user the route name so they can navigate there themselves.'
+                result.enableSettings = { route: 'team-settings-danger', requiredParams: { team_slug: 'the current team\'s slug' } }
+                break
+            }
+            this.RED.actions.invoke('core:deploy-flows')
+            result.success = true
+            result.deployed = true
             break
         }
         case SHOW_SIDEBAR_PANEL:
