@@ -4263,6 +4263,51 @@ describeMain('expertAutomations', () => {
             })
         })
 
+        describe('deploy-flows action', () => {
+            beforeEach(() => {
+                sinon.stub(expertAutomations.redOps, 'invokeActionAndWait')
+            })
+            afterEach(() => {
+                delete global.$
+            })
+            it('deploys and reports deployed: true when the deploy completes', async () => {
+                global.$ = { ajax: sinon.stub().resolves({ autoDeploy: true }) }
+                expertAutomations.redOps.invokeActionAndWait.resolves()
+                const result = {}
+                await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
+                global.$.ajax.calledWithMatch({ url: 'nr-assistant/deploy-policy', method: 'GET' }).should.be.true()
+                expertAutomations.redOps.invokeActionAndWait.calledWith('core:deploy-flows', null, 'deploy').should.be.true()
+                result.should.have.property('success', true)
+                result.should.have.property('deployed', true)
+            })
+            it('reports deployed: false without deploying when the team has not enabled agent-initiated deploy', async () => {
+                global.$ = { ajax: sinon.stub().resolves({ autoDeploy: false }) }
+                const result = {}
+                await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
+                expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
+                result.should.have.property('success', true)
+                result.should.have.property('deployed', false)
+                result.message.should.match(/ui_navigate/)
+            })
+            it('reports deployed: false when the deploy-policy check itself fails', async () => {
+                global.$ = { ajax: sinon.stub().rejects(new Error('network error')) }
+                const result = {}
+                await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
+                expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
+                result.should.have.property('success', true)
+                result.should.have.property('deployed', false)
+            })
+            it('reports deployed: false when the deploy does not complete (conflict, or blocked by a dialog)', async () => {
+                global.$ = { ajax: sinon.stub().resolves({ autoDeploy: true }) }
+                expertAutomations.redOps.invokeActionAndWait.rejects(new Error("Timeout waiting for event 'deploy'"))
+                const result = {}
+                await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('deployed', false)
+                result.message.should.match(/did not complete/)
+            })
+        })
+
         describe('export-flow action', () => {
             let clickedId
             beforeEach(() => {

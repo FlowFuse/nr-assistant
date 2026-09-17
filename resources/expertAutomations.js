@@ -47,6 +47,17 @@ const ERROR_CODES = Object.freeze({
 
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
 
+// core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
+// editor-client/src/js/ui/deploy.js) returns before the server has confirmed the deploy, so
+// DEPLOY_FLOWS waits for the editor's own 'deploy' event instead of reporting success immediately.
+// Verified against deploy.js's save(): RED.events.emit("deploy") fires exactly once, inside the
+// POST /flows .done() handler, on a real successful deploy. Both failure paths return before ever
+// emitting it - a confirmation dialog for unknown/invalid nodes shows and `return`s before the
+// POST is even made, and a 409 conflict routes to resolveConflict(), which needs the user to
+// resolve it manually rather than retrying automatically - so timing out here correctly reports
+// deployed: false for both.
+const DEPLOY_WAIT_TIMEOUT_MS = 15000
+
 /**
  * @typedef {SELECT_NODES
  *   |GET_NODES
@@ -2581,9 +2592,15 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.enableSettings = { route: 'team-settings-danger', requiredParams: { team_slug: 'the current team\'s slug' } }
                 break
             }
-            this.RED.actions.invoke('core:deploy-flows')
-            result.success = true
-            result.deployed = true
+            try {
+                await this.redOps.invokeActionAndWait('core:deploy-flows', null, 'deploy', { timeout: DEPLOY_WAIT_TIMEOUT_MS })
+                result.success = true
+                result.deployed = true
+            } catch (_err) {
+                result.success = true
+                result.deployed = false
+                result.message = 'The deploy did not complete. This can happen if the server rejected it (for example, a newer revision was already deployed), or if a confirmation dialog is blocking it (for example, unknown or invalid node types). Check the editor for an open dialog or notification and resolve it before trying again.'
+            }
             break
         }
         case SHOW_SIDEBAR_PANEL:
