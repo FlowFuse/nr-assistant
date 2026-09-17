@@ -28,6 +28,7 @@ const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
+const INSTALL_MODULE = 'automation/install-module'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
@@ -41,10 +42,19 @@ const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
 
 const ERROR_CODES = Object.freeze({
     GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
-    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
+    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY',
+    INVALID_MODULE: 'INVALID_MODULE',
+    MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED'
 })
 
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
+
+// Scope reserved for FlowFuse certified nodes. Packages under this scope require an
+// entitlement check against the instance's injected certified-nodes catalogues before install.
+const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
+
+// Loose but standards-compliant npm package name check (unscoped or @scope/name).
+const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
 /**
  * @typedef {SELECT_NODES
@@ -74,6 +84,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |GET_PALETTE
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
+ *   |INSTALL_MODULE
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
@@ -490,6 +501,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     filter: {
                         type: 'string',
                         description: 'Optional package name or search term to pre-filter the palette manager'
+                    }
+                }
+            }
+        },
+        [INSTALL_MODULE]: {
+            params: {
+                type: 'object',
+                required: ['module'],
+                properties: {
+                    module: {
+                        type: 'string',
+                        description: 'The npm package name to install (e.g. "node-red-contrib-influxdb" or "@flowfuse-certified-nodes/some-package")'
+                    },
+                    version: {
+                        type: 'string',
+                        description: 'Optional npm version or version range to install. Defaults to latest when omitted.'
                     }
                 }
             }
@@ -1100,6 +1127,35 @@ export class ExpertAutomations extends ExpertActionsInterface {
         })
 
         return palette
+    }
+
+    /**
+     * Checks whether a certified-nodes package is present in one of the catalogues injected
+     * into this instance. Catalogues are read the same way the core palette manager reads them
+     * (RED.settings.theme('palette.catalogues')) and fetched directly since they are public JSON.
+     * @param {string} module - the certified package name to look up
+     * @returns {Promise<boolean>} true if any catalogue lists the module
+     */
+    async isModuleEntitled (module) {
+        const catalogues = this.RED.settings.theme('palette.catalogues') || []
+        if (!Array.isArray(catalogues) || catalogues.length === 0) {
+            return false
+        }
+        for (const url of catalogues) {
+            try {
+                const catalogue = await $.ajax({
+                    url,
+                    method: 'GET',
+                    dataType: 'json'
+                })
+                if (Array.isArray(catalogue?.modules) && catalogue.modules.some(m => m?.id === module)) {
+                    return true
+                }
+            } catch (err) {
+                console.warn(`Failed to load certified-nodes catalogue "${url}":`, err?.statusText || err?.message || err)
+            }
+        }
+        return false
     }
 
     async closeEditorTray () {
@@ -2448,6 +2504,45 @@ export class ExpertAutomations extends ExpertActionsInterface {
             })
             result.success = true
             break
+        case INSTALL_MODULE: {
+            const module = typeof params?.module === 'string' ? params.module.trim() : ''
+            if (!module || !NPM_PACKAGE_NAME_RE.test(module)) {
+                result.error = `"${params?.module}" is not a valid npm package name`
+                result.errorCode = ERROR_CODES.INVALID_MODULE
+                result.success = false
+                break
+            }
+            const version = typeof params?.version === 'string' && params.version.trim() ? params.version.trim() : undefined
+
+            if (module.startsWith(CERTIFIED_NODES_SCOPE)) {
+                const entitled = await this.isModuleEntitled(module)
+                if (!entitled) {
+                    result.error = `This team's certified-nodes catalogues do not include "${module}" - it is not available to install`
+                    result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                    result.success = false
+                    break
+                }
+            }
+
+            // Kick off the install and reply immediately: npm install can take well over a minute,
+            // far longer than the transport timeout, so the caller confirms completion by polling
+            // the palette rather than waiting on this request.
+            const installPayload = version ? { module, version } : { module }
+            $.ajax({
+                url: 'nodes',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(installPayload)
+            }).catch(err => {
+                console.error(`Failed to start install of module "${module}":`, err?.responseJSON?.message || err?.statusText || err)
+            })
+
+            result.started = true
+            result.module = module
+            if (version) result.version = version
+            result.success = true
+            break
+        }
         case MANAGE_GROUPS: {
             const operations = params.operations
             if (!Array.isArray(operations) || operations.length === 0) {

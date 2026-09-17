@@ -118,6 +118,7 @@ describeMain('expertAutomations', () => {
                 'automation/get-palette',
                 'automation/list-config-nodes',
                 'automation/open-palette-manager',
+                'automation/install-module',
                 'automation/manage-groups',
                 'automation/arrange-nodes',
                 'automation/export-flow',
@@ -3439,6 +3440,105 @@ describeMain('expertAutomations', () => {
                 mockRED.actions.invoke.calledOnce.should.be.true()
                 mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: '' }).should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+
+        describe('automation/install-module', () => {
+            let mockAjax
+            beforeEach(() => {
+                mockAjax = sinon.stub()
+                global.$ = { ajax: mockAjax }
+                mockRED.settings.theme = sinon.stub().returns([])
+            })
+            afterEach(() => {
+                delete global.$
+            })
+
+            it('should reject an empty/invalid module name without calling the registry', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', { params: { module: '' } }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INVALID_MODULE')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should skip the catalogue check for a non-certified module and POST the install', async () => {
+                mockAjax.resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: 'node-red-contrib-influxdb' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                result.should.have.property('module', 'node-red-contrib-influxdb')
+                mockAjax.calledOnce.should.be.true()
+                mockAjax.firstCall.args[0].should.match({ url: 'nodes', method: 'POST' })
+                mockRED.settings.theme.called.should.be.false()
+            })
+
+            it('should respond immediately without waiting for the install POST to settle', async () => {
+                let installSettled = false
+                mockAjax.returns(new Promise(resolve => {
+                    setTimeout(() => { installSettled = true; resolve({}) }, 50)
+                }))
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: 'node-red-contrib-influxdb' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                installSettled.should.be.false()
+            })
+
+            it('should proceed to POST when a certified package is listed in an injected catalogue', async () => {
+                mockRED.settings.theme = sinon.stub().returns(['https://example.com/catalogue.json'])
+                mockAjax.withArgs(sinon.match({ url: 'https://example.com/catalogue.json' })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/some-package' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                mockAjax.calledWith(sinon.match({ url: 'nodes', method: 'POST' })).should.be.true()
+            })
+
+            it('should respond not-entitled without POSTing when no catalogue lists the certified package', async () => {
+                mockRED.settings.theme = sinon.stub().returns(['https://example.com/catalogue.json'])
+                mockAjax.withArgs(sinon.match({ url: 'https://example.com/catalogue.json' })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/other-package' }]
+                })
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                mockAjax.calledWith(sinon.match({ url: 'nodes' })).should.be.false()
+            })
+
+            it('should respond not-entitled when the instance has no injected catalogues', async () => {
+                mockRED.settings.theme = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should include the version in both the response and the install payload when provided', async () => {
+                mockAjax.resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: 'node-red-contrib-influxdb', version: '1.2.3' }
+                }, result)
+                result.should.have.property('version', '1.2.3')
+                const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
+                JSON.parse(installCall.args[0].data).should.deepEqual({ module: 'node-red-contrib-influxdb', version: '1.2.3' })
             })
         })
 
