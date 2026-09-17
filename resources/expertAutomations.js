@@ -2575,6 +2575,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         }
         case DEPLOY_FLOWS: {
+            if (!this.RED.nodes.dirty()) {
+                // The Deploy button is disabled (and save() is a no-op that returns immediately,
+                // never emitting 'deploy') whenever the workspace has no undeployed changes - see
+                // deploy.js's `workspace:dirty` handler and the `hasClass("disabled")` check at the
+                // top of save(). Calling the action here would just burn the full timeout and
+                // wrongly report deployed: false, so short-circuit instead: there is nothing to
+                // deploy, and the flows are already deployed.
+                result.success = true
+                result.deployed = true
+                result.message = 'There were no undeployed changes - the flows are already deployed.'
+                break
+            }
             let policy
             try {
                 policy = await $.ajax({

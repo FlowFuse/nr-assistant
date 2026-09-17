@@ -4266,9 +4266,19 @@ describeMain('expertAutomations', () => {
         describe('deploy-flows action', () => {
             beforeEach(() => {
                 sinon.stub(expertAutomations.redOps, 'invokeActionAndWait')
+                mockRED.nodes.dirty.returns(true) // there are undeployed changes, unless a test says otherwise
             })
             afterEach(() => {
                 delete global.$
+            })
+            it('reports deployed: true without attempting a deploy when there are no undeployed changes', async () => {
+                mockRED.nodes.dirty.returns(false)
+                const result = {}
+                await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
+                expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
+                result.should.have.property('success', true)
+                result.should.have.property('deployed', true)
+                result.message.should.match(/no undeployed changes/)
             })
             it('deploys and reports deployed: true when the deploy completes', async () => {
                 global.$ = { ajax: sinon.stub().resolves({ autoDeploy: true }) }
