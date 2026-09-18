@@ -2587,17 +2587,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
 
-            const { entitled, lookupFailed } = await this.isModuleEntitled(module)
-            if (!entitled) {
-                if (lookupFailed) {
-                    result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
-                    result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
-                } else {
-                    result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
-                    result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+            // '@flowfuse/' packages live on the public npm registry, so being in the scope is
+            // the entitlement; the other scopes are served from private registries and must be
+            // listed in one of the instance's FlowFuse catalogues.
+            if (!module.startsWith(FLOWFUSE_SCOPE)) {
+                const { entitled, lookupFailed } = await this.isModuleEntitled(module)
+                if (!entitled) {
+                    if (lookupFailed) {
+                        result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
+                        result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
+                    } else {
+                        result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
+                        result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                    }
+                    result.success = false
+                    break
                 }
-                result.success = false
-                break
             }
 
             // npm install can take well over a minute, far longer than the transport timeout, so
