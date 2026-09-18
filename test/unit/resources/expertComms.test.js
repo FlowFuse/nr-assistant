@@ -27,8 +27,10 @@ describeMain('expertComms', function () {
     let parentPostMessageStub
 
     beforeEach(async () => {
-        // Mock jQuery
-        mockJQuery = sinon.stub()
+        // Mock jQuery - defaults to an empty, chainable jQuery-like result so unrelated
+        // selectors (e.g. the onboarding dialog dismissal) are safe no-ops; specific tests
+        // override individual selectors below via mockJQuery.withArgs(...)
+        mockJQuery = sinon.stub().callsFake(() => ({ length: 0, eq: () => ({ length: 0, click: sinon.stub() }), click: sinon.stub() }))
         mockJQuery.ajax = sinon.stub()
 
         // Mock window object
@@ -108,7 +110,9 @@ describeMain('expertComms', function () {
                 return key
             }),
             settings: {
-                version: '4.1.4'
+                version: '4.1.4',
+                get: sinon.stub(),
+                set: sinon.stub()
             },
             search: {
                 hide: sinon.stub()
@@ -1091,6 +1095,30 @@ describeMain('expertComms', function () {
             eventSource.postMessage.calledOnce.should.be.true()
             const reply = eventSource.postMessage.firstCall.args[0]
             reply.error.should.be.a.String()
+        })
+
+        it('dismisses onboarding dialogs before dispatching, even for an unknown action', () => {
+            const eventSource = { postMessage: sinon.stub() }
+            const event = {
+                source: eventSource,
+                origin: 'http://example.com',
+                data: {
+                    type: 'invoke-action',
+                    target: 'nr-assistant',
+                    source: 'flowfuse-expert',
+                    scope: 'flowfuse-expert',
+                    action: 'unknown-action',
+                    params: {}
+                }
+            }
+
+            sinon.stub(console, 'warn')
+
+            messageHandler(event)
+
+            mockRED.settings.set.calledWith('editor.view.view-show-welcome-tours', sinon.match.any).should.be.true()
+
+            console.warn.restore()
         })
     })
 
