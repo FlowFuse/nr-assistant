@@ -48,7 +48,6 @@ const ERROR_CODES = Object.freeze({
     MODULE_NOT_ALLOWED: 'MODULE_NOT_ALLOWED',
     MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED',
     INSTALL_FAILED: 'INSTALL_FAILED',
-    INVALID_VERSION: 'INVALID_VERSION',
     INSTALL_NOT_ALLOWED: 'INSTALL_NOT_ALLOWED',
     CATALOGUE_UNAVAILABLE: 'CATALOGUE_UNAVAILABLE'
 })
@@ -74,15 +73,15 @@ const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODE
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
-// Exact versions, dist-tags and ^/~ ranges only - no shell metacharacters, because the
-// runtime's installer interpolates module@version into a shell command.
-const NPM_VERSION_RE = /^[~^]?[0-9A-Za-z.+-]+$/
+// Callers cannot pick a version: the runtime's installer interpolates module@version into a
+// shell command, so the version is pinned here rather than validated.
+const INSTALL_VERSION = 'latest'
 
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
 
-// Long enough to catch fast install failures (registry 404, bad version), short enough to fit
+// Long enough to catch fast install failures (registry 404), short enough to fit
 // the transport window when the install is slow.
 const INSTALL_FAIL_GRACE_MS = 2000
 
@@ -554,11 +553,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 properties: {
                     module: {
                         type: 'string',
-                        description: 'The npm package name to install. Only packages in the "@flowfuse/", "@flowfuse-nodes/" or "@flowfuse-certified-nodes/" scopes can be installed (e.g. "@flowfuse/node-red-dashboard")'
-                    },
-                    version: {
-                        type: 'string',
-                        description: 'Optional npm version or ^/~ range to install (e.g. "1.2.3" or "^1.2.0"). Defaults to latest when omitted.'
+                        description: 'The npm package name to install. Only packages in the "@flowfuse/", "@flowfuse-nodes/" or "@flowfuse-certified-nodes/" scopes can be installed (e.g. "@flowfuse/node-red-dashboard"). Always installs the latest version.'
                     }
                 }
             }
@@ -2582,14 +2577,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            const version = typeof params?.version === 'string' && params.version.trim() ? params.version.trim() : undefined
-            if (version && !NPM_VERSION_RE.test(version)) {
-                result.error = `"${version}" is not a valid npm version - use an exact version like '1.2.3' or a range like '^1.2.0'`
-                result.errorCode = ERROR_CODES.INVALID_VERSION
-                result.success = false
-                break
-            }
-
             if (!INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
                 result.error = `"${module}" is not in an installable scope - only ${INSTALLABLE_SCOPES.map(s => `'${s}'`).join(', ')} packages can be installed`
                 result.errorCode = ERROR_CODES.MODULE_NOT_ALLOWED
@@ -2597,7 +2584,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
 
-            if (!this.isInstallPermitted(module, version)) {
+            if (!this.isInstallPermitted(module, INSTALL_VERSION)) {
                 result.error = `Installs are disabled or "${module}" is blocked by this instance's palette settings`
                 result.errorCode = ERROR_CODES.INSTALL_NOT_ALLOWED
                 result.success = false
@@ -2620,12 +2607,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
             // npm install can take well over a minute, far longer than the transport timeout, so
             // don't wait for it: report fast failures caught within the grace window, otherwise
             // reply started and let the caller confirm completion by polling the palette.
-            const installPayload = version ? { module, version } : { module }
             const install = $.ajax({
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
-                data: JSON.stringify(installPayload)
+                data: JSON.stringify({ module, version: INSTALL_VERSION })
             })
             install.catch(err => {
                 console.error(`Install of module "${module}" failed:`, err?.responseJSON?.message || err?.statusText || err)
@@ -2644,7 +2630,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.started = true
             result.code = RESULT_CODES.INSTALL_STARTED
             result.module = module
-            if (version) result.version = version
             result.success = true
             break
         }

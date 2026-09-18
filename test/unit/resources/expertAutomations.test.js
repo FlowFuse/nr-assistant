@@ -3470,17 +3470,6 @@ describeMain('expertAutomations', () => {
                 mockAjax.called.should.be.false()
             })
 
-            it('should reject a shell-unsafe version without checking catalogues or POSTing', async () => {
-                const result = {}
-                await expertAutomations.invokeAction('automation/install-module', {
-                    params: { module: '@flowfuse/node-red-dashboard', version: '1.0.0; echo pwned' }
-                }, result)
-                result.should.have.property('success', false)
-                result.should.have.property('errorCode', 'INVALID_VERSION')
-                mockAjax.called.should.be.false()
-                mockRED.settings.theme.called.should.be.false()
-            })
-
             it('should refuse the install when the palette settings disable installs', async () => {
                 mockRED.settings.get = sinon.stub().callsFake((key, dflt) => key === 'externalModules.palette.allowInstall' ? false : dflt)
                 const result = {}
@@ -3671,7 +3660,7 @@ describeMain('expertAutomations', () => {
                 mockAjax.called.should.be.false()
             })
 
-            it('should include the version in both the response and the install payload when provided', async () => {
+            it('should always install latest, ignoring any caller-supplied version', async () => {
                 mockRED.settings.theme = sinon.stub().returns([FLOWFUSE_CATALOGUE])
                 mockAjax.withArgs(sinon.match({ url: FLOWFUSE_CATALOGUE })).resolves({
                     modules: [{ id: '@flowfuse/node-red-dashboard' }]
@@ -3679,11 +3668,12 @@ describeMain('expertAutomations', () => {
                 mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
                 const result = {}
                 await expertAutomations.invokeAction('automation/install-module', {
-                    params: { module: '@flowfuse/node-red-dashboard', version: '1.2.3' }
+                    params: { module: '@flowfuse/node-red-dashboard', version: '1.0.0; echo pwned' }
                 }, result)
-                result.should.have.property('version', '1.2.3')
+                result.should.have.property('success', true)
+                result.should.not.have.property('version')
                 const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
-                JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard', version: '1.2.3' })
+                JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard', version: 'latest' })
             })
         })
 
