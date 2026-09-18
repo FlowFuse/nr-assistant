@@ -4278,7 +4278,8 @@ describeMain('expertAutomations', () => {
                 expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
                 result.should.have.property('success', true)
                 result.should.have.property('deployed', true)
-                result.message.should.match(/no undeployed changes/)
+                result.should.have.property('code', 'NO_UNDEPLOYED_CHANGES')
+                result.should.not.have.property('message')
             })
             it('deploys and reports deployed: true when the deploy completes', async () => {
                 global.$ = { ajax: sinon.stub().resolves({ autoDeploy: true }) }
@@ -4297,7 +4298,8 @@ describeMain('expertAutomations', () => {
                 expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
                 result.should.have.property('success', true)
                 result.should.have.property('deployed', false)
-                result.message.should.match(/ui_navigate/)
+                result.should.have.property('code', 'AUTO_DEPLOY_DISABLED')
+                result.should.not.have.property('message')
             })
             it('reports deployed: false when the deploy-policy check itself fails', async () => {
                 global.$ = { ajax: sinon.stub().rejects(new Error('network error')) }
@@ -4306,6 +4308,7 @@ describeMain('expertAutomations', () => {
                 expertAutomations.redOps.invokeActionAndWait.called.should.be.false()
                 result.should.have.property('success', true)
                 result.should.have.property('deployed', false)
+                result.should.have.property('code', 'AUTO_DEPLOY_DISABLED')
             })
             it('reports deployed: false when the deploy does not complete (conflict, or blocked by a dialog)', async () => {
                 global.$ = { ajax: sinon.stub().resolves({ autoDeploy: true }) }
@@ -4314,7 +4317,8 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
                 result.should.have.property('success', true)
                 result.should.have.property('deployed', false)
-                result.message.should.match(/not confirmed within the wait window/)
+                result.should.have.property('code', 'DEPLOY_NOT_CONFIRMED')
+                result.should.not.have.property('message')
             })
         })
 

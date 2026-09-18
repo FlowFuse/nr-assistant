@@ -45,6 +45,15 @@ const ERROR_CODES = Object.freeze({
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
 })
 
+// Outcome codes returned as `result.code`. The platform side maps these to the
+// caller-facing message, so the wording can change without a new nr-assistant
+// release; treat shipped codes as frozen identifiers.
+const RESULT_CODES = Object.freeze({
+    NO_UNDEPLOYED_CHANGES: 'NO_UNDEPLOYED_CHANGES',
+    AUTO_DEPLOY_DISABLED: 'AUTO_DEPLOY_DISABLED',
+    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED'
+})
+
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
 
 // core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
@@ -2584,7 +2593,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 // deploy, and the flows are already deployed.
                 result.success = true
                 result.deployed = true
-                result.message = 'There were no undeployed changes - the flows are already deployed.'
+                result.code = RESULT_CODES.NO_UNDEPLOYED_CHANGES
                 break
             }
             let policy
@@ -2600,8 +2609,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             if (!policy?.autoDeploy) {
                 result.success = true
                 result.deployed = false
-                result.message = 'Agent-initiated deploy is not enabled for this team, so the flow changes were saved but not deployed. Offer to take the user to the setting now: call ui_navigate with route "team-settings-danger" (pass the current team\'s slug as the team_slug param) so a team owner can turn on "Agent-Initiated Deploy". If ui_navigate is not available, tell the user the route name so they can navigate there themselves.'
-                result.enableSettings = { route: 'team-settings-danger', requiredParams: { team_slug: 'the current team\'s slug' } }
+                result.code = RESULT_CODES.AUTO_DEPLOY_DISABLED
                 break
             }
             try {
@@ -2611,7 +2619,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             } catch (_err) {
                 result.success = true
                 result.deployed = false
-                result.message = 'The deploy was not confirmed within the wait window. It may still be completing in the background (large flows can take longer than this check waits for), or it may not be happening at all - the server could have rejected it (for example, a newer revision was already deployed), or a confirmation dialog could be blocking it (for example, unknown or invalid node types). Check the editor for an open dialog or notification, and check whether the changes are actually live before assuming the deploy failed.'
+                result.code = RESULT_CODES.DEPLOY_NOT_CONFIRMED
             }
             break
         }
