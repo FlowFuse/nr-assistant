@@ -65,7 +65,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
 // POST is even made, and a 409 conflict routes to resolveConflict(), which needs the user to
 // resolve it manually rather than retrying automatically - so timing out here correctly reports
 // deployed: false for both.
-const DEPLOY_WAIT_TIMEOUT_MS = 8000 // currently, bridge would timeout at 10s so we set this slightly lower to avoid unnecessary timeouts
+const DEPLOY_WAIT_TIMEOUT_MS = 10000
 
 /**
  * @typedef {SELECT_NODES
