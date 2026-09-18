@@ -118,6 +118,7 @@ describeMain('expertAutomations', () => {
                 'automation/get-palette',
                 'automation/list-config-nodes',
                 'automation/open-palette-manager',
+                'automation/install-module',
                 'automation/manage-groups',
                 'automation/arrange-nodes',
                 'automation/export-flow',
@@ -3440,6 +3441,226 @@ describeMain('expertAutomations', () => {
                 mockRED.actions.invoke.calledOnce.should.be.true()
                 mockRED.actions.invoke.calledWith('core:manage-palette', { view: 'install', filter: '' }).should.be.true()
                 result.should.have.property('success', true)
+            })
+        })
+
+        describe('automation/install-module', () => {
+            let mockAjax
+            const CERTIFIED_CATALOGUE = 'https://ff-certified-nodes.flowfuse.cloud/catalogue.json'
+            const FLOWFUSE_CATALOGUE = 'https://catalog.flowfuse.com/catalogue.json'
+            beforeEach(() => {
+                mockAjax = sinon.stub()
+                global.$ = { ajax: mockAjax }
+                mockRED.settings.theme = sinon.stub().returns([])
+                mockRED.settings.get = sinon.stub().callsFake((key, dflt) => dflt)
+                mockRED.utils = {
+                    parseModuleList: sinon.stub().callsFake(list => list),
+                    checkModuleAllowed: sinon.stub().returns(true)
+                }
+            })
+            afterEach(() => {
+                delete global.$
+            })
+
+            it('should reject an empty/invalid module name without calling the registry', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', { params: { module: '' } }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INVALID_MODULE')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should refuse the install when the palette settings disable installs', async () => {
+                mockRED.settings.get = sinon.stub().callsFake((key, dflt) => key === 'externalModules.palette.allowInstall' ? false : dflt)
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse/node-red-dashboard' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INSTALL_NOT_ALLOWED')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should refuse the install when the module is denied by the palette allow/deny lists', async () => {
+                mockRED.utils.checkModuleAllowed = sinon.stub().returns(false)
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse/node-red-dashboard' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INSTALL_NOT_ALLOWED')
+                mockAjax.called.should.be.false()
+                mockRED.utils.checkModuleAllowed.calledOnce.should.be.true()
+            })
+
+            it('should reject a module outside the FlowFuse scopes without checking catalogues or POSTing', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: 'node-red-contrib-influxdb' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ALLOWED')
+                mockAjax.called.should.be.false()
+                mockRED.settings.theme.called.should.be.false()
+            })
+
+            it('should POST the install for a @flowfuse/ module without consulting catalogues or adding attribution headers', async () => {
+                mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse/node-red-dashboard' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                result.should.have.property('code', 'INSTALL_STARTED')
+                result.should.have.property('module', '@flowfuse/node-red-dashboard')
+                mockRED.settings.theme.called.should.be.false()
+                mockAjax.calledOnce.should.be.true()
+                const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
+                installCall.args[0].should.match({ url: 'nodes', method: 'POST' })
+                installCall.args[0].should.not.have.property('headers')
+            })
+
+            it('should POST the install for a @flowfuse-nodes/ module listed in a vetted catalogue', async () => {
+                const FF_CATALOGUE = 'https://ff-certified-nodes.flowfuse.cloud/ff-catalogue.json'
+                mockRED.settings.theme = sinon.stub().returns([FF_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: FF_CATALOGUE })).resolves({
+                    modules: [{ id: '@flowfuse-nodes/nr-mcp-server-nodes' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-nodes/nr-mcp-server-nodes' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                mockAjax.calledWith(sinon.match({ url: 'nodes', method: 'POST' })).should.be.true()
+            })
+
+            it('should POST the install for a certified module listed in a vetted catalogue', async () => {
+                mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: CERTIFIED_CATALOGUE })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/some-package' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                mockAjax.calledWith(sinon.match({ url: 'nodes', method: 'POST' })).should.be.true()
+            })
+
+            it('should report started after the grace window without waiting for a slow install to settle', async () => {
+                const clock = sinon.useFakeTimers()
+                try {
+                    mockAjax.withArgs(sinon.match({ url: 'nodes' })).returns(new Promise(() => {}))
+                    const result = {}
+                    const pending = expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: '@flowfuse/node-red-dashboard' }
+                    }, result)
+                    await clock.tickAsync(2000)
+                    await pending
+                    result.should.have.property('success', true)
+                    result.should.have.property('started', true)
+                    result.should.have.property('code', 'INSTALL_STARTED')
+                } finally {
+                    clock.restore()
+                }
+            })
+
+            it('should report a failure code when the install POST fails within the grace window', async () => {
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).returns(Promise.reject(Object.assign(new Error('Not Found'), { responseJSON: { message: 'Not Found' } })))
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse/node-red-dashboard' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INSTALL_FAILED')
+                result.error.should.match(/Not Found/)
+            })
+
+            it('should respond not-entitled without POSTing when no vetted catalogue lists the module', async () => {
+                mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: CERTIFIED_CATALOGUE })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/other-package' }]
+                })
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                mockAjax.calledWith(sinon.match({ url: 'nodes' })).should.be.false()
+            })
+
+            it('should report the catalogue as unavailable, not the module as missing, when a vetted catalogue fails to load', async () => {
+                mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: CERTIFIED_CATALOGUE })).rejects(new Error('Bad Gateway'))
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'CATALOGUE_UNAVAILABLE')
+                mockAjax.calledWith(sinon.match({ url: 'nodes' })).should.be.false()
+            })
+
+            it('should still install when one vetted catalogue fails but another lists the module', async () => {
+                mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE, FLOWFUSE_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: CERTIFIED_CATALOGUE })).rejects(new Error('Bad Gateway'))
+                mockAjax.withArgs(sinon.match({ url: FLOWFUSE_CATALOGUE })).resolves({
+                    modules: [{ id: '@flowfuse-certified-nodes/some-package' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('code', 'INSTALL_STARTED')
+            })
+
+            it('should never fetch unvetted catalogues, and a listing there grants nothing', async () => {
+                mockRED.settings.theme = sinon.stub().returns([
+                    'https://catalogue.nodered.org/catalogue.json',
+                    'https://evilflowfuse.cloud/catalogue.json',
+                    'http://catalog.flowfuse.com/catalogue.json',
+                    'not-a-url'
+                ])
+                mockAjax.resolves({ modules: [{ id: '@flowfuse-certified-nodes/some-package' }] })
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should respond not-entitled when the instance has no injected catalogues', async () => {
+                mockRED.settings.theme = sinon.stub().returns([])
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-certified-nodes/some-package' }
+                }, result)
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                mockAjax.called.should.be.false()
+            })
+
+            it('should always install latest, ignoring any caller-supplied version', async () => {
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse/node-red-dashboard', version: '1.0.0; echo pwned' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.not.have.property('version')
+                const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
+                JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard' })
             })
         })
 

@@ -28,6 +28,7 @@ const GET_NODE_TYPES = 'automation/get-node-types'
 const GET_PALETTE = 'automation/get-palette'
 const LIST_CONFIG_NODES = 'automation/list-config-nodes'
 const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
+const INSTALL_MODULE = 'automation/install-module'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
@@ -42,7 +43,13 @@ const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
 
 const ERROR_CODES = Object.freeze({
     GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
-    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
+    FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY',
+    INVALID_MODULE: 'INVALID_MODULE',
+    MODULE_NOT_ALLOWED: 'MODULE_NOT_ALLOWED',
+    MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED',
+    INSTALL_FAILED: 'INSTALL_FAILED',
+    INSTALL_NOT_ALLOWED: 'INSTALL_NOT_ALLOWED',
+    CATALOGUE_UNAVAILABLE: 'CATALOGUE_UNAVAILABLE'
 })
 
 // Outcome codes returned as `result.code`. The platform side maps these to the
@@ -51,10 +58,28 @@ const ERROR_CODES = Object.freeze({
 const RESULT_CODES = Object.freeze({
     NO_UNDEPLOYED_CHANGES: 'NO_UNDEPLOYED_CHANGES',
     AUTO_DEPLOY_DISABLED: 'AUTO_DEPLOY_DISABLED',
-    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED'
+    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED',
+    INSTALL_STARTED: 'INSTALL_STARTED'
 })
 
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
+
+// The only scopes install-module accepts, enforced here so it holds for any dispatch channel.
+const FLOWFUSE_SCOPE = '@flowfuse/'
+const FLOWFUSE_NODES_SCOPE = '@flowfuse-nodes/'
+const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
+const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODES_SCOPE]
+
+// Loose but standards-compliant npm package name check (unscoped or @scope/name).
+const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+
+// Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
+// community catalogues, which say nothing about vetting.
+const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
+
+// Long enough to catch fast install failures (registry 404), short enough to fit
+// the transport window when the install is slow.
+const INSTALL_FAIL_GRACE_MS = 2000
 
 // core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
 // editor-client/src/js/ui/deploy.js) returns before the server has confirmed the deploy, so
@@ -95,6 +120,7 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |GET_PALETTE
  *   |LIST_CONFIG_NODES
  *   |OPEN_PALETTE_MANAGER
+ *   |INSTALL_MODULE
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
@@ -512,6 +538,18 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     filter: {
                         type: 'string',
                         description: 'Optional package name or search term to pre-filter the palette manager'
+                    }
+                }
+            }
+        },
+        [INSTALL_MODULE]: {
+            params: {
+                type: 'object',
+                required: ['module'],
+                properties: {
+                    module: {
+                        type: 'string',
+                        description: 'The npm package name to install. Only packages in the "@flowfuse/", "@flowfuse-nodes/" or "@flowfuse-certified-nodes/" scopes can be installed (e.g. "@flowfuse/node-red-dashboard"). Always installs the latest version.'
                     }
                 }
             }
@@ -1123,6 +1161,62 @@ export class ExpertAutomations extends ExpertActionsInterface {
         })
 
         return palette
+    }
+
+    // https on a vetted domain or subdomain; the dot boundary rejects lookalikes ("evilflowfuse.cloud").
+    isVettedCatalogueUrl (url) {
+        try {
+            const { protocol, hostname } = new URL(url)
+            if (protocol !== 'https:') return false
+            return VETTED_CATALOGUE_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain))
+        } catch (_err) {
+            return false
+        }
+    }
+
+    /**
+     * Whether a package is listed in one of the instance's FlowFuse-vetted catalogues
+     * (RED.settings.theme('palette.catalogues'), filtered by isVettedCatalogueUrl).
+     * No session credential leaks to the catalogue host: the editor's $.ajaxSetup beforeSend
+     * only attaches Authorization to non-absolute URLs, and catalogue entries are full https
+     * URLs - the same request shape core's palette manager uses.
+     * @param {string} module - the package name to look up
+     * @returns {Promise<{entitled: boolean, lookupFailed: boolean}>} lookupFailed marks a vetted
+     * catalogue that could not be loaded, so "not entitled" may be transient rather than a miss
+     */
+    async isModuleEntitled (module) {
+        const catalogues = this.RED.settings.theme('palette.catalogues') || []
+        let lookupFailed = false
+        if (Array.isArray(catalogues)) {
+            for (const url of catalogues) {
+                if (!this.isVettedCatalogueUrl(url)) continue
+                try {
+                    const catalogue = await $.ajax({
+                        url,
+                        method: 'GET',
+                        dataType: 'json'
+                    })
+                    if (Array.isArray(catalogue?.modules) && catalogue.modules.some(m => m?.id === module)) {
+                        return { entitled: true, lookupFailed: false }
+                    }
+                } catch (err) {
+                    console.warn(`Failed to load FlowFuse catalogue "${url}":`, err?.statusText || err?.message || err)
+                    lookupFailed = true
+                }
+            }
+        }
+        return { entitled: false, lookupFailed }
+    }
+
+    // The same allowInstall/allowList/denyList gate the palette manager applies, checked up front
+    // so a disabled installer fails with a code instead of a started-then-never-appears install.
+    isInstallPermitted (module) {
+        if (this.RED.settings.get('externalModules.palette.allowInstall', true) === false) {
+            return false
+        }
+        const allowList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.allowList') || ['*'])
+        const denyList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.denyList') || [])
+        return this.RED.utils.checkModuleAllowed(module, null, allowList, denyList)
     }
 
     async closeEditorTray () {
@@ -2471,6 +2565,75 @@ export class ExpertAutomations extends ExpertActionsInterface {
             })
             result.success = true
             break
+        case INSTALL_MODULE: {
+            const module = typeof params?.module === 'string' ? params.module.trim() : ''
+            if (!module || !NPM_PACKAGE_NAME_RE.test(module)) {
+                result.error = `"${params?.module}" is not a valid npm package name`
+                result.errorCode = ERROR_CODES.INVALID_MODULE
+                result.success = false
+                break
+            }
+            if (!INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
+                result.error = `"${module}" is not in an installable scope - only ${INSTALLABLE_SCOPES.map(s => `'${s}'`).join(', ')} packages can be installed`
+                result.errorCode = ERROR_CODES.MODULE_NOT_ALLOWED
+                result.success = false
+                break
+            }
+
+            if (!this.isInstallPermitted(module)) {
+                result.error = `Installs are disabled or "${module}" is blocked by this instance's palette settings`
+                result.errorCode = ERROR_CODES.INSTALL_NOT_ALLOWED
+                result.success = false
+                break
+            }
+
+            // '@flowfuse/' packages live on the public npm registry, so being in the scope is
+            // the entitlement; the other scopes are served from private registries and must be
+            // listed in one of the instance's FlowFuse catalogues.
+            if (!module.startsWith(FLOWFUSE_SCOPE)) {
+                const { entitled, lookupFailed } = await this.isModuleEntitled(module)
+                if (!entitled) {
+                    if (lookupFailed) {
+                        result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
+                        result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
+                    } else {
+                        result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
+                        result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                    }
+                    result.success = false
+                    break
+                }
+            }
+
+            // npm install can take well over a minute, far longer than the transport timeout, so
+            // don't wait for it: report fast failures caught within the grace window, otherwise
+            // reply started and let the caller confirm completion by polling the palette.
+            const install = $.ajax({
+                url: 'nodes',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ module })
+            })
+            install.catch(err => {
+                console.error(`Install of module "${module}" failed:`, err?.responseJSON?.message || err?.statusText || err)
+            })
+            const fastFailure = await Promise.race([
+                install.then(() => null, err => err || new Error('install request failed')),
+                new Promise(resolve => setTimeout(resolve, INSTALL_FAIL_GRACE_MS, null))
+            ])
+            if (fastFailure) {
+                result.error = `Install of "${module}" failed: ${fastFailure?.responseJSON?.message || fastFailure?.statusText || fastFailure?.message || fastFailure}`
+                result.errorCode = ERROR_CODES.INSTALL_FAILED
+                result.success = false
+                break
+            }
+
+            result.started = true
+            result.code = RESULT_CODES.INSTALL_STARTED
+            result.module = module
+            result.success = true
+            break
+        }
         case MANAGE_GROUPS: {
             const operations = params.operations
             if (!Array.isArray(operations) || operations.length === 0) {
