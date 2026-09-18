@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [0.20.0](https://github.com/FlowFuse/nr-assistant/compare/v0.19.0...v0.20.0) (2026-09-18)
+
+
+### Features
+
+* Add deploy policy endpoint and deploy flows action ([#406](https://github.com/FlowFuse/nr-assistant/issues/406)) ([7cd6f08](https://github.com/FlowFuse/nr-assistant/commit/7cd6f08a7acbc9e4c2c862a78751bf5139c697d7))
+* Add install-module automation action ([#407](https://github.com/FlowFuse/nr-assistant/issues/407)) ([f9647cf](https://github.com/FlowFuse/nr-assistant/commit/f9647cf840172946f51ee24e8d174de20a501782))
+* Dismiss fresh instance dialogs on AI action ([#408](https://github.com/FlowFuse/nr-assistant/issues/408)) ([ecee681](https://github.com/FlowFuse/nr-assistant/commit/ecee68175b273ced60ce17809f91288cff518f92))
+
 ## [0.19.0](https://github.com/FlowFuse/nr-assistant/compare/v0.18.1...v0.19.0) (2026-08-26)
 
 
