@@ -32,6 +32,7 @@ const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
+const DEPLOY_FLOWS = 'automation/deploy-flows'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
@@ -44,7 +45,27 @@ const ERROR_CODES = Object.freeze({
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY'
 })
 
+// Outcome codes returned as `result.code`. The platform side maps these to the
+// caller-facing message, so the wording can change without a new nr-assistant
+// release; treat shipped codes as frozen identifiers.
+const RESULT_CODES = Object.freeze({
+    NO_UNDEPLOYED_CHANGES: 'NO_UNDEPLOYED_CHANGES',
+    AUTO_DEPLOY_DISABLED: 'AUTO_DEPLOY_DISABLED',
+    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED'
+})
+
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
+
+// core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
+// editor-client/src/js/ui/deploy.js) returns before the server has confirmed the deploy, so
+// DEPLOY_FLOWS waits for the editor's own 'deploy' event instead of reporting success immediately.
+// Verified against deploy.js's save(): RED.events.emit("deploy") fires exactly once, inside the
+// POST /flows .done() handler, on a real successful deploy. Both failure paths return before ever
+// emitting it - a confirmation dialog for unknown/invalid nodes shows and `return`s before the
+// POST is even made, and a 409 conflict routes to resolveConflict(), which needs the user to
+// resolve it manually rather than retrying automatically - so timing out here correctly reports
+// deployed: false for both.
+const DEPLOY_WAIT_TIMEOUT_MS = 10000
 
 /**
  * @typedef {SELECT_NODES
@@ -78,6 +99,7 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
  *   |ARRANGE_NODES
  *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE
+ *   |DEPLOY_FLOWS
  *   |SHOW_SIDEBAR_PANEL
  *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
  */
@@ -601,6 +623,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 required: ['mode']
             }
         },
+        [DEPLOY_FLOWS]: { params: null },
         [SHOW_SIDEBAR_PANEL]: {
             params: {
                 type: 'object',
@@ -2558,6 +2581,46 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             this.RED.actions.invoke(coreAction)
             result.success = true
+            break
+        }
+        case DEPLOY_FLOWS: {
+            if (!this.RED.nodes.dirty()) {
+                // The Deploy button is disabled (and save() is a no-op that returns immediately,
+                // never emitting 'deploy') whenever the workspace has no undeployed changes - see
+                // deploy.js's `workspace:dirty` handler and the `hasClass("disabled")` check at the
+                // top of save(). Calling the action here would just burn the full timeout and
+                // wrongly report deployed: false, so short-circuit instead: there is nothing to
+                // deploy, and the flows are already deployed.
+                result.success = true
+                result.deployed = true
+                result.code = RESULT_CODES.NO_UNDEPLOYED_CHANGES
+                break
+            }
+            let policy
+            try {
+                policy = await $.ajax({
+                    url: 'nr-assistant/deploy-policy',
+                    method: 'GET',
+                    headers: { Accept: 'application/json' }
+                })
+            } catch (err) {
+                policy = { autoDeploy: false }
+            }
+            if (!policy?.autoDeploy) {
+                result.success = true
+                result.deployed = false
+                result.code = RESULT_CODES.AUTO_DEPLOY_DISABLED
+                break
+            }
+            try {
+                await this.redOps.invokeActionAndWait('core:deploy-flows', null, 'deploy', { timeout: DEPLOY_WAIT_TIMEOUT_MS })
+                result.success = true
+                result.deployed = true
+            } catch (_err) {
+                result.success = true
+                result.deployed = false
+                result.code = RESULT_CODES.DEPLOY_NOT_CONFIRMED
+            }
             break
         }
         case SHOW_SIDEBAR_PANEL:
