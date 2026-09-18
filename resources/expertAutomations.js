@@ -45,6 +45,7 @@ const ERROR_CODES = Object.freeze({
     GROUP_OPERATION_REQUIRED: 'GROUP_OPERATION_REQUIRED',
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY',
     INVALID_MODULE: 'INVALID_MODULE',
+    MODULE_NOT_ALLOWED: 'MODULE_NOT_ALLOWED',
     MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED'
 })
 
@@ -54,26 +55,22 @@ const ERROR_CODES = Object.freeze({
 const RESULT_CODES = Object.freeze({
     NO_UNDEPLOYED_CHANGES: 'NO_UNDEPLOYED_CHANGES',
     AUTO_DEPLOY_DISABLED: 'AUTO_DEPLOY_DISABLED',
-    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED'
+    DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED',
+    INSTALL_STARTED: 'INSTALL_STARTED'
 })
 
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
 
-// Scope reserved for FlowFuse certified nodes. Packages under this scope require an
-// entitlement check against the instance's injected certified-nodes catalogues before install.
+// The only scopes install-module accepts, enforced here so it holds for any dispatch channel.
+const FLOWFUSE_SCOPE = '@flowfuse/'
 const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
 
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
-// Sent on the install request so the platform audit log can attribute the change.
-// The postMessage contract this plugin receives actions over (type/action/params/target/
-// source/scope/correlationId - see setupMessageListeners) carries no marker for which
-// channel dispatched the action, and threading one through would mean changing that
-// contract end to end, outside of this plugin. Until that lands, every install is
-// attributed with the same value.
-const INSTALL_SOURCE_HEADER = 'x-ff-source'
-const INSTALL_SOURCE_VALUE = 'mcp'
+// Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
+// community catalogues, which say nothing about vetting.
+const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
 
 // core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
 // editor-client/src/js/ui/deploy.js) returns before the server has confirmed the deploy, so
@@ -1161,20 +1158,25 @@ export class ExpertAutomations extends ExpertActionsInterface {
         return palette
     }
 
+    // https on a vetted domain or subdomain; the dot boundary rejects lookalikes ("evilflowfuse.cloud").
+    isVettedCatalogueUrl (url) {
+        try {
+            const { protocol, hostname } = new URL(url)
+            if (protocol !== 'https:') return false
+            return VETTED_CATALOGUE_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain))
+        } catch (_err) {
+            return false
+        }
+    }
+
     /**
-     * Checks whether a certified-nodes package is present in one of the catalogues injected
-     * into this instance. Catalogues are read the same way the core palette manager reads them
-     * (RED.settings.theme('palette.catalogues')) and fetched directly since they are public JSON.
-     *
-     * This does not leak the editor's session credential to the catalogue host: the editor's
-     * global $.ajaxSetup only attaches the Authorization header (and rewrites the URL against
-     * apiRootUrl) for requests whose url does not already look like an absolute URL, a root-
-     * relative path, or a dotted-relative path - see @node-red/editor-client's settings.js
-     * beforeSend hook. Catalogue entries are always full "https://" URLs, so that check never
-     * matches here and no credential is attached; this is the exact same request shape core's
-     * own palette manager already uses for its catalogue fetches.
-     * @param {string} module - the certified package name to look up
-     * @returns {Promise<boolean>} true if any catalogue lists the module
+     * Whether a package is listed in one of the instance's FlowFuse-vetted catalogues
+     * (RED.settings.theme('palette.catalogues'), filtered by isVettedCatalogueUrl).
+     * No session credential leaks to the catalogue host: the editor's $.ajaxSetup beforeSend
+     * only attaches Authorization to non-absolute URLs, and catalogue entries are full https
+     * URLs - the same request shape core's palette manager uses.
+     * @param {string} module - the package name to look up
+     * @returns {Promise<boolean>}
      */
     async isModuleEntitled (module) {
         const catalogues = this.RED.settings.theme('palette.catalogues') || []
@@ -1182,6 +1184,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             return false
         }
         for (const url of catalogues) {
+            if (!this.isVettedCatalogueUrl(url)) continue
             try {
                 const catalogue = await $.ajax({
                     url,
@@ -2554,31 +2557,35 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             const version = typeof params?.version === 'string' && params.version.trim() ? params.version.trim() : undefined
 
-            if (module.startsWith(CERTIFIED_NODES_SCOPE)) {
-                const entitled = await this.isModuleEntitled(module)
-                if (!entitled) {
-                    result.error = `This team's certified-nodes catalogues do not include "${module}" - it is not available to install`
-                    result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
-                    result.success = false
-                    break
-                }
+            if (!module.startsWith(FLOWFUSE_SCOPE) && !module.startsWith(CERTIFIED_NODES_SCOPE)) {
+                result.error = `"${module}" is not in an installable scope - only '${FLOWFUSE_SCOPE}' and '${CERTIFIED_NODES_SCOPE}' packages can be installed`
+                result.errorCode = ERROR_CODES.MODULE_NOT_ALLOWED
+                result.success = false
+                break
             }
 
-            // Kick off the install and reply immediately: npm install can take well over a minute,
-            // far longer than the transport timeout, so the caller confirms completion by polling
-            // the palette rather than waiting on this request.
+            const entitled = await this.isModuleEntitled(module)
+            if (!entitled) {
+                result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
+                result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                result.success = false
+                break
+            }
+
+            // Reply immediately: npm install can take well over a minute, far longer than the
+            // transport timeout, so the caller confirms completion by polling the palette.
             const installPayload = version ? { module, version } : { module }
             $.ajax({
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
-                headers: { [INSTALL_SOURCE_HEADER]: INSTALL_SOURCE_VALUE },
                 data: JSON.stringify(installPayload)
             }).catch(err => {
                 console.error(`Failed to start install of module "${module}":`, err?.responseJSON?.message || err?.statusText || err)
             })
 
             result.started = true
+            result.code = RESULT_CODES.INSTALL_STARTED
             result.module = module
             if (version) result.version = version
             result.success = true
