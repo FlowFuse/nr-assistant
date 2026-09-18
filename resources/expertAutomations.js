@@ -46,7 +46,8 @@ const ERROR_CODES = Object.freeze({
     FORBIDDEN_PROPERTY: 'FORBIDDEN_PROPERTY',
     INVALID_MODULE: 'INVALID_MODULE',
     MODULE_NOT_ALLOWED: 'MODULE_NOT_ALLOWED',
-    MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED'
+    MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED',
+    INSTALL_FAILED: 'INSTALL_FAILED'
 })
 
 // Outcome codes returned as `result.code`. The platform side maps these to the
@@ -71,6 +72,10 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-.
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
+
+// Long enough to catch fast install failures (registry 404, bad version), short enough to fit
+// the transport window when the install is slow.
+const INSTALL_FAIL_GRACE_MS = 2000
 
 // core:deploy-flows (RED.actions.add("core:deploy-flows", save) in Node-RED core's
 // editor-client/src/js/ui/deploy.js) returns before the server has confirmed the deploy, so
@@ -2572,17 +2577,29 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
 
-            // Reply immediately: npm install can take well over a minute, far longer than the
-            // transport timeout, so the caller confirms completion by polling the palette.
+            // npm install can take well over a minute, far longer than the transport timeout, so
+            // don't wait for it: report fast failures caught within the grace window, otherwise
+            // reply started and let the caller confirm completion by polling the palette.
             const installPayload = version ? { module, version } : { module }
-            $.ajax({
+            const install = $.ajax({
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify(installPayload)
-            }).catch(err => {
-                console.error(`Failed to start install of module "${module}":`, err?.responseJSON?.message || err?.statusText || err)
             })
+            install.catch(err => {
+                console.error(`Install of module "${module}" failed:`, err?.responseJSON?.message || err?.statusText || err)
+            })
+            const fastFailure = await Promise.race([
+                install.then(() => null, err => err || new Error('install request failed')),
+                new Promise(resolve => setTimeout(resolve, INSTALL_FAIL_GRACE_MS, null))
+            ])
+            if (fastFailure) {
+                result.error = `Install of "${module}" failed: ${fastFailure?.responseJSON?.message || fastFailure?.statusText || fastFailure?.message || fastFailure}`
+                result.errorCode = ERROR_CODES.INSTALL_FAILED
+                result.success = false
+                break
+            }
 
             result.started = true
             result.code = RESULT_CODES.INSTALL_STARTED

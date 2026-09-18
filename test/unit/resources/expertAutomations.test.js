@@ -3510,22 +3510,41 @@ describeMain('expertAutomations', () => {
                 mockAjax.calledWith(sinon.match({ url: 'nodes', method: 'POST' })).should.be.true()
             })
 
-            it('should respond immediately without waiting for the install POST to settle', async () => {
+            it('should report started after the grace window without waiting for a slow install to settle', async () => {
+                const clock = sinon.useFakeTimers()
+                try {
+                    mockRED.settings.theme = sinon.stub().returns([FLOWFUSE_CATALOGUE])
+                    mockAjax.withArgs(sinon.match({ url: FLOWFUSE_CATALOGUE })).resolves({
+                        modules: [{ id: '@flowfuse/node-red-dashboard' }]
+                    })
+                    mockAjax.withArgs(sinon.match({ url: 'nodes' })).returns(new Promise(() => {}))
+                    const result = {}
+                    const pending = expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: '@flowfuse/node-red-dashboard' }
+                    }, result)
+                    await clock.tickAsync(2000)
+                    await pending
+                    result.should.have.property('success', true)
+                    result.should.have.property('started', true)
+                    result.should.have.property('code', 'INSTALL_STARTED')
+                } finally {
+                    clock.restore()
+                }
+            })
+
+            it('should report a failure code when the install POST fails within the grace window', async () => {
                 mockRED.settings.theme = sinon.stub().returns([FLOWFUSE_CATALOGUE])
-                let installSettled = false
                 mockAjax.withArgs(sinon.match({ url: FLOWFUSE_CATALOGUE })).resolves({
                     modules: [{ id: '@flowfuse/node-red-dashboard' }]
                 })
-                mockAjax.withArgs(sinon.match({ url: 'nodes' })).returns(new Promise(resolve => {
-                    setTimeout(() => { installSettled = true; resolve({}) }, 50)
-                }))
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).returns(Promise.reject(Object.assign(new Error('Not Found'), { responseJSON: { message: 'Not Found' } })))
                 const result = {}
                 await expertAutomations.invokeAction('automation/install-module', {
                     params: { module: '@flowfuse/node-red-dashboard' }
                 }, result)
-                result.should.have.property('success', true)
-                result.should.have.property('started', true)
-                installSettled.should.be.false()
+                result.should.have.property('success', false)
+                result.should.have.property('errorCode', 'INSTALL_FAILED')
+                result.error.should.match(/Not Found/)
             })
 
             it('should respond not-entitled without POSTing when no vetted catalogue lists the module', async () => {
