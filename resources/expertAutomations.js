@@ -2611,7 +2611,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             } catch (_err) {
                 result.success = true
                 result.deployed = false
-                result.message = 'The deploy did not complete. This can happen if the server rejected it (for example, a newer revision was already deployed), or if a confirmation dialog is blocking it (for example, unknown or invalid node types). Check the editor for an open dialog or notification and resolve it before trying again.'
+                result.message = 'The deploy was not confirmed within the wait window. It may still be completing in the background (large flows can take longer than this check waits for), or it may not be happening at all - the server could have rejected it (for example, a newer revision was already deployed), or a confirmation dialog could be blocking it (for example, unknown or invalid node types). Check the editor for an open dialog or notification, and check whether the changes are actually live before assuming the deploy failed.'
             }
             break
         }

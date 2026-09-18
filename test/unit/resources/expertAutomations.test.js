@@ -4314,7 +4314,7 @@ describeMain('expertAutomations', () => {
                 await expertAutomations.invokeAction('automation/deploy-flows', { params: {} }, result)
                 result.should.have.property('success', true)
                 result.should.have.property('deployed', false)
-                result.message.should.match(/did not complete/)
+                result.message.should.match(/not confirmed within the wait window/)
             })
         })
 
