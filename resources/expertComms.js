@@ -1,4 +1,5 @@
 import { ExpertAutomations } from './expertAutomations.js'
+import { dismissOnboardingDialogs } from './onboardingDialogs.js'
 
 function debounce (func, wait) {
     let timeout
@@ -549,6 +550,12 @@ export class ExpertComms {
      */
     async handleActionInvocation ({ event, type, action, params, correlationId } = {}) {
         this.debug(`Received request to invoke action "${action}" with params`, params)
+
+        // Clear Node-RED's first-run telemetry/welcome-tour dialogs out of the way before
+        // dispatching anything - an automated session has nothing watching to dismiss them
+        // itself. Runs on every invocation, valid or not, so it can't be skipped or forgotten.
+        dismissOnboardingDialogs(this.RED)
+
         // handle action invocation requests (must be registered actions in supportedActions)
         if (typeof action !== 'string') {
             return
