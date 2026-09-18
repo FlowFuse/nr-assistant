@@ -73,10 +73,6 @@ const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODE
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
-// Callers cannot pick a version: the runtime's installer interpolates module@version into a
-// shell command, so the version is pinned here rather than validated.
-const INSTALL_VERSION = 'latest'
-
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
@@ -1214,13 +1210,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     // The same allowInstall/allowList/denyList gate the palette manager applies, checked up front
     // so a disabled installer fails with a code instead of a started-then-never-appears install.
-    isInstallPermitted (module, version) {
+    isInstallPermitted (module) {
         if (this.RED.settings.get('externalModules.palette.allowInstall', true) === false) {
             return false
         }
         const allowList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.allowList') || ['*'])
         const denyList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.denyList') || [])
-        return this.RED.utils.checkModuleAllowed(module, version, allowList, denyList)
+        return this.RED.utils.checkModuleAllowed(module, null, allowList, denyList)
     }
 
     async closeEditorTray () {
@@ -2584,7 +2580,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
 
-            if (!this.isInstallPermitted(module, INSTALL_VERSION)) {
+            if (!this.isInstallPermitted(module)) {
                 result.error = `Installs are disabled or "${module}" is blocked by this instance's palette settings`
                 result.errorCode = ERROR_CODES.INSTALL_NOT_ALLOWED
                 result.success = false
@@ -2611,7 +2607,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
-                data: JSON.stringify({ module, version: INSTALL_VERSION })
+                data: JSON.stringify({ module })
             })
             install.catch(err => {
                 console.error(`Install of module "${module}" failed:`, err?.responseJSON?.message || err?.statusText || err)

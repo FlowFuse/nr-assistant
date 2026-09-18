@@ -3673,7 +3673,7 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('success', true)
                 result.should.not.have.property('version')
                 const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
-                JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard', version: 'latest' })
+                JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard' })
             })
         })
 
