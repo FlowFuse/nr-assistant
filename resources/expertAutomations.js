@@ -47,7 +47,10 @@ const ERROR_CODES = Object.freeze({
     INVALID_MODULE: 'INVALID_MODULE',
     MODULE_NOT_ALLOWED: 'MODULE_NOT_ALLOWED',
     MODULE_NOT_ENTITLED: 'MODULE_NOT_ENTITLED',
-    INSTALL_FAILED: 'INSTALL_FAILED'
+    INSTALL_FAILED: 'INSTALL_FAILED',
+    INVALID_VERSION: 'INVALID_VERSION',
+    INSTALL_NOT_ALLOWED: 'INSTALL_NOT_ALLOWED',
+    CATALOGUE_UNAVAILABLE: 'CATALOGUE_UNAVAILABLE'
 })
 
 // Outcome codes returned as `result.code`. The platform side maps these to the
@@ -70,6 +73,10 @@ const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODE
 
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+
+// Exact versions, dist-tags and ^/~ ranges only - no shell metacharacters, because the
+// runtime's installer interpolates module@version into a shell command.
+const NPM_VERSION_RE = /^[~^]?[0-9A-Za-z.+-]+$/
 
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
@@ -547,11 +554,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 properties: {
                     module: {
                         type: 'string',
-                        description: 'The npm package name to install (e.g. "node-red-contrib-influxdb" or "@flowfuse-certified-nodes/some-package")'
+                        description: 'The npm package name to install. Only packages in the "@flowfuse/", "@flowfuse-nodes/" or "@flowfuse-certified-nodes/" scopes can be installed (e.g. "@flowfuse/node-red-dashboard")'
                     },
                     version: {
                         type: 'string',
-                        description: 'Optional npm version or version range to install. Defaults to latest when omitted.'
+                        description: 'Optional npm version or ^/~ range to install (e.g. "1.2.3" or "^1.2.0"). Defaults to latest when omitted.'
                     }
                 }
             }
@@ -1183,29 +1190,42 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * only attaches Authorization to non-absolute URLs, and catalogue entries are full https
      * URLs - the same request shape core's palette manager uses.
      * @param {string} module - the package name to look up
-     * @returns {Promise<boolean>}
+     * @returns {Promise<{entitled: boolean, lookupFailed: boolean}>} lookupFailed marks a vetted
+     * catalogue that could not be loaded, so "not entitled" may be transient rather than a miss
      */
     async isModuleEntitled (module) {
         const catalogues = this.RED.settings.theme('palette.catalogues') || []
-        if (!Array.isArray(catalogues) || catalogues.length === 0) {
-            return false
-        }
-        for (const url of catalogues) {
-            if (!this.isVettedCatalogueUrl(url)) continue
-            try {
-                const catalogue = await $.ajax({
-                    url,
-                    method: 'GET',
-                    dataType: 'json'
-                })
-                if (Array.isArray(catalogue?.modules) && catalogue.modules.some(m => m?.id === module)) {
-                    return true
+        let lookupFailed = false
+        if (Array.isArray(catalogues)) {
+            for (const url of catalogues) {
+                if (!this.isVettedCatalogueUrl(url)) continue
+                try {
+                    const catalogue = await $.ajax({
+                        url,
+                        method: 'GET',
+                        dataType: 'json'
+                    })
+                    if (Array.isArray(catalogue?.modules) && catalogue.modules.some(m => m?.id === module)) {
+                        return { entitled: true, lookupFailed: false }
+                    }
+                } catch (err) {
+                    console.warn(`Failed to load FlowFuse catalogue "${url}":`, err?.statusText || err?.message || err)
+                    lookupFailed = true
                 }
-            } catch (err) {
-                console.warn(`Failed to load certified-nodes catalogue "${url}":`, err?.statusText || err?.message || err)
             }
         }
-        return false
+        return { entitled: false, lookupFailed }
+    }
+
+    // The same allowInstall/allowList/denyList gate the palette manager applies, checked up front
+    // so a disabled installer fails with a code instead of a started-then-never-appears install.
+    isInstallPermitted (module, version) {
+        if (this.RED.settings.get('externalModules.palette.allowInstall', true) === false) {
+            return false
+        }
+        const allowList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.allowList') || ['*'])
+        const denyList = this.RED.utils.parseModuleList(this.RED.settings.get('externalModules.palette.denyList') || [])
+        return this.RED.utils.checkModuleAllowed(module, version, allowList, denyList)
     }
 
     async closeEditorTray () {
@@ -2563,6 +2583,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
             const version = typeof params?.version === 'string' && params.version.trim() ? params.version.trim() : undefined
+            if (version && !NPM_VERSION_RE.test(version)) {
+                result.error = `"${version}" is not a valid npm version - use an exact version like '1.2.3' or a range like '^1.2.0'`
+                result.errorCode = ERROR_CODES.INVALID_VERSION
+                result.success = false
+                break
+            }
 
             if (!INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
                 result.error = `"${module}" is not in an installable scope - only ${INSTALLABLE_SCOPES.map(s => `'${s}'`).join(', ')} packages can be installed`
@@ -2571,10 +2597,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 break
             }
 
-            const entitled = await this.isModuleEntitled(module)
+            if (!this.isInstallPermitted(module, version)) {
+                result.error = `Installs are disabled or "${module}" is blocked by this instance's palette settings`
+                result.errorCode = ERROR_CODES.INSTALL_NOT_ALLOWED
+                result.success = false
+                break
+            }
+
+            const { entitled, lookupFailed } = await this.isModuleEntitled(module)
             if (!entitled) {
-                result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
-                result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                if (lookupFailed) {
+                    result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
+                    result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
+                } else {
+                    result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
+                    result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
+                }
                 result.success = false
                 break
             }
