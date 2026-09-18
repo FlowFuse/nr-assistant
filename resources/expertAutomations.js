@@ -64,7 +64,9 @@ const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
 
 // The only scopes install-module accepts, enforced here so it holds for any dispatch channel.
 const FLOWFUSE_SCOPE = '@flowfuse/'
+const FLOWFUSE_NODES_SCOPE = '@flowfuse-nodes/'
 const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
+const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODES_SCOPE]
 
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
@@ -2562,8 +2564,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             const version = typeof params?.version === 'string' && params.version.trim() ? params.version.trim() : undefined
 
-            if (!module.startsWith(FLOWFUSE_SCOPE) && !module.startsWith(CERTIFIED_NODES_SCOPE)) {
-                result.error = `"${module}" is not in an installable scope - only '${FLOWFUSE_SCOPE}' and '${CERTIFIED_NODES_SCOPE}' packages can be installed`
+            if (!INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
+                result.error = `"${module}" is not in an installable scope - only ${INSTALLABLE_SCOPES.map(s => `'${s}'`).join(', ')} packages can be installed`
                 result.errorCode = ERROR_CODES.MODULE_NOT_ALLOWED
                 result.success = false
                 break

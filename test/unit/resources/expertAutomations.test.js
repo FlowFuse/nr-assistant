@@ -3495,6 +3495,22 @@ describeMain('expertAutomations', () => {
                 installCall.args[0].should.not.have.property('headers')
             })
 
+            it('should POST the install for a @flowfuse-nodes/ module listed in a vetted catalogue', async () => {
+                const FF_CATALOGUE = 'https://ff-certified-nodes.flowfuse.cloud/ff-catalogue.json'
+                mockRED.settings.theme = sinon.stub().returns([FF_CATALOGUE])
+                mockAjax.withArgs(sinon.match({ url: FF_CATALOGUE })).resolves({
+                    modules: [{ id: '@flowfuse-nodes/nr-mcp-server-nodes' }]
+                })
+                mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                const result = {}
+                await expertAutomations.invokeAction('automation/install-module', {
+                    params: { module: '@flowfuse-nodes/nr-mcp-server-nodes' }
+                }, result)
+                result.should.have.property('success', true)
+                result.should.have.property('started', true)
+                mockAjax.calledWith(sinon.match({ url: 'nodes', method: 'POST' })).should.be.true()
+            })
+
             it('should POST the install for a certified module listed in a vetted catalogue', async () => {
                 mockRED.settings.theme = sinon.stub().returns([CERTIFIED_CATALOGUE])
                 mockAjax.withArgs(sinon.match({ url: CERTIFIED_CATALOGUE })).resolves({
