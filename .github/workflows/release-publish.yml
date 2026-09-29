@@ -72,7 +72,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Wait for @flowfuse/nr-assistant to be available on npm
+      - name: Wait for @flowfuse/nr-assistant to be available in the public npm registry
         timeout-minutes: 30
         env:
           VERSION: ${{ steps.version.outputs.semver }}
