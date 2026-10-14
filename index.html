@@ -66,6 +66,8 @@
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
+            // Lets Dashboard 2 know it can give ui-template the vue-sfc language without losing Expert support
+            supportsVueSfc: true,
             onadd: async function () {
                 if (!window.FFAssistantUtils) {
                     console.warn('FFAssistantUtils lib is not loaded. Completions might not work as expected.')
