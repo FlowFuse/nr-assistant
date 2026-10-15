@@ -642,7 +642,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     ids: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'IDs of nodes, groups or tabs to lay out. A group or tab stands for every node in it. Only these nodes move; every other node stays where it is'
+                        description: 'IDs of nodes, groups or tabs to lay out. A group or tab stands for every node in it'
                     }
                 },
                 required: ['ids']
@@ -2732,9 +2732,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case LAYOUT_NODES: {
-            const { placed, excluded } = this.layoutNodes(params.ids, { anchor: params.anchor, maxWidth: params.maxWidth, rowSpacing: params.rowSpacing })
+            const { placed, pushed, excluded } = this.layoutNodes(params.ids, { anchor: params.anchor, maxWidth: params.maxWidth, rowSpacing: params.rowSpacing })
             result.data = {
                 placedNodes: placed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
+                movedToMakeRoom: pushed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
                 excludedConfigNodes: excluded.map(n => ({ id: n.id, type: n.type }))
             }
             result.success = true
@@ -3162,10 +3163,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
     /**
      * Lay out the given nodes, groups and tabs. A tab or group stands for every node in it.
-     * Nodes that are not covered by the ids never move. One undoable move for the whole call.
+     * One undoable move for the whole call, including nodes moved to make room.
      * @param {string[]} ids - node, group or tab IDs, on any number of tabs
      * @param {Object} [options]
-     * @param {boolean} [options.anchor=true] - keep each flow of a rearranged tab where its first node was
+     * @param {boolean} [options.anchor=true] - keep what is laid out where it is and move other nodes out
+     *   of its way; false leaves every other node where it is and finds free space instead
      * @param {number} [options.maxWidth=1600] - a flow wider than this carries on in a new row below; 0 never wraps
      * @param {number} [options.rowSpacing] - grid cells between a wrapped row and the next, from the last grid
      *   line the upper row touches to the first the lower row touches; by default enough for a node to fit
@@ -3213,6 +3215,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const canvas = this._canvasSize()
         const wasDirty = this.RED.nodes.dirty()
         const movedNodes = []
+        const pushed = []
         for (const [z, tabSelection] of byTab) {
             const tabNodes = this._tabMembers(z)
             for (const n of tabSelection) {
@@ -3233,9 +3236,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 rowSpacing,
                 canvas
             })
-            for (const n of tabSelection) {
+            for (const n of tabNodes) {
                 const p = positions.get(n.id)
                 if (!p) continue
+                if (!tabSelection.includes(n)) pushed.push(n)
                 movedNodes.push({ n, ox: n.x, oy: n.y, moved: n.moved })
                 n.x = p.x
                 n.y = p.y
@@ -3252,7 +3256,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.view.redraw(true)
             this.RED.view.reveal(selected[0].id, false)
         }
-        return { placed: selected, excluded }
+        return { placed: selected, pushed, excluded }
     }
 
     /** Size of the editor canvas; Node-RED before 3.0 has no dimensions() and a 5000 square canvas. */

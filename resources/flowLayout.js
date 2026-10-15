@@ -1,4 +1,4 @@
-// Lays out a chosen set of nodes on one tab while every other node stays where it is.
+// Lays out a chosen set of nodes on one tab, moving other nodes only to make room for them.
 // Pure functions: the caller measures the nodes and applies the returned positions.
 //
 // A group whose nodes are all being laid out is arranged inside and then moved as one
@@ -96,16 +96,17 @@ export function findOverlaps (nodes) {
 }
 
 /**
- * Compute positions for the movable nodes. Nodes not listed in movableIds never move:
- * they are only used as wiring anchors and as obstacles to keep clear of.
+ * Compute positions for the movable nodes. Other nodes are wiring anchors and obstacles; when
+ * anchored, those in the way are moved too and their new positions are returned with the rest.
  * @param {Object} options
  * @param {LayoutNode[]} options.nodes - every non-config node and junction on the tab
  * @param {LayoutGroup[]} [options.groups] - every group on the tab
  * @param {string[]} options.movableIds - node ids to lay out, in the order the caller listed them
  * @param {number} [options.gridSize]
- * @param {boolean} [options.anchor] - when a whole tab is rearranged, keep each flow where its
- *   first node was and only move flows that would overlap; otherwise stack the flows from
- *   the tab's top-left corner
+ * @param {boolean} [options.anchor] - keep the nodes where they are, or next to what they are wired
+ *   to, and move other nodes down or right out of their way; when a whole tab is rearranged, keep
+ *   each flow where its first node was. Otherwise nothing else moves: the nodes go to free space
+ *   and the flows of a whole tab are stacked from its top-left corner
  * @param {number} [options.maxWidth] - a flow wider than this carries on in a new row below; 0 never wraps
  * @param {number} [options.rowSpacing] - grid cells between a wrapped row and the next, from the last
  *   grid line the upper row touches to the first the lower row touches; by default enough for a
@@ -655,10 +656,10 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
     const fixedNodes = () => {
         const fixed = []
         for (const n of nodes) {
-            if (!movableSet.has(n.id)) {
-                fixed.push(n)
-            } else if (placed.has(n.id)) {
+            if (placed.has(n.id)) {
                 fixed.push({ ...n, ...placed.get(n.id) })
+            } else if (!movableSet.has(n.id)) {
+                fixed.push(n)
             }
         }
         return fixed
@@ -766,12 +767,98 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             const spot = (arranged) => offsetAmongFixed(container, set, arranged, fixed)
             let arranged = arrangeSet(set)
             let { wanted, offset } = spot(arranged)
-            const wrapped = wrappedToCanvas(set, arranged, wanted, chainOf(container).length * GROUP_PADDING)
+            const pad = chainOf(container).length * GROUP_PADDING
+            const wrapped = wrappedToCanvas(set, arranged, wanted, pad)
             if (wrapped) {
                 arranged = wrapped
-                offset = spot(arranged).offset
+                const again = spot(arranged)
+                wanted = again.wanted
+                offset = again.offset
+            }
+            if (anchor && wanted) {
+                // Sets already laid out in this container stay put; only the rest makes room.
+                const done = fixed.filter(f => movableSet.has(f.id) && (container === ROOT || chainOf(containerOf(f)).includes(container)))
+                const kept = inCanvas(arranged.rect, wanted, pad)
+                kept.dy = clearDown(arranged.rects, obstaclesFor(container, done, groupRects(fixed)), kept, spacing)
+                if (fitsCanvas(arranged.rect, kept, pad)) {
+                    const before = new Map(placed)
+                    place(arranged.positions, kept.dx, kept.dy)
+                    if (makeRoom(container, set, arranged.rects.map(r => translate(r, kept.dx, kept.dy)))) continue
+                    placed.clear()
+                    for (const [id, p] of before) placed.set(id, p)
+                }
             }
             place(arranged.positions, offset.dx, offset.dy)
+        }
+    }
+
+    // Move whatever stays put out of the way of `rects`, just placed in `container`: each
+    // thing they cover goes down or right, then whatever that bumps into, and so on up
+    // through every group around the container as it grows. What the moved nodes feed goes
+    // right, so its wires still run left to right; anything else takes the shorter move.
+    // Returns false when something would have to leave the canvas.
+    const makeRoom = (container, set, rects) => {
+        const { clearance } = spacing
+        let level = container
+        let region = rects
+        let skip = new Set(set)
+        const feeding = new Set(set.flatMap(unitNodes))
+        for (;;) {
+            const fixed = fixedNodes()
+            const fixedIds = new Set(fixed.map(f => f.id))
+            const current = new Map(fixed.map(f => [f.id, f]))
+            const rectsNow = groupRects(fixed)
+            const units = [
+                ...(childNodes.get(level) || []).filter(id => fixedIds.has(id) && !skip.has(id)),
+                ...(childGroups.get(level) || []).filter(gid => !skip.has(gid) && rectsNow.get(gid) && descendants(gid).some(id => fixedIds.has(id)))
+            ].map(unit => ({
+                key: unit,
+                ids: unitNodes(unit).filter(id => fixedIds.has(id)),
+                rect: byId.has(unit) ? nodeRect(current.get(unit)) : rectsNow.get(unit)
+            }))
+            units.sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)
+            const pad = chainOf(level).length * GROUP_PADDING
+            // Nodes laid out in this call stay put, so they are in the way from the start.
+            const done = units.filter(unit => unit.ids.length === 1 && byId.has(unit.ids[0]) && unit.ids[0] === unit.key && movableSet.has(unit.key))
+            const settled = [...region.map(rect => ({ rect, moving: true })), ...done.map(unit => ({ rect: unit.rect }))]
+            const hits = (rect, list) => list.filter(o => intersects(inflate(rect, clearance), o.rect))
+            // Smallest grid-aligned shift along one axis that clears everything settled.
+            const shift = (rect, axis) => {
+                let d = 0
+                for (let attempt = 0; attempt < 1000; attempt++) {
+                    const r = inflate(axis === 'x' ? translate(rect, d, 0) : translate(rect, 0, d), clearance)
+                    const hit = hits(axis === 'x' ? translate(rect, d, 0) : translate(rect, 0, d), settled)
+                    if (hit.length === 0) return d
+                    const push = Math.max(...hit.map(o => (axis === 'x' ? o.rect.right - r.left : o.rect.bottom - r.top)))
+                    d += Math.ceil(push / grid) * grid
+                }
+                return d
+            }
+            for (const unit of units) {
+                if (done.includes(unit)) continue
+                if (hits(unit.rect, settled.filter(o => o.moving)).length === 0) {
+                    settled.push({ rect: unit.rect })
+                    continue
+                }
+                const fed = unit.ids.some(id => predecessors.get(id).some(p => feeding.has(p)))
+                const options = [{ dx: 0, dy: shift(unit.rect, 'y') }, { dx: shift(unit.rect, 'x'), dy: 0 }]
+                    .filter(o => fitsCanvas(unit.rect, o, pad))
+                    .sort((a, b) => (fed ? b.dx - a.dx : a.dx + a.dy - b.dx - b.dy))
+                if (options.length === 0) return false
+                const { dx, dy } = options[0]
+                for (const id of unit.ids) {
+                    const n = current.get(id)
+                    placed.set(id, { x: n.x + dx, y: n.y + dy })
+                    if (dx > 0) feeding.add(id)
+                }
+                settled.push({ rect: translate(unit.rect, dx, dy), moving: true })
+            }
+            if (level === ROOT) return true
+            const grown = groupRects(fixedNodes()).get(level)
+            if (!grown) return true
+            region = [grown]
+            skip = new Set([level])
+            level = parentOf(level)
         }
     }
 
@@ -795,7 +882,9 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
         let original = null
         for (const u of set) original = union(original, originalRect(u))
-        if (isFiniteRect(original) && (!containerRect || intersects(original, containerRect))) {
+        // A group tidied in place stays where it was even when the group around it has to
+        // grow to reach it.
+        if (isFiniteRect(original) && ((anchor && !onlyNodes) || !containerRect || intersects(original, containerRect))) {
             candidates.push({
                 dx: Math.round((original.left - rect.left) / grid) * grid,
                 dy: Math.round((original.top - rect.top) / grid) * grid
@@ -823,8 +912,16 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         const originalLeft = (set) => Math.min(...set.map(u => originalRect(u)?.left).filter(Number.isFinite))
         sets.sort((a, b) => originalTop(a) - originalTop(b) || originalLeft(a) - originalLeft(b))
         const taken = []
-        // Offset that puts the flow's first node back where it was.
-        const anchored = (arranged) => {
+        // Offset that puts the flow's first node back where it was, or a lone group's
+        // top-left corner.
+        const anchored = (set, arranged) => {
+            const original = set.length === 1 && !byId.has(set[0]) ? originalRect(set[0]) : null
+            if (isFiniteRect(original)) {
+                return {
+                    dx: Math.round((original.left - arranged.rect.left) / grid) * grid,
+                    dy: Math.round((original.top - arranged.rect.top) / grid) * grid
+                }
+            }
             let first = null
             for (const [id, p] of arranged.positions) {
                 const r = nodeRect(byId.get(id), p.x, p.y)
@@ -840,8 +937,8 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
         for (const set of sets) {
             let arranged = arrangeSet(set)
-            arranged = wrappedToCanvas(set, arranged, anchored(arranged)) || arranged
-            const offset = settleInCanvas(arranged.rects, arranged.rect, taken, anchored(arranged))
+            arranged = wrappedToCanvas(set, arranged, anchored(set, arranged)) || arranged
+            const offset = settleInCanvas(arranged.rects, arranged.rect, taken, anchored(set, arranged))
             place(arranged.positions, offset.dx, offset.dy)
             for (const r of arranged.rects) taken.push({ rect: translate(r, offset.dx, offset.dy), pad: 0 })
         }
