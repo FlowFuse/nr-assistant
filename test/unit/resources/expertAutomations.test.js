@@ -175,6 +175,18 @@ describeMain('expertAutomations', () => {
                 should(result).equal(null)
             })
         })
+        describe('_resolveNode', () => {
+            it('should resolve nodes and fall back to junctions', () => {
+                const mockNode = { id: 'node1' }
+                const mockJunction = { id: 'j1', type: 'junction' }
+                mockRED.nodes.node.withArgs('node1').returns(mockNode)
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.junction.withArgs('j1').returns(mockJunction)
+                expertAutomations._resolveNode('node1').should.equal(mockNode)
+                expertAutomations._resolveNode('j1').should.equal(mockJunction)
+                should(expertAutomations._resolveNode('missing')).equal(null)
+            })
+        })
         describe('getNodes', () => {
             it('should get a single node', () => {
                 const mockNode = { id: 'node1' }
