@@ -723,7 +723,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     getNodes (nodeId, include) {
         if (typeof nodeId === 'string') {
             // user is requesting a single node. This mode supports getting connected nodes in a certain direction if include is provided
-            const node = this.RED.nodes.node(nodeId)
+            const node = this._resolveNode(nodeId)
             if (!node) {
                 return null
             }
@@ -738,7 +738,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             return [node] // if include is not provided or is unrecognized, just return the single node in an array
         } else if (Array.isArray(nodeId)) {
             // user is requesting multiple specific nodes by id, include parameter is not applicable in this case
-            const nodes = nodeId.map(id => this.RED.nodes.node(id)).filter(n => n)
+            const nodes = nodeId.map(id => this._resolveNode(id)).filter(n => n)
             return nodes
         }
         return null
@@ -2868,7 +2868,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('nodeIds is required and must not be empty')
         }
         const nodes = nodeIds.map(id => {
-            const n = this.RED.nodes.node(id)
+            const n = this._resolveNode(id)
             if (!n) throw new Error(`Node ${id} not found`)
             return n
         })
@@ -2955,7 +2955,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (nodeIds && nodeIds.length > 0) {
             if (remove) {
                 const nodes = nodeIds.map(nodeId => {
-                    const node = this.RED.nodes.node(nodeId)
+                    const node = this._resolveNode(nodeId)
                     if (!node) throw new Error(`Node ${nodeId} not found`)
                     if (node.g !== group.id) throw new Error(`Node ${nodeId} is not in group ${id}`)
                     return node
@@ -2968,7 +2968,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 this.RED.nodes.eachGroup(g => existingGroupIds.add(g.id))
 
                 const newNodes = nodeIds.map(nodeId => {
-                    const node = this.RED.nodes.node(nodeId)
+                    const node = this._resolveNode(nodeId)
                     if (!node) throw new Error(`Node ${nodeId} not found`)
                     if (node.z !== group.z) throw new Error(`Node ${nodeId} is on tab ${node.z} but group is on tab ${group.z}`)
                     return node

@@ -168,6 +168,14 @@ describeMain('expertAutomations', () => {
                 mockRED.view.select.calledWith({ nodes: [mockNode1, mockNode2] }).should.be.true()
                 result.should.deepEqual([mockNode1, mockNode2])
             })
+            it('should select a junction, which is only resolvable via RED.nodes.junction', () => {
+                const mockJunction = { id: 'j1', type: 'junction' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.junction.withArgs('j1').returns(mockJunction)
+                const result = expertAutomations.selectNodes('j1', null)
+                mockRED.view.select.calledWith({ nodes: [mockJunction] }).should.be.true()
+                result.should.deepEqual([mockJunction])
+            })
             it('should return null if no nodes found', () => {
                 mockRED.nodes.node.returns(null)
                 mockRED.nodes.getAllFlowNodes.returns([])
@@ -189,6 +197,23 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.node.withArgs('node2').returns(mockNode2)
                 const result = expertAutomations.getNodes(['node1', 'node2'], null)
                 result.should.deepEqual([mockNode1, mockNode2])
+            })
+            it('should get junctions by id, singly or in an array', () => {
+                const mockJunction = { id: 'j1', type: 'junction' }
+                const mockNode = { id: 'node1' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.node.withArgs('node1').returns(mockNode)
+                mockRED.nodes.junction.withArgs('j1').returns(mockJunction)
+                expertAutomations.getNodes('j1', null).should.deepEqual([mockJunction])
+                expertAutomations.getNodes(['node1', 'j1'], null).should.deepEqual([mockNode, mockJunction])
+            })
+            it('should resolve junctions when creating a group', () => {
+                const mockJunction = { id: 'j1', type: 'junction', z: 'tab1' }
+                const mockNode = { id: 'node1', z: 'tab2' }
+                mockRED.nodes.node.withArgs('j1').returns(null)
+                mockRED.nodes.node.withArgs('node1').returns(mockNode)
+                mockRED.nodes.junction.withArgs('j1').returns(mockJunction)
+                should.throws(() => expertAutomations.createGroup(['node1', 'j1'], 'g'), /same tab/)
             })
             it('should return null if node not found', () => {
                 mockRED.nodes.node.returns(null)
