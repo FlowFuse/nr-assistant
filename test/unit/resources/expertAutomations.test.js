@@ -121,6 +121,7 @@ describeMain('expertAutomations', () => {
                 'automation/install-module',
                 'automation/manage-groups',
                 'automation/arrange-nodes',
+                'automation/layout-nodes',
                 'automation/export-flow',
                 'automation/set-deploy-mode',
                 'automation/deploy-flows',
@@ -4375,6 +4376,192 @@ describeMain('expertAutomations', () => {
                 }, result)).rejectedWith(/No workspace nodes to align/)
             })
         })
+        describe('layoutNodes action', () => {
+            let tabNodes
+            let links
+            const wire = (source, sourcePort, target) => links.push({ source, sourcePort, target })
+            beforeEach(() => {
+                tabNodes = []
+                links = []
+                mockRED.nodes.getNodeLinks = sinon.stub().callsFake((id, portType) => links.filter(l => (portType === 0 ? l.source : l.target).id === id))
+                mockRED.history = { push: sinon.stub() }
+                mockRED.view.gridSize = sinon.stub().returns(20)
+                mockRED.view.calculateNodeDimensions = sinon.stub().callsFake(n => [n.testWidth || 100, 30])
+                mockRED.nodes.workspace = sinon.stub().callsFake(id => (['tab1', 'tab2'].includes(id) ? { id, type: 'tab' } : null))
+                mockRED.nodes.getType = sinon.stub().returns({ category: 'function' })
+                mockRED.nodes.filterNodes = sinon.stub().callsFake(({ z }) => tabNodes.filter(n => n.z === z))
+                mockRED.nodes.junctions = sinon.stub().returns([])
+                mockRED.nodes.groups = sinon.stub().returns([])
+                mockRED.nodes.node = sinon.stub().callsFake(id => tabNodes.find(n => n.id === id) || null)
+                mockRED.nodes.dirty = sinon.stub().returns(false)
+            })
+            it('places a new node to the right of the node wired into it and leaves others alone', async () => {
+                const existing = { id: 'e1', type: 'inject', x: 110, y: 100, z: 'tab1', _def: { button: {} } }
+                const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1', testWidth: 120 }
+                tabNodes.push(existing, added)
+                wire(existing, 0, added)
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                result.should.have.property('success', true)
+                existing.should.have.properties({ x: 110, y: 100 })
+                // e1 right edge is 160; a 4-grid gap puts n1's left edge at 240
+                added.should.have.properties({ x: 300, y: 100, moved: true, dirty: true })
+                result.data.placedNodes.should.have.lengthOf(1)
+                result.data.placedNodes[0].should.have.properties({ id: 'n1', x: 300, y: 100 })
+            })
+            it('records a single undoable move event with the original positions', async () => {
+                const added = { id: 'n1', type: 'function', x: 7, y: 9, z: 'tab1', wires: [] }
+                tabNodes.push(added)
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, {})
+                mockRED.history.push.calledOnce.should.be.true()
+                const event = mockRED.history.push.firstCall.args[0]
+                event.should.have.property('t', 'move')
+                event.should.have.property('dirty', false)
+                event.nodes.should.have.lengthOf(1)
+                event.nodes[0].should.have.properties({ n: added, ox: 7, oy: 9 })
+                mockRED.nodes.dirty.calledWith(true).should.be.true()
+                mockRED.view.redraw.calledWith(true).should.be.true()
+            })
+            it('measures nodes with the editor so wider labels get more room', async () => {
+                const existing = { id: 'e1', type: 'function', x: 200, y: 100, z: 'tab1', testWidth: 300 }
+                const added = { id: 'n1', type: 'debug', x: 0, y: 0, z: 'tab1' }
+                tabNodes.push(existing, added)
+                wire(existing, 0, added)
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, {})
+                mockRED.view.calculateNodeDimensions.calledWith(existing).should.be.true()
+                // e1 right edge is 350; n1 left edge lands at 440
+                added.x.should.equal(490)
+            })
+            it('excludes config nodes from placement', async () => {
+                const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1', wires: [] }
+                const cfg = { id: 'cfg1', type: 'mqtt-broker' }
+                tabNodes.push(added)
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1: added, cfg1: cfg }[id] || null))
+                mockRED.nodes.getType.withArgs('mqtt-broker').returns({ category: 'config' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1', 'cfg1'] }
+                }, result)
+                result.data.placedNodes.should.have.lengthOf(1)
+                result.data.excludedConfigNodes.should.deepEqual([{ id: 'cfg1', type: 'mqtt-broker' }])
+            })
+            it('should throw if ids array is empty', async () => {
+                await should(expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: [] }
+                }, {})).rejectedWith(/ids array must not be empty/)
+            })
+            it('should throw if an ID is not a node, group or tab', async () => {
+                await should(expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['missing'] }
+                }, {})).rejectedWith(/missing is not a node, group or tab/)
+            })
+            it('lays out nodes on different tabs in one undoable move', async () => {
+                const n1 = { id: 'n1', type: 'function', x: 7, y: 9, z: 'tab1', wires: [] }
+                const n2 = { id: 'n2', type: 'function', x: 7, y: 9, z: 'tab2', wires: [] }
+                tabNodes.push(n1, n2)
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1', 'n2'] }
+                }, result)
+                result.data.placedNodes.map(n => n.id).should.deepEqual(['n1', 'n2'])
+                mockRED.history.push.calledOnce.should.be.true()
+                mockRED.history.push.firstCall.args[0].nodes.should.have.lengthOf(2)
+            })
+            it('expands a group id to every node in it, including nested groups', async () => {
+                const a = { id: 'a', type: 'function', x: 300, y: 260, z: 'tab1', g: 'g1' }
+                const b = { id: 'b', type: 'function', x: 210, y: 380, z: 'tab1', g: 'g2' }
+                const fixed = { id: 'fixed', type: 'function', x: 900, y: 900, z: 'tab1' }
+                tabNodes.push(a, b, fixed)
+                wire(a, 0, b)
+                const g2 = { id: 'g2', type: 'group', z: 'tab1', g: 'g1', nodes: [b] }
+                const g1 = { id: 'g1', type: 'group', z: 'tab1', nodes: [a, g2] }
+                mockRED.nodes.group = sinon.stub().callsFake(id => ({ g1, g2 }[id] || null))
+                mockRED.nodes.groups = sinon.stub().returns([g1, g2])
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['g1'] }
+                }, result)
+                result.data.placedNodes.map(n => n.id).should.deepEqual(['a', 'b'])
+                fixed.should.have.properties({ x: 900, y: 900 })
+                a.y.should.equal(b.y)
+                a.x.should.be.below(b.x)
+            })
+            it('expands a tab id to every node and junction on it', async () => {
+                const a = { id: 'a', type: 'function', x: 500, y: 100, z: 'tab1' }
+                const j1 = { id: 'j1', type: 'junction', x: 120, y: 140, z: 'tab1' }
+                const b = { id: 'b', type: 'function', x: 50, y: 300, z: 'tab1' }
+                const other = { id: 'other', type: 'function', x: 5, y: 5, z: 'tab2' }
+                tabNodes.push(a, b, other)
+                wire(a, 0, j1)
+                wire(j1, 0, b)
+                mockRED.nodes.junction = sinon.stub().callsFake(id => (id === 'j1' ? j1 : null))
+                mockRED.nodes.junctions = sinon.stub().callsFake(z => (z === 'tab1' ? [j1] : []))
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['tab1'] }
+                }, result)
+                result.data.placedNodes.map(n => n.id).should.deepEqual(['a', 'b', 'j1'])
+                other.should.have.properties({ x: 5, y: 5 })
+                a.x.should.be.below(j1.x)
+                j1.x.should.be.below(b.x)
+            })
+            it('passes anchor and maxWidth on to the layout', async () => {
+                const a = { id: 'a', type: 'function', x: 150, y: 100, z: 'tab1' }
+                const b = { id: 'b', type: 'function', x: 150, y: 300, z: 'tab1' }
+                const c = { id: 'c', type: 'function', x: 1200, y: 600, z: 'tab1' }
+                tabNodes.push(a, b, c)
+                wire(a, 0, b)
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['tab1'], anchor: false, maxWidth: 200 }
+                }, {})
+                // maxWidth puts b on a row below a; without anchoring, c is stacked at the left
+                a.x.should.equal(b.x)
+                b.y.should.be.above(a.y)
+                c.x.should.equal(a.x)
+            })
+            it('passes rowSpacing on to the layout in grid cells', async () => {
+                mockRED.view.gridSize = sinon.stub().returns(10)
+                const a = { id: 'a', type: 'function', x: 150, y: 100, z: 'tab1' }
+                const b = { id: 'b', type: 'function', x: 350, y: 100, z: 'tab1' }
+                tabNodes.push(a, b)
+                wire(a, 0, b)
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['tab1'], maxWidth: 200, rowSpacing: 6 }
+                }, {})
+                // six 10px cells from the last grid line a touches to the first one b touches
+                ;(Math.ceil((b.y - 15) / 10) - Math.floor((a.y + 15) / 10)).should.equal(6)
+            })
+            it('keeps nodes inside the canvas size the editor reports', async () => {
+                mockRED.view.dimensions = sinon.stub().returns({ width: 1000, height: 1000 })
+                const chain = ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => ({ id, type: 'function', x: 610 + i * 180, y: 100, z: 'tab1' }))
+                tabNodes.push(...chain)
+                chain.slice(1).forEach((n, i) => wire(chain[i], 0, n))
+                await expertAutomations.invokeAction('automation/layout-nodes', { params: { ids: ['tab1'] } }, {})
+                for (const n of chain) (n.x + 50).should.be.belowOrEqual(1000)
+            })
+            it('assumes a 5000 square canvas when the editor cannot report its size', async () => {
+                mockRED.view.dimensions = sinon.stub().throws(new Error('not available'))
+                const chain = ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => ({ id, type: 'function', x: 4610 + i * 180, y: 100, z: 'tab1' }))
+                tabNodes.push(...chain)
+                chain.slice(1).forEach((n, i) => wire(chain[i], 0, n))
+                await expertAutomations.invokeAction('automation/layout-nodes', { params: { ids: ['tab1'] } }, {})
+                for (const n of chain) (n.x + 50).should.be.belowOrEqual(5000)
+            })
+            it('should throw if workspace is locked', async () => {
+                tabNodes.push({ id: 'n1', type: 'function', z: 'tab1', wires: [] })
+                mockRED.workspaces.isLocked = sinon.stub().withArgs('tab1').returns(true)
+                await should(expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, {})).rejectedWith(/Workspace tab1 is locked/)
+                mockRED.history.push.called.should.be.false()
+            })
+        })
         describe('write permission enforcement (flows.write)', () => {
             beforeEach(() => {
                 mockRED.user.hasPermission = sinon.stub().withArgs('flows.write').returns(false)
@@ -4509,6 +4696,14 @@ describeMain('expertAutomations', () => {
                     params: { ids: ['n1', 'n2'], direction: 'grid' }
                 }, {})).rejectedWith(/Permission denied.*write permission/)
                 mockRED.actions.invoke.called.should.be.false()
+            })
+            it('should reject layout-nodes', async () => {
+                const n1 = { id: 'n1', type: 'function', x: 10, y: 20, z: 'tab1' }
+                mockRED.nodes.node = sinon.stub().callsFake(id => ({ n1 }[id] || null))
+                await should(expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, {})).rejectedWith(/Permission denied.*write permission/)
+                n1.should.have.properties({ x: 10, y: 20 })
             })
         })
 
