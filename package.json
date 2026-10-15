@@ -47,6 +47,7 @@
         "zod": "^3.25.76"
     },
     "devDependencies": {
+        "@dagrejs/dagre": "3.1.1",
         "eslint": "^8.48.0",
         "eslint-config-standard": "^17.1.0",
         "eslint-plugin-html": "7.1.0",
