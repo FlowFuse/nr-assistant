@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [0.21.0](https://github.com/FlowFuse/nr-assistant/compare/v0.20.0...v0.21.0) (2026-10-15)
+
+
+### Features
+
+* support vue-sfc language in ui-template editor ([#426](https://github.com/FlowFuse/nr-assistant/issues/426)) ([7515f07](https://github.com/FlowFuse/nr-assistant/commit/7515f07db9a81a08322ecb27b83cb91e7a8e3ac6))
+
+
+### Bug Fixes
+
+* resolve junctions by id in group, select and align actions ([#430](https://github.com/FlowFuse/nr-assistant/issues/430)) ([49f6f74](https://github.com/FlowFuse/nr-assistant/commit/49f6f74775947c8e703888c0a53cf9c0744077ac))
+* send the catalogue version when installing a module ([#429](https://github.com/FlowFuse/nr-assistant/issues/429)) ([1422069](https://github.com/FlowFuse/nr-assistant/commit/1422069921289c79790e7a53df0dadfdd65b76ef))
+
 ## [0.20.0](https://github.com/FlowFuse/nr-assistant/compare/v0.19.0...v0.20.0) (2026-09-18)
 
 
