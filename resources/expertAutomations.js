@@ -71,6 +71,7 @@ const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
 const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODES_SCOPE]
 
 // Loose but standards-compliant npm package name check (unscoped or @scope/name).
+const CATALOGUE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
@@ -1181,8 +1182,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * only attaches Authorization to non-absolute URLs, and catalogue entries are full https
      * URLs - the same request shape core's palette manager uses.
      * @param {string} module - the package name to look up
-     * @returns {Promise<{entitled: boolean, lookupFailed: boolean}>} lookupFailed marks a vetted
-     * catalogue that could not be loaded, so "not entitled" may be transient rather than a miss
+     * @returns {Promise<{entitled: boolean, lookupFailed: boolean, version: (string|undefined)}>}
+     * lookupFailed marks a vetted catalogue that could not be loaded, so "not entitled" may be
+     * transient rather than a miss. version is the catalogue entry's version, when it is a plain semver.
      */
     async isModuleEntitled (module) {
         const catalogues = this.RED.settings.theme('palette.catalogues') || []
@@ -1196,8 +1198,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         method: 'GET',
                         dataType: 'json'
                     })
-                    if (Array.isArray(catalogue?.modules) && catalogue.modules.some(m => m?.id === module)) {
-                        return { entitled: true, lookupFailed: false }
+                    const entry = Array.isArray(catalogue?.modules) ? catalogue.modules.find(m => m?.id === module) : null
+                    if (entry) {
+                        const version = typeof entry.version === 'string' && CATALOGUE_VERSION_RE.test(entry.version) ? entry.version : undefined
+                        return { entitled: true, lookupFailed: false, version }
                     }
                 } catch (err) {
                     console.warn(`Failed to load FlowFuse catalogue "${url}":`, err?.statusText || err?.message || err)
@@ -1205,7 +1209,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         }
-        return { entitled: false, lookupFailed }
+        return { entitled: false, lookupFailed, version: undefined }
     }
 
     // The same allowInstall/allowList/denyList gate the palette manager applies, checked up front
@@ -2589,20 +2593,20 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
             // '@flowfuse/' packages live on the public npm registry, so being in the scope is
             // the entitlement; the other scopes are served from private registries and must be
-            // listed in one of the instance's FlowFuse catalogues.
-            if (!module.startsWith(FLOWFUSE_SCOPE)) {
-                const { entitled, lookupFailed } = await this.isModuleEntitled(module)
-                if (!entitled) {
-                    if (lookupFailed) {
-                        result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
-                        result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
-                    } else {
-                        result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
-                        result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
-                    }
-                    result.success = false
-                    break
+            // listed in one of the instance's FlowFuse catalogues. The catalogue entry also
+            // supplies the version to pin, as the palette manager does. A '@flowfuse/' package
+            // missing from the catalogues installs without one.
+            const { entitled, lookupFailed, version } = await this.isModuleEntitled(module)
+            if (!entitled && !module.startsWith(FLOWFUSE_SCOPE)) {
+                if (lookupFailed) {
+                    result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
+                    result.errorCode = ERROR_CODES.CATALOGUE_UNAVAILABLE
+                } else {
+                    result.error = `"${module}" is not listed in this instance's FlowFuse catalogues - it is not available to install`
+                    result.errorCode = ERROR_CODES.MODULE_NOT_ENTITLED
                 }
+                result.success = false
+                break
             }
 
             // npm install can take well over a minute, far longer than the transport timeout, so
@@ -2612,7 +2616,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 url: 'nodes',
                 method: 'POST',
                 contentType: 'application/json',
-                data: JSON.stringify({ module })
+                data: JSON.stringify(version ? { module, version } : { module })
             })
             install.catch(err => {
                 console.error(`Install of module "${module}" failed:`, err?.responseJSON?.message || err?.statusText || err)
