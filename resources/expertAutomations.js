@@ -724,7 +724,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     getNodes (nodeId, include) {
         if (typeof nodeId === 'string') {
             // user is requesting a single node. This mode supports getting connected nodes in a certain direction if include is provided
-            const node = this.RED.nodes.node(nodeId)
+            const node = this._resolveNode(nodeId)
             if (!node) {
                 return null
             }
@@ -739,7 +739,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             return [node] // if include is not provided or is unrecognized, just return the single node in an array
         } else if (Array.isArray(nodeId)) {
             // user is requesting multiple specific nodes by id, include parameter is not applicable in this case
-            const nodes = nodeId.map(id => this.RED.nodes.node(id)).filter(n => n)
+            const nodes = nodeId.map(id => this._resolveNode(id)).filter(n => n)
             return nodes
         }
         return null
@@ -1954,7 +1954,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('createSubroutine found no nodes to wrap; the selected group(s) are empty')
         }
         const resolved = uniqueIds.map(id => {
-            const n = this.RED.nodes.node(id)
+            const n = this._resolveNode(id)
             if (!n) throw new Error(`Node ${id} not found`)
             return n
         })
@@ -2339,7 +2339,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
             const summarize = n => ({ ...this._summarizeNode(n), validation: this._getNodeValidation(n) })
             result.data = [
-                ...params.nodes.map(({ id }) => summarize(this.RED.nodes.node(id))),
+                ...params.nodes.map(({ id }) => summarize(this._resolveNode(id))),
                 ...allLinkNodes.map(summarize),
                 ...allJunctionNodes.map(summarize)
             ]
@@ -2464,7 +2464,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            const groupedNodes = (params.ids || []).map(id => this.RED.nodes.node(id)).filter(n => n && n.g)
+            const groupedNodes = (params.ids || []).map(id => this._resolveNode(id)).filter(n => n && n.g)
             if (groupedNodes.length > 0) {
                 result.error = `Node ${groupedNodes[0].id}: cannot be removed while it is a member of a group — group membership must be managed via a dedicated action first`
                 result.errorCode = ERROR_CODES.FORBIDDEN_PROPERTY
@@ -2872,7 +2872,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('nodeIds is required and must not be empty')
         }
         const nodes = nodeIds.map(id => {
-            const n = this.RED.nodes.node(id)
+            const n = this._resolveNode(id)
             if (!n) throw new Error(`Node ${id} not found`)
             return n
         })
@@ -2908,14 +2908,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
 
         // Rename to the requested ID if one was provided and differs from the auto-generated one
         if (id !== undefined && id !== newGroup.id) {
-            if (this.RED.nodes.node(id) || this.RED.nodes.group(id)) {
+            if (this._resolveNode(id) || this.RED.nodes.group(id)) {
                 throw new Error(`Group ID ${id} is already in use`)
             }
             const oldId = newGroup.id
             this.RED.nodes.remove(oldId)
             newGroup.id = id
             ;(newGroup.nodes || []).forEach(n => {
-                const nodeRef = typeof n === 'object' ? n : this.RED.nodes.node(n)
+                const nodeRef = typeof n === 'object' ? n : this._resolveNode(n)
                 if (nodeRef && nodeRef.g === oldId) nodeRef.g = id
             })
             this.RED.nodes.add(newGroup)
@@ -2959,7 +2959,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
         if (nodeIds && nodeIds.length > 0) {
             if (remove) {
                 const nodes = nodeIds.map(nodeId => {
-                    const node = this.RED.nodes.node(nodeId)
+                    const node = this._resolveNode(nodeId)
                     if (!node) throw new Error(`Node ${nodeId} not found`)
                     if (node.g !== group.id) throw new Error(`Node ${nodeId} is not in group ${id}`)
                     return node
@@ -2972,7 +2972,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 this.RED.nodes.eachGroup(g => existingGroupIds.add(g.id))
 
                 const newNodes = nodeIds.map(nodeId => {
-                    const node = this.RED.nodes.node(nodeId)
+                    const node = this._resolveNode(nodeId)
                     if (!node) throw new Error(`Node ${nodeId} not found`)
                     if (node.z !== group.z) throw new Error(`Node ${nodeId} is on tab ${node.z} but group is on tab ${group.z}`)
                     return node
@@ -3071,7 +3071,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     descend(childGroup)
                     continue
                 }
-                const node = this.RED.nodes.node(memberId)
+                const node = this._resolveNode(memberId)
                 if (node) memberNodes.push(node)
             }
         }
@@ -3107,7 +3107,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error(`Invalid direction "${direction}". Valid alignment: ${ALIGNMENT_DIRECTIONS.join(', ')}. Valid distribution: ${DISTRIBUTE_DIRECTIONS.join(', ')}`)
         }
         const allNodes = ids.map(id => {
-            const node = this.RED.nodes.node(id)
+            const node = this._resolveNode(id)
             if (!node) throw new Error(`Node ${id} not found`)
             return node
         })
