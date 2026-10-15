@@ -1019,7 +1019,21 @@ describeMain('flowLayout', () => {
             checkClear(nodes, [], placed)
             const ys = ['a', 'b', 'c'].map(id => placed.get(id).y)
             ys.should.deepEqual([...ys].sort((p, q) => p - q))
-            placed.get('a').y.should.equal(100)
+            placed.get('b').y.should.equal(100)
+        })
+
+        it('centres new nodes on the outputs of one node on it, in port order', () => {
+            const nodes = [
+                node('sw', { x: 150, y: 300, h: 45, wires: [['a'], ['b'], ['c', 'd']] }),
+                node('a', { x: 200, y: 500 }),
+                node('b', { x: 200, y: 400 }),
+                node('d', { x: 200, y: 450 }),
+                node('c', { x: 200, y: 600 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['a', 'b', 'c', 'd'], canvas })
+            const ys = ['a', 'b', 'd', 'c'].map(id => placed.get(id).y)
+            ys.should.deepEqual([...ys].sort((p, q) => p - q))
+            ;((ys[0] + ys[3]) / 2).should.be.approximately(300, 10)
         })
 
         it('moves what new nodes feed to the right, so its wires still run left to right', () => {
