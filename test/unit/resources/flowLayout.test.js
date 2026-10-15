@@ -78,6 +78,27 @@ describeMain('flowLayout', () => {
             findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
         })
 
+        it('keeps nodes wired to the same output in the order they were in', () => {
+            const nodes = [
+                node('in', { x: 100, y: 200, wires: [['a', 'b', 'c']] }),
+                node('a', { x: 300, y: 300 }),
+                node('b', { x: 300, y: 100 }),
+                node('c', { x: 300, y: 200 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            const y = (id) => placed.get(id).y
+            y('b').should.be.below(y('c'))
+            y('c').should.be.below(y('a'))
+        })
+
+        it('puts new nodes wired to the same output in wire order', () => {
+            const nodes = [node('in', { x: 100, y: 200, wires: [['a', 'b', 'c']] }), node('a'), node('b'), node('c')]
+            const placed = layoutNodes({ nodes, movableIds: ['a', 'b', 'c'] })
+            const y = (id) => placed.get(id).y
+            y('a').should.be.below(y('b'))
+            y('b').should.be.below(y('c'))
+        })
+
         it('keeps room below the first output for an output that leaves the group', () => {
             const nodes = [
                 node('in', { x: 100, y: 100, g: 'g1', wires: [['sw']] }),
@@ -900,7 +921,59 @@ describeMain('flowLayout', () => {
             placed.get('low').x.should.be.above(160)
         })
 
-        it('finds free room for the set when nothing can be pushed inside the canvas', () => {
+        it('moves the outputs of a new node right of it, including ones not in its way', () => {
+            const nodes = [
+                node('in1', { x: 160, y: 100, wires: [['new']] }),
+                node('in2', { x: 160, y: 180, wires: [['new']] }),
+                node('new', { wires: [['out1'], ['out2']] }),
+                node('out1', { x: 380, y: 100 }),
+                node('out2', { x: 380, y: 180 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['new'], canvas })
+            const right = placed.get('new').x + 50
+            ;(placed.get('out1').x - 50).should.be.aboveOrEqual(right + 80)
+            ;(placed.get('out2').x - 50).should.be.aboveOrEqual(right + 80)
+            checkClear(nodes, [], placed)
+        })
+
+        it('leaves a node that loops back to an earlier one where it is', () => {
+            const nodes = [
+                node('start', { x: 160, y: 100, g: 'g1', wires: [['retry']] }),
+                node('retry', { x: 200, y: 140, g: 'g1', wires: [['back']] }),
+                node('back', { x: 100, y: 300 })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['start', 'retry'], canvas })
+            placed.has('back').should.be.false()
+        })
+
+        it('puts a new node fed by several existing ones level with the middle of them', () => {
+            const nodes = [
+                node('in1', { x: 160, y: 80, wires: [['join']] }),
+                node('in2', { x: 160, y: 160, wires: [['join']] }),
+                node('in3', { x: 160, y: 240, wires: [['join']] }),
+                node('join')
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['join'], canvas })
+            placed.get('join').y.should.equal(160)
+        })
+
+        it('pushes a group right when it already sits close to the bottom edge', () => {
+            const small = { width: 1400, height: 260 }
+            const nodes = [
+                node('a1', { x: 160, y: 60, g: 'g1', wires: [['a2', 'a3']] }),
+                node('a2', { x: 180, y: 80, g: 'g1' }),
+                node('a3', { x: 200, y: 100, g: 'g1' }),
+                node('b1', { x: 140, y: 200, g: 'g2', wires: [['b2']] }),
+                node('b2', { x: 300, y: 200, g: 'g2' })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'g2' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: ['a1', 'a2', 'a3'], canvas: small })
+            placed.get('a1').x.should.be.below(300)
+            placed.get('b1').y.should.equal(200)
+            placed.get('b1').x.should.be.above(140)
+        })
+
+        it('fails without moving anything when the set fits nowhere inside the canvas', () => {
             const small = { width: 800, height: 220 }
             const nodes = [
                 ...stacked('g1', 100, 80),
@@ -908,9 +981,7 @@ describeMain('flowLayout', () => {
                 node('floor', { x: 400, y: 190, w: 760 })
             ]
             const groups = [{ id: 'g1' }]
-            const placed = layoutNodes({ nodes, groups, movableIds: members('g1'), canvas: small })
-            placed.has('wall').should.be.false()
-            placed.has('floor').should.be.false()
+            ;(() => layoutNodes({ nodes, groups, movableIds: members('g1'), canvas: small })).should.throw(/no free space on the canvas/)
         })
 
         it('does not push anything when not anchored', () => {

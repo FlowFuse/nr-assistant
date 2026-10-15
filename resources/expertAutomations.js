@@ -3172,6 +3172,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {number} [options.rowSpacing] - grid cells between a wrapped row and the next, from the last grid
      *   line the upper row touches to the first the lower row touches; by default enough for a node to fit
      *   halfway between them with space above and below it
+     * @throws when the nodes of a tab fit nowhere inside the canvas; nothing moves on any tab then
      */
     layoutNodes (ids, { anchor = true, maxWidth = 1600, rowSpacing } = {}) {
         if (!ids || ids.length === 0) throw new Error('ids array must not be empty')
@@ -3214,8 +3215,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
         const canvas = this._canvasSize()
         const wasDirty = this.RED.nodes.dirty()
-        const movedNodes = []
-        const pushed = []
+        // Every tab is laid out before anything moves, so a tab with no room leaves all of them as they were.
+        const layouts = []
         for (const [z, tabSelection] of byTab) {
             const tabNodes = this._tabMembers(z)
             for (const n of tabSelection) {
@@ -3236,6 +3237,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 rowSpacing,
                 canvas
             })
+            layouts.push({ tabNodes, tabSelection, positions })
+        }
+        const movedNodes = []
+        const pushed = []
+        for (const { tabNodes, tabSelection, positions } of layouts) {
             for (const n of tabNodes) {
                 const p = positions.get(n.id)
                 if (!p) continue

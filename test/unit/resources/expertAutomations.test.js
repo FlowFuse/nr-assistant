@@ -4494,6 +4494,19 @@ describeMain('expertAutomations', () => {
                     params: { ids: ['missing'] }
                 }, {})).rejectedWith(/missing is not a node, group or tab/)
             })
+            it('moves nothing on any tab when one of them has no room on the canvas', async () => {
+                mockRED.view.dimensions = sinon.stub().returns({ width: 300, height: 120 })
+                const n1 = { id: 'n1', type: 'function', x: 7, y: 9, z: 'tab1', wires: [] }
+                const n2 = { id: 'n2', type: 'function', x: 7, y: 9, z: 'tab2', wires: [] }
+                const wall = { id: 'w2', type: 'function', x: 150, y: 60, z: 'tab2', testWidth: 280 }
+                tabNodes.push(n1, n2, wall)
+                await should(expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1', 'n2'] }
+                }, {})).rejectedWith(/no free space on the canvas/)
+                n1.should.have.properties({ x: 7, y: 9 })
+                n2.should.have.properties({ x: 7, y: 9 })
+                mockRED.history.push.called.should.be.false()
+            })
             it('lays out nodes on different tabs in one undoable move', async () => {
                 const n1 = { id: 'n1', type: 'function', x: 7, y: 9, z: 'tab1', wires: [] }
                 const n2 = { id: 'n2', type: 'function', x: 7, y: 9, z: 'tab2', wires: [] }
