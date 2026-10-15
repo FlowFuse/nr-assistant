@@ -18,6 +18,7 @@ const NODE_HEIGHT = 30
 // Inject/debug style buttons draw outside the node's own width.
 const BUTTON_WIDTH = 20
 const ROOT = ''
+const NO_ROOM = 'There is no free space on the canvas for these nodes, so nothing was moved'
 
 /**
  * @typedef {Object} LayoutNode
@@ -114,6 +115,7 @@ export function findOverlaps (nodes) {
  * @param {{width: number, height: number}} [options.canvas] - size of the editor canvas; nothing is
  *   placed past its right or bottom edge, and a flow wider than it wraps whatever maxWidth is
  * @returns {Map<string, {x: number, y: number}>}
+ * @throws when the nodes fit nowhere inside the canvas
  */
 export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, anchor = true, maxWidth = 1600, rowSpacing, canvas = { width: 8000, height: 8000 } }) {
     const grid = gridSize > 0 ? gridSize : 20
@@ -148,6 +150,9 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
     }
     const fitsCanvas = (rect, { dx, dy }, pad = 0) => rect.right + dx + pad <= canvas.width - step && rect.bottom + dy + pad <= canvas.height - step
+    // A pushed node only has to fit along the way it moves, so one already close to the
+    // bottom edge can still move right.
+    const staysInCanvas = (rect, { dx, dy }, pad = 0) => (dx === 0 || rect.right + dx + pad <= canvas.width - step) && (dy === 0 || rect.bottom + dy + pad <= canvas.height - step)
     // Keep a set clear of the obstacles and inside the canvas, as near `offset` as it can be.
     // When moving it down would take it past the bottom edge, it goes to the free spot
     // nearest `offset`, next to an obstacle or against the canvas edges.
@@ -368,7 +373,8 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         const y = new Map(g.nodes().map(v => [v, g.node(v).y]))
 
         // dagre does not know about output ports. The outputs of a node are put back in port
-        // order, first port on top, on the rows dagre gave them. A wire that reaches further
+        // order, first port on top, on the rows dagre gave them, and nodes on the same port
+        // in the order they had before. A wire that reaches further
         // than the next column keeps its row there, and only nodes fed by that one node and
         // in the same group move. A column after one that changed is re-sorted, within each
         // group, by the average row of what feeds each node.
@@ -404,16 +410,18 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             for (const id of columns[rank]) {
                 const outs = [...outgoing.get(id)]
                 const nextX = rankXs[rank + 1]
-                if (nextX === undefined || new Set(outs.map(([, port]) => port)).size < 2) continue
+                if (nextX === undefined || outs.length < 2) continue
                 const entries = []
-                for (const [to, port] of outs) {
+                for (const [wire, [to, port]] of outs.entries()) {
                     const isNode = inSet.has(to)
                     const movable = isNode && rankOf(to) === rank + 1 && g.predecessors(to).length === 1 && clusterOf(to) === clusterOf(id)
                     if (isNode && rankOf(to) === rank + 1 && !movable) continue
-                    entries.push({ to, port, movable, row: movable ? y.get(to) : rowAt(id, to, nextX) })
+                    const before = byId.get(to)?.y
+                    entries.push({ to, port, wire, before: Number.isFinite(before) ? before : Infinity, movable, row: movable ? y.get(to) : rowAt(id, to, nextX) })
                 }
                 const rows = entries.map(e => e.row).sort((a, b) => a - b)
-                entries.sort((a, b) => a.port - b.port || a.row - b.row)
+                // Wires on the same port keep the order their nodes had, or the order they were wired.
+                entries.sort((a, b) => a.port - b.port || (a.movable && b.movable ? a.before - b.before || a.wire - b.wire : a.row - b.row))
                 entries.forEach((e, i) => {
                     if (e.movable && y.get(e.to) !== rows[i]) {
                         y.set(e.to, rows[i])
@@ -788,8 +796,28 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                     for (const [id, p] of before) placed.set(id, p)
                 }
             }
+            if (!offset) throw new Error(NO_ROOM)
             place(arranged.positions, offset.dx, offset.dy)
         }
+    }
+
+    // How far right a unit has to move to sit a column gap after the nodes in `feeding` that
+    // are wired into it, so their wires run left to right. Nodes laid out on their own feed
+    // whatever they are wired to. Any other node only pushes what was already to its right,
+    // so a wire looping back to an earlier node is left alone.
+    const behindFeeders = (unit, set, feeding, current) => {
+        let need = 0
+        for (const id of unit.ids) {
+            for (const from of predecessors.get(id)) {
+                if (!feeding.has(from) || unit.ids.includes(from)) continue
+                const loose = set.includes(from)
+                if (!loose && !(byId.get(id).x >= byId.get(from).x)) continue
+                const p = placed.get(from) || byId.get(from)
+                const right = nodeRect(byId.get(from), p.x, p.y).right
+                need = Math.max(need, right + spacing.columnGap - nodeRect(current.get(id)).left)
+            }
+        }
+        return need > 0 ? Math.ceil(need / grid) * grid : 0
     }
 
     // Move whatever stays put out of the way of `rects`, just placed in `container`: each
@@ -836,13 +864,15 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             }
             for (const unit of units) {
                 if (done.includes(unit)) continue
-                if (hits(unit.rect, settled.filter(o => o.moving)).length === 0) {
+                const behind = behindFeeders(unit, set, feeding, current)
+                const fromBehind = behind > 0 && { dx: behind + shift(translate(unit.rect, behind, 0), 'x'), dy: 0 }
+                if (!fromBehind && hits(unit.rect, settled.filter(o => o.moving)).length === 0) {
                     settled.push({ rect: unit.rect })
                     continue
                 }
                 const fed = unit.ids.some(id => predecessors.get(id).some(p => feeding.has(p)))
-                const options = [{ dx: 0, dy: shift(unit.rect, 'y') }, { dx: shift(unit.rect, 'x'), dy: 0 }]
-                    .filter(o => fitsCanvas(unit.rect, o, pad))
+                const options = [fromBehind, { dx: 0, dy: shift(unit.rect, 'y') }, { dx: shift(unit.rect, 'x'), dy: 0 }]
+                    .filter(o => o && staysInCanvas(unit.rect, o, pad))
                     .sort((a, b) => (fed ? b.dx - a.dx : a.dx + a.dy - b.dx - b.dy))
                 if (options.length === 0) return false
                 const { dx, dy } = options[0]
@@ -898,7 +928,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         // Take the first spot inside the canvas where the groups around the set can grow
         // to fit it without covering anything outside them.
         const inside = settled.filter(o => fitsCanvas(rect, o, pad))
-        const offset = inside.find(o => !groupsCollide(container, translate(rect, o.dx, o.dy), fixed, rects)) || inside[0] || settled[0]
+        const offset = inside.find(o => !groupsCollide(container, translate(rect, o.dx, o.dy), fixed, rects)) || inside[0]
         return { wanted: candidates.find(Boolean), offset }
     }
 
@@ -939,6 +969,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             let arranged = arrangeSet(set)
             arranged = wrappedToCanvas(set, arranged, anchored(set, arranged)) || arranged
             const offset = settleInCanvas(arranged.rects, arranged.rect, taken, anchored(set, arranged))
+            if (!fitsCanvas(arranged.rect, offset)) throw new Error(NO_ROOM)
             place(arranged.positions, offset.dx, offset.dy)
             for (const r of arranged.rects) taken.push({ rect: translate(r, offset.dx, offset.dy), pad: 0 })
         }
@@ -966,6 +997,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             arranged = wrappedToCanvas(set, arranged, wanted(arranged)) || arranged
             const rect = arranged.rect
             const offset = settleInCanvas(arranged.rects, rect, taken, wanted(arranged))
+            if (!fitsCanvas(rect, offset)) throw new Error(NO_ROOM)
             place(arranged.positions, offset.dx, offset.dy)
             for (const r of arranged.rects) taken.push({ rect: translate(r, offset.dx, offset.dy), pad: 0 })
             top = Math.max(top, rect.bottom + offset.dy + rowGap * 2)
@@ -1046,15 +1078,19 @@ function closestRows (wanted, gaps) {
 function anchorOffset (set, local, unitRect, fixedById, predecessors, successors, obstacleFor, { columnGap, grid }) {
     const snap = (v) => Math.round(v / grid) * grid
     const referenceFor = (fixedNode) => obstacleFor(fixedNode) || { rect: nodeRect(fixedNode), pad: 0 }
+    // A node fed by several nodes that stay put goes after the furthest one, level with
+    // the middle of them.
     for (const id of set) {
-        const upstream = predecessors.get(id).find(f => fixedById.has(f))
-        if (upstream) {
-            const fixedNode = fixedById.get(upstream)
-            const ref = referenceFor(fixedNode)
+        const upstream = predecessors.get(id).filter(f => fixedById.has(f)).map(f => fixedById.get(f))
+        if (upstream.length > 0) {
             const p = local.get(id)
             const rect = unitRect(id, p)
-            const targetLeft = ref.rect.right + ref.pad + columnGap
-            return { dx: Math.ceil((targetLeft - rect.left) / grid) * grid, dy: snap(fixedNode.y - p.y) }
+            const targetLeft = Math.max(...upstream.map(f => {
+                const ref = referenceFor(f)
+                return ref.rect.right + ref.pad + columnGap
+            }))
+            const middle = upstream.reduce((sum, f) => sum + f.y, 0) / upstream.length
+            return { dx: Math.ceil((targetLeft - rect.left) / grid) * grid, dy: snap(middle - p.y) }
         }
     }
     for (const id of set) {
