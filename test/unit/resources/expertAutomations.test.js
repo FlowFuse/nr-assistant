@@ -4411,6 +4411,39 @@ describeMain('expertAutomations', () => {
                 result.data.placedNodes.should.have.lengthOf(1)
                 result.data.placedNodes[0].should.have.properties({ id: 'n1', x: 300, y: 100 })
             })
+            it('moves a node in the way and reverts it with the same undo', async () => {
+                const existing = { id: 'e1', type: 'function', x: 150, y: 100, z: 'tab1' }
+                const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1' }
+                const blocker = { id: 'b1', type: 'function', x: 300, y: 100, z: 'tab1' }
+                tabNodes.push(existing, added, blocker)
+                wire(existing, 0, added)
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'] }
+                }, result)
+                added.should.have.properties({ x: 330, y: 100 })
+                existing.should.have.properties({ x: 150, y: 100 })
+                ;(blocker.x !== 300 || blocker.y !== 100).should.be.true()
+                blocker.should.have.properties({ moved: true, dirty: true })
+                result.data.movedToMakeRoom.should.deepEqual([{ id: 'b1', z: 'tab1', x: blocker.x, y: blocker.y }])
+                const event = mockRED.history.push.firstCall.args[0]
+                event.nodes.map(e => e.n.id).sort().should.deepEqual(['b1', 'n1'])
+                event.nodes.find(e => e.n === blocker).should.have.properties({ ox: 300, oy: 100 })
+            })
+            it('leaves every other node alone when not anchored', async () => {
+                const existing = { id: 'e1', type: 'function', x: 150, y: 100, z: 'tab1' }
+                const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1' }
+                const blocker = { id: 'b1', type: 'function', x: 300, y: 100, z: 'tab1' }
+                tabNodes.push(existing, added, blocker)
+                wire(existing, 0, added)
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['n1'], anchor: false }
+                }, result)
+                blocker.should.have.properties({ x: 300, y: 100 })
+                result.data.movedToMakeRoom.should.have.lengthOf(0)
+                added.y.should.be.above(100)
+            })
             it('records a single undoable move event with the original positions', async () => {
                 const added = { id: 'n1', type: 'function', x: 7, y: 9, z: 'tab1', wires: [] }
                 tabNodes.push(added)

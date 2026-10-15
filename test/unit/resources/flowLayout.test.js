@@ -169,13 +169,27 @@ describeMain('flowLayout', () => {
             ;(b.y % 20).should.equal(0)
         })
 
-        it('moves down past a node already in the way', () => {
+        it('moves a node already in the way so a new node lines up with its feeder', () => {
             const nodes = [
                 node('a', { x: 150, y: 100, wires: [['b']] }),
                 node('b'),
                 node('blocker', { x: 330, y: 100 })
             ]
             const placed = layoutNodes({ nodes, movableIds: ['b'] })
+            placed.get('b').should.deepEqual({ x: 330, y: 100 })
+            placed.has('blocker').should.be.true()
+            placed.has('a').should.be.false()
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
+        it('moves down past a node already in the way when not anchored', () => {
+            const nodes = [
+                node('a', { x: 150, y: 100, wires: [['b']] }),
+                node('b'),
+                node('blocker', { x: 330, y: 100 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['b'], anchor: false })
+            placed.has('blocker').should.be.false()
             placed.get('b').x.should.equal(330)
             placed.get('b').y.should.be.above(100)
             findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
@@ -209,7 +223,7 @@ describeMain('flowLayout', () => {
             placed.get('b').x.should.be.below(placed.get('c').x)
         })
 
-        it('treats another group as a block, including the padding it will grow by', () => {
+        it('treats another group as a block, including the padding it will grow by, when not anchored', () => {
             // g1 holds a fixed node; the new node is outside any group and must clear
             // the whole group box, not just the node inside it
             const nodes = [
@@ -218,20 +232,20 @@ describeMain('flowLayout', () => {
                 node('new')
             ]
             const groups = [{ id: 'g1' }]
-            const placed = layoutNodes({ nodes, groups, movableIds: ['new'] })
+            const placed = layoutNodes({ nodes, groups, movableIds: ['new'], anchor: false })
             const p = placed.get('new')
             // g1 spans 254..406 x 59..141; with clearance the new node must start below it
             ;(p.y - 15).should.be.aboveOrEqual(141 + 20)
         })
 
-        it('grows a group around a new node without covering another group', () => {
+        it('grows a group around a new node without covering another group, when not anchored', () => {
             const nodes = [
                 node('member', { x: 150, y: 100, g: 'g1', wires: [['new']] }),
                 node('other', { x: 330, y: 160, g: 'g2' }),
                 node('new', { g: 'g1' })
             ]
             const groups = [{ id: 'g1' }, { id: 'g2' }]
-            const placed = layoutNodes({ nodes, groups, movableIds: ['new'] })
+            const placed = layoutNodes({ nodes, groups, movableIds: ['new'], anchor: false })
             const p = placed.get('new')
             const g1 = {
                 left: Math.min(100, p.x - 50) - 26,
@@ -669,14 +683,14 @@ describeMain('flowLayout', () => {
             placed.get('i1').x.should.be.below(placed.get('i2').x)
         })
 
-        it('moves a tidied group down past a fixed node it would cover', () => {
+        it('moves a tidied group down past a fixed node it would cover, when not anchored', () => {
             const nodes = [
                 node('a', { x: 160, y: 100, g: 'g1', wires: [['b']] }),
                 node('b', { x: 160, y: 140, g: 'g1', wires: [['c']] }),
                 node('c', { x: 160, y: 180, g: 'g1' }),
                 node('fixed', { x: 400, y: 100 })
             ]
-            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['a', 'b', 'c'] })
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['a', 'b', 'c'], anchor: false })
             findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
             const g1 = rectOf(nodes, ['a', 'b', 'c'], placed)
             ;(g1.top - 26).should.be.aboveOrEqual(115)
@@ -691,6 +705,306 @@ describeMain('flowLayout', () => {
             const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['new1', 'new2'] })
             placed.get('new1').should.deepEqual({ x: 330, y: 100 })
             placed.get('new2').should.deepEqual({ x: 510, y: 100 })
+        })
+    })
+
+    describe('making room', () => {
+        const canvas = { width: 8000, height: 8000 }
+        const rectOfNode = (n) => ({ left: n.x - n.w / 2, right: n.x + n.w / 2, top: n.y - n.h / 2, bottom: n.y + n.h / 2 })
+        const covers = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+        const within = (groups, gid, ancestor) => {
+            for (let g = gid; g; g = groups.find(q => q.id === g)?.g) {
+                if (g === ancestor) return true
+            }
+            return false
+        }
+        // Group boxes as the editor draws them: contents plus 26px padding, nested groups inside.
+        const groupBoxes = (nodes, groups) => {
+            const boxes = new Map()
+            const boxOf = (gid) => {
+                if (boxes.has(gid)) return boxes.get(gid)
+                const rects = [
+                    ...nodes.filter(n => n.g === gid).map(rectOfNode),
+                    ...groups.filter(g => g.g === gid).map(g => boxOf(g.id))
+                ]
+                const box = {
+                    left: Math.min(...rects.map(r => r.left)) - 26,
+                    right: Math.max(...rects.map(r => r.right)) + 26,
+                    top: Math.min(...rects.map(r => r.top)) - 26,
+                    bottom: Math.max(...rects.map(r => r.bottom)) + 26
+                }
+                boxes.set(gid, box)
+                return box
+            }
+            for (const g of groups) boxOf(g.id)
+            return boxes
+        }
+        // No overlapping nodes, no group covering a node or group outside it, all inside the canvas.
+        const checkClear = (nodes, groups, placed, size = canvas) => {
+            const after = apply(nodes, placed)
+            findOverlaps(after).should.have.lengthOf(0)
+            for (const n of after) {
+                const r = rectOfNode(n)
+                r.left.should.be.aboveOrEqual(0)
+                r.top.should.be.aboveOrEqual(0)
+                r.right.should.be.belowOrEqual(size.width)
+                r.bottom.should.be.belowOrEqual(size.height)
+            }
+            const boxes = groupBoxes(after, groups)
+            for (const [gid, box] of boxes) {
+                box.right.should.be.belowOrEqual(size.width)
+                box.bottom.should.be.belowOrEqual(size.height)
+                for (const n of after) {
+                    if (within(groups, n.g, gid)) continue
+                    covers(box, rectOfNode(n)).should.be.false(`group ${gid} covers ${n.id}`)
+                }
+                for (const [other, otherBox] of boxes) {
+                    if (other === gid || within(groups, gid, other) || within(groups, other, gid)) continue
+                    covers(box, otherBox).should.be.false(`groups ${gid} and ${other} overlap`)
+                }
+            }
+        }
+        // Every node in `ids` moved by the same amount; returns that amount.
+        const movedTogether = (nodes, placed, ids) => {
+            const deltas = ids.map(id => {
+                const n = nodes.find(m => m.id === id)
+                const p = placed.get(id) || n
+                return `${p.x - n.x},${p.y - n.y}`
+            })
+            new Set(deltas).size.should.equal(1)
+            return deltas[0].split(',').map(Number)
+        }
+        const topLeft = (nodes, placed, ids) => {
+            const after = apply(nodes, placed).filter(n => ids.includes(n.id))
+            return { left: Math.min(...after.map(n => n.x - n.w / 2)), top: Math.min(...after.map(n => n.y - n.h / 2)) }
+        }
+        const keptCorner = (nodes, placed, ids) => {
+            const before = topLeft(nodes, new Map(), ids)
+            const after = topLeft(nodes, placed, ids)
+            Math.abs(after.left - before.left).should.be.belowOrEqual(20)
+            Math.abs(after.top - before.top).should.be.belowOrEqual(20)
+        }
+
+        // A group of three stacked nodes that tidies into one wider row.
+        const stacked = (g, x, y) => [
+            node(`${g}a`, { x, y, g, wires: [[`${g}b`]] }),
+            node(`${g}b`, { x, y: y + 40, g, wires: [[`${g}c`]] }),
+            node(`${g}c`, { x, y: y + 80, g })
+        ]
+        const members = (g) => [`${g}a`, `${g}b`, `${g}c`]
+
+        it('keeps a tidied group where it was and pushes a group it grows into to the right', () => {
+            const nodes = [
+                ...stacked('g1', 160, 100),
+                node('r1', { x: 640, y: 120, g: 'g2', wires: [['r2']] }),
+                node('r2', { x: 780, y: 120, g: 'g2' })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'g2' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: members('g1'), canvas })
+            checkClear(nodes, groups, placed)
+            keptCorner(nodes, placed, members('g1'))
+            const [dx, dy] = movedTogether(nodes, placed, ['r1', 'r2'])
+            dx.should.be.above(0)
+            dy.should.equal(0)
+        })
+
+        it('pushes a group below down, and whatever that group then covers', () => {
+            const nodes = [
+                node('a', { x: 160, y: 100, g: 'g1', wires: [['b', 'c']] }),
+                node('b', { x: 160, y: 100, g: 'g1' }),
+                node('c', { x: 160, y: 100, g: 'g1' }),
+                node('m1', { x: 160, y: 200, g: 'g2', wires: [['m2']] }),
+                node('m2', { x: 160, y: 240, g: 'g2' }),
+                node('loose', { x: 160, y: 320 })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'g2' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: ['a', 'b', 'c'], canvas })
+            checkClear(nodes, groups, placed)
+            const [, dy] = movedTogether(nodes, placed, ['m1', 'm2'])
+            dy.should.be.above(0)
+            placed.get('loose').y.should.be.above(320)
+        })
+
+        it('moves the groups nested in a pushed group along with it', () => {
+            const nodes = [
+                ...stacked('g1', 160, 100),
+                node('o1', { x: 400, y: 120, g: 'outer', wires: [['i1']] }),
+                node('i1', { x: 560, y: 140, g: 'inner', wires: [['i2']] }),
+                node('i2', { x: 700, y: 140, g: 'inner' })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'outer' }, { id: 'inner', g: 'outer' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: members('g1'), canvas })
+            checkClear(nodes, groups, placed)
+            const [dx, dy] = movedTogether(nodes, placed, ['o1', 'i1', 'i2'])
+            ;(dx + dy).should.be.above(0)
+        })
+
+        it('grows the groups around a tidied nested group and pushes what they then cover', () => {
+            const nodes = [
+                ...stacked('inner', 160, 120),
+                node('sibling', { x: 400, y: 140, g: 'outer' }),
+                node('next', { x: 640, y: 140 })
+            ]
+            const groups = [{ id: 'outer' }, { id: 'inner', g: 'outer' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: members('inner'), canvas })
+            checkClear(nodes, groups, placed)
+            keptCorner(nodes, placed, members('inner'))
+            placed.has('sibling').should.be.true()
+            placed.has('next').should.be.true()
+        })
+
+        it('keeps the corner of a group that holds every node on the tab', () => {
+            const nodes = [
+                node('a', { x: 700, y: 300, g: 'g1', wires: [['b']] }),
+                node('b', { x: 300, y: 340, g: 'g1', wires: [['c']] }),
+                node('c', { x: 500, y: 380, g: 'g1' })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['a', 'b', 'c'], canvas })
+            keptCorner(nodes, placed, ['a', 'b', 'c'])
+        })
+
+        it('moves nothing else when a tidied group gets smaller', () => {
+            const nodes = [
+                node('a', { x: 160, y: 100, g: 'g1', wires: [['b']] }),
+                node('b', { x: 560, y: 100, g: 'g1' }),
+                node('right', { x: 800, y: 100 }),
+                node('below', { x: 160, y: 240 })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['a', 'b'], canvas })
+            ;[...placed.keys()].sort().should.deepEqual(['a', 'b'])
+        })
+
+        it('leaves overlaps between nodes it does not touch alone', () => {
+            const nodes = [
+                ...stacked('g1', 160, 100),
+                node('x1', { x: 1200, y: 600 }),
+                node('x2', { x: 1220, y: 610 })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: members('g1'), canvas })
+            placed.has('x1').should.be.false()
+            placed.has('x2').should.be.false()
+        })
+
+        it('pushes right rather than past the bottom edge of the canvas', () => {
+            const small = { width: 2000, height: 240 }
+            const nodes = [
+                node('a', { x: 160, y: 100, g: 'g1', wires: [['b', 'c']] }),
+                node('b', { x: 160, y: 100, g: 'g1' }),
+                node('c', { x: 160, y: 100, g: 'g1' }),
+                node('low', { x: 160, y: 200 })
+            ]
+            const groups = [{ id: 'g1' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: ['a', 'b', 'c'], canvas: small })
+            checkClear(nodes, groups, placed, small)
+            placed.get('low').y.should.equal(200)
+            placed.get('low').x.should.be.above(160)
+        })
+
+        it('finds free room for the set when nothing can be pushed inside the canvas', () => {
+            const small = { width: 800, height: 220 }
+            const nodes = [
+                ...stacked('g1', 100, 80),
+                node('wall', { x: 520, y: 100, w: 500 }),
+                node('floor', { x: 400, y: 190, w: 760 })
+            ]
+            const groups = [{ id: 'g1' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: members('g1'), canvas: small })
+            placed.has('wall').should.be.false()
+            placed.has('floor').should.be.false()
+        })
+
+        it('does not push anything when not anchored', () => {
+            const nodes = [
+                ...stacked('g1', 160, 100),
+                node('r1', { x: 400, y: 120, g: 'g2' })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'g2' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: members('g1'), anchor: false, canvas })
+            placed.has('r1').should.be.false()
+            checkClear(nodes, groups, placed)
+        })
+
+        it('tidies two groups in one call without them pushing each other', () => {
+            const nodes = [
+                ...stacked('g1', 160, 100),
+                ...stacked('g2', 400, 100),
+                node('fixed', { x: 900, y: 140 })
+            ]
+            const groups = [{ id: 'g1' }, { id: 'g2' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: [...members('g1'), ...members('g2')], canvas })
+            checkClear(nodes, groups, placed)
+            keptCorner(nodes, placed, members('g1'))
+        })
+
+        it('keeps outputs in port order when new nodes make room', () => {
+            const nodes = [
+                node('sw', { x: 150, y: 100, h: 45, wires: [['a'], ['b'], ['c']] }),
+                node('a'),
+                node('b'),
+                node('c'),
+                node('blocker', { x: 330, y: 160 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['a', 'b', 'c'], canvas })
+            checkClear(nodes, [], placed)
+            const ys = ['a', 'b', 'c'].map(id => placed.get(id).y)
+            ys.should.deepEqual([...ys].sort((p, q) => p - q))
+            placed.get('a').y.should.equal(100)
+        })
+
+        it('moves what new nodes feed to the right, so its wires still run left to right', () => {
+            const nodes = [
+                node('in', { x: 150, y: 100, wires: [['n1']] }),
+                node('n1', { wires: [['n2']] }),
+                node('n2', { wires: [['out']] }),
+                node('out', { x: 330, y: 100, wires: [['next']] }),
+                node('next', { x: 520, y: 100 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['n1', 'n2'], canvas })
+            checkClear(nodes, [], placed)
+            const after = apply(nodes, placed)
+            const at = (id) => after.find(n => n.id === id)
+            at('out').y.should.equal(100)
+            at('out').x.should.be.above(at('n2').x)
+            at('next').y.should.equal(100)
+            at('next').x.should.be.above(at('out').x)
+        })
+
+        it('tidies a group with several inputs from outside and several outputs leaving it', () => {
+            const nodes = [
+                node('in1', { x: 100, y: 100, wires: [['merge']] }),
+                node('in2', { x: 100, y: 200, wires: [['merge']] }),
+                node('merge', { x: 380, y: 260, g: 'g1', wires: [['sw']] }),
+                node('sw', { x: 360, y: 160, h: 45, g: 'g1', wires: [['o1'], ['o2'], ['inner']] }),
+                node('inner', { x: 400, y: 120, g: 'g1' }),
+                node('o1', { x: 800, y: 100 }),
+                node('o2', { x: 800, y: 200 })
+            ]
+            const groups = [{ id: 'g1' }]
+            const placed = layoutNodes({ nodes, groups, movableIds: ['merge', 'sw', 'inner'], canvas })
+            checkClear(nodes, groups, placed)
+            const after = apply(nodes, placed)
+            const at = (id) => after.find(n => n.id === id)
+            at('merge').x.should.be.below(at('sw').x)
+            at('sw').x.should.be.below(at('inner').x)
+            // the third output is below the placeholders for the two that leave the group
+            at('inner').y.should.be.aboveOrEqual(at('sw').y)
+            at('o1').y.should.be.below(at('o2').y)
+        })
+
+        it('lines a merge up with its fixed feeders, keeps its outputs in order and pushes what it lands on', () => {
+            const nodes = [
+                node('in1', { x: 150, y: 100, wires: [['merge']] }),
+                node('in2', { x: 150, y: 200, wires: [['merge']] }),
+                node('merge', { h: 45, wires: [['out1'], ['out2']] }),
+                node('out1'),
+                node('out2'),
+                node('blocker', { x: 500, y: 140, w: 300 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: ['merge', 'out1', 'out2'], canvas })
+            checkClear(nodes, [], placed)
+            placed.get('merge').x.should.be.above(200)
+            placed.get('out1').y.should.be.below(placed.get('out2').y)
+            placed.has('blocker').should.be.true()
         })
     })
 
