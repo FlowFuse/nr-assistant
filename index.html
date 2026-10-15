@@ -66,6 +66,8 @@
             type: 'assistant',
             name: 'Node-RED Assistant Plugin',
             icon: 'font-awesome/fa-magic',
+            // Lets Dashboard 2 know it can give ui-template the vue-sfc language without losing Expert support
+            supportsVueSfc: true,
             onadd: async function () {
                 if (!window.FFAssistantUtils) {
                     console.warn('FFAssistantUtils lib is not loaded. Completions might not work as expected.')
@@ -374,7 +376,8 @@
                 }
             })
 
-            monaco.languages.registerCodeLensProvider('html', {
+            // ui-template uses 'html', or 'vue-sfc' when the dashboard provides its Vue SFC editor language
+            const db2uiTemplateCodeLensProvider = {
                 provideCodeLenses: function (model, token) {
                     if (!assistantOptions.enabled) {
                         return
@@ -417,7 +420,9 @@
                     }
                     return codeLens
                 }
-            })
+            }
+            monaco.languages.registerCodeLensProvider('html', db2uiTemplateCodeLensProvider)
+            monaco.languages.registerCodeLensProvider('vue-sfc', db2uiTemplateCodeLensProvider)
 
             assistantOptions.tablesEnabled && monaco.languages.registerCodeLensProvider('sql', {
                 provideCodeLenses: function (model, token) {
@@ -821,6 +826,11 @@
                         nodeModule: '@flowfuse/node-red-dashboard'
                     },
                     {
+                        languageId: 'vue-sfc',
+                        nodeType: 'ui-template',
+                        nodeModule: '@flowfuse/node-red-dashboard'
+                    },
+                    {
                         languageId: 'sql',
                         nodeType: 'tables-query',
                         nodeModule: '@flowfuse/nr-tables-nodes'
@@ -903,6 +913,7 @@
                         }
                     }
                 }
+                languageStrategies['vue-sfc'] = languageStrategies.html
 
                 // #region "Inline Completion Helper Functions"
                 const computeInlineCompletionRange = (model, position, suggestionText) => {
@@ -1829,7 +1840,7 @@
                 : model.getLanguageId?.() || 'javascript'
             const line = model.getLineContent(lineNumber)
 
-            const supportedLanguages = ['javascript', 'css', 'sql', 'html']
+            const supportedLanguages = ['javascript', 'css', 'sql', 'html', 'vue-sfc']
             if (!supportedLanguages.includes(languageId)) {
                 return null // Not supported
             }
@@ -1856,7 +1867,7 @@
                 if (lineBeforeCursor.lastIndexOf('--') !== -1) return true
                 // SQL block comment `/* */`
                 if (isWithinBlockComment()) return true
-            } else if (languageId === 'html') {
+            } else if (languageId === 'html' || languageId === 'vue-sfc') {
                 // HTML comment markers: <!-- -->
                 if (isWithinBlockComment('<!--', '-->')) return true
             }
