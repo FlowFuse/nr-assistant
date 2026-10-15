@@ -756,10 +756,70 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
 
     // A set that would run past the right edge of the canvas at `offset` wraps into the room
     // left there. Returns the set arranged again, or null when it fits or cannot wrap tighter.
-    const wrappedToCanvas = (set, arranged, offset, pad = 0) => {
+    const wrappedToCanvas = (arrange, arranged, offset, pad = 0) => {
         const room = canvas.width - step - pad - Math.max(arranged.rect.left + offset.dx, step)
         if (arranged.rect.right - arranged.rect.left <= room || room >= wrapWidth) return null
-        return arrangeSet(set, room)
+        return arrange(room)
+    }
+
+    // Sets wired from the same node that stays put, such as new nodes on the outputs of a
+    // switch, are laid out as one: stacked in the order of the ports they hang off, then of
+    // where they were and the order they were wired. Returns lists of sets.
+    const siblingSets = (sets) => {
+        const feedersOf = (set) => new Set(set.flatMap(unitNodes).flatMap(id => predecessors.get(id)).filter(f => !movableSet.has(f)))
+        const bundles = []
+        for (const set of sets) {
+            const feeders = feedersOf(set)
+            const bundle = bundles.find(b => [...b.feeders].some(f => feeders.has(f)))
+            if (bundle) {
+                bundle.sets.push(set)
+                for (const f of feeders) bundle.feeders.add(f)
+            } else {
+                bundles.push({ sets: [set], feeders })
+            }
+        }
+        return bundles.map(({ sets, feeders }) => {
+            if (sets.length === 1) return sets
+            const feeder = byId.get([...feeders][0])
+            const key = (set) => {
+                const ids = set.flatMap(unitNodes)
+                let best = [Infinity, Infinity, Infinity]
+                for (const [port, targets] of (feeder.wires || []).entries()) {
+                    for (const [wire, target] of (targets || []).entries()) {
+                        if (!ids.includes(target)) continue
+                        const y = byId.get(target).y
+                        const k = [port, Number.isFinite(y) ? y : Infinity, wire]
+                        if (k[0] < best[0] || (k[0] === best[0] && (k[1] < best[1] || (k[1] === best[1] && k[2] < best[2])))) best = k
+                    }
+                }
+                return best
+            }
+            const keys = new Map(sets.map(set => [set, key(set)]))
+            return [...sets].sort((a, b) => keys.get(a)[0] - keys.get(b)[0] || keys.get(a)[1] - keys.get(b)[1] || keys.get(a)[2] - keys.get(b)[2])
+        })
+    }
+
+    // Lay out sibling sets one below the other, lined up on their left edges.
+    const arrangeSiblings = (sets, width = wrapWidth) => {
+        if (sets.length === 1) return arrangeSet(sets[0], width)
+        const positions = new Map()
+        const rects = []
+        let top = null
+        let left = null
+        for (const set of sets) {
+            const arranged = arrangeSet(set, width)
+            if (top === null) {
+                top = arranged.rect.top
+                left = arranged.rect.left
+            }
+            // Whole grid cells, so the nodes stay on the grid.
+            const dx = Math.round((left - arranged.rect.left) / grid) * grid
+            const dy = Math.ceil((top - arranged.rect.top) / grid) * grid
+            for (const [id, p] of arranged.positions) positions.set(id, { x: p.x + dx, y: p.y + dy })
+            for (const r of arranged.rects) rects.push(translate(r, dx, dy))
+            top = arranged.rect.bottom + dy + step
+        }
+        return { positions, rects, rect: rects.reduce(union, null) }
     }
 
     // Lay out the movable units of a container that also holds nodes that stay put.
@@ -770,13 +830,15 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         ]
         if (units.length === 0) return
         const graph = unitGraph(units, container)
-        for (const set of components(sortUnits(units), graph)) {
+        for (const siblings of siblingSets(components(sortUnits(units), graph))) {
+            const set = siblings.flat()
             const fixed = fixedNodes()
             const spot = (arranged) => offsetAmongFixed(container, set, arranged, fixed)
-            let arranged = arrangeSet(set)
+            const arrange = (width) => arrangeSiblings(siblings, width)
+            let arranged = arrange()
             let { wanted, offset } = spot(arranged)
             const pad = chainOf(container).length * GROUP_PADDING
-            const wrapped = wrappedToCanvas(set, arranged, wanted, pad)
+            const wrapped = wrappedToCanvas(arrange, arranged, wanted, pad)
             if (wrapped) {
                 arranged = wrapped
                 const again = spot(arranged)
@@ -967,7 +1029,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
         for (const set of sets) {
             let arranged = arrangeSet(set)
-            arranged = wrappedToCanvas(set, arranged, anchored(set, arranged)) || arranged
+            arranged = wrappedToCanvas(width => arrangeSet(set, width), arranged, anchored(set, arranged)) || arranged
             const offset = settleInCanvas(arranged.rects, arranged.rect, taken, anchored(set, arranged))
             if (!fitsCanvas(arranged.rect, offset)) throw new Error(NO_ROOM)
             place(arranged.positions, offset.dx, offset.dy)
@@ -994,7 +1056,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         for (const set of sets) {
             const wanted = ({ rect }) => ({ dx: Math.ceil((left - rect.left) / grid) * grid, dy: Math.ceil((top - rect.top) / grid) * grid })
             let arranged = arrangeSet(set)
-            arranged = wrappedToCanvas(set, arranged, wanted(arranged)) || arranged
+            arranged = wrappedToCanvas(width => arrangeSet(set, width), arranged, wanted(arranged)) || arranged
             const rect = arranged.rect
             const offset = settleInCanvas(arranged.rects, rect, taken, wanted(arranged))
             if (!fitsCanvas(rect, offset)) throw new Error(NO_ROOM)
@@ -1078,20 +1140,26 @@ function closestRows (wanted, gaps) {
 function anchorOffset (set, local, unitRect, fixedById, predecessors, successors, obstacleFor, { columnGap, grid }) {
     const snap = (v) => Math.round(v / grid) * grid
     const referenceFor = (fixedNode) => obstacleFor(fixedNode) || { rect: nodeRect(fixedNode), pad: 0 }
-    // A node fed by several nodes that stay put goes after the furthest one, level with
-    // the middle of them.
-    for (const id of set) {
-        const upstream = predecessors.get(id).filter(f => fixedById.has(f)).map(f => fixedById.get(f))
-        if (upstream.length > 0) {
-            const p = local.get(id)
-            const rect = unitRect(id, p)
-            const targetLeft = Math.max(...upstream.map(f => {
-                const ref = referenceFor(f)
+    // The nodes fed by the same nodes that stay put go after the furthest of those, with
+    // the middle of them level with the middle of their feeders: a node fed by several sits
+    // between them, and several fed by one are centred on it.
+    const upstreamOf = (id) => predecessors.get(id).filter(f => fixedById.has(f))
+    const mean = (values) => values.reduce((sum, v) => sum + v, 0) / values.length
+    const first = set.find(id => upstreamOf(id).length > 0)
+    if (first) {
+        const feeders = new Set(upstreamOf(first))
+        const fed = set.filter(id => upstreamOf(id).some(f => feeders.has(f)))
+        let dx = -Infinity
+        for (const id of fed) {
+            const rect = unitRect(id, local.get(id))
+            const targetLeft = Math.max(...upstreamOf(id).map(f => {
+                const ref = referenceFor(fixedById.get(f))
                 return ref.rect.right + ref.pad + columnGap
             }))
-            const middle = upstream.reduce((sum, f) => sum + f.y, 0) / upstream.length
-            return { dx: Math.ceil((targetLeft - rect.left) / grid) * grid, dy: snap(middle - p.y) }
+            dx = Math.max(dx, Math.ceil((targetLeft - rect.left) / grid) * grid)
         }
+        const middle = mean([...feeders].map(f => fixedById.get(f).y))
+        return { dx, dy: snap(middle - mean(fed.map(id => local.get(id).y))) }
     }
     for (const id of set) {
         const downstream = successors.get(id).find(f => fixedById.has(f))
