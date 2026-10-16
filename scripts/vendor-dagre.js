@@ -1,5 +1,5 @@
 // Copies dagre's self-contained ES module build into resources/ so the editor can load it
-// without a bundler. Run after changing the @dagrejs/dagre version.
+// without a bundler. Run `npm run vendor` after changing the @dagrejs/dagre version.
 const fs = require('fs')
 const path = require('path')
 
