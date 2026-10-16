@@ -7,6 +7,7 @@
         "test": "mocha --exit \"test/**/*.test.js\"",
         "lint": "eslint -c .eslintrc --ext js,html \"**/*.js\" \"**/*.html\"",
         "lint:fix": "eslint -c .eslintrc --ext js,html \"**/*.js\"  \"**/*.html\" --fix",
+        "vendor": "node scripts/vendor-dagre.js",
         "test:cov": "npx nyc mocha \"test/**/*.test.js\" && npx nyc report --reporter=html",
         "test:cov:view": "npx open-cli coverage/index.html"
     },
