@@ -52,9 +52,6 @@
             "wrap": "Wrap flows wider than",
             "anchor": "Keep in place and move other nodes out of the way",
             "anchor-tip": "Each flow keeps its first node where it is and other nodes are pushed down or right to make room. Unticked, other nodes never move and the laid out nodes go into free space. A whole tab is stacked from its top left",
-            "row-spacing": "Row spacing",
-            "auto": "Auto",
-            "grid-cells": "grid cells",
             "apply-button": "Lay out"
         },
         "errors": {
