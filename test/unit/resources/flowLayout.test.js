@@ -1080,6 +1080,75 @@ describeMain('flowLayout', () => {
         })
     })
 
+    describe('comments', () => {
+        const comment = (id, props) => node(id, { comment: true, ...props })
+        const left = (p, n) => p.x - n.w / 2
+        const bottom = (p, n) => p.y + n.h / 2
+        const top = (p, n) => p.y - n.h / 2
+
+        it('puts a comment above the left edge of the flow it sits nearest to', () => {
+            const nodes = [
+                comment('note', { x: 600, y: 420 }),
+                node('a1', { x: 150, y: 100, wires: [['a2']] }),
+                node('a2', { x: 400, y: 160 }),
+                node('b1', { x: 150, y: 400, wires: [['b2']] }),
+                node('b2', { x: 400, y: 460 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            const at = (id) => placed.get(id)
+            const n = (id) => nodes.find(x => x.id === id)
+            left(at('note'), n('note')).should.equal(left(at('b1'), n('b1')))
+            bottom(at('note'), n('note')).should.be.belowOrEqual(top(at('b1'), n('b1')))
+            top(at('note'), n('note')).should.be.above(bottom(at('a2'), n('a2')))
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
+        it('keeps the first node of a flow where it was rather than its comment', () => {
+            const nodes = [
+                comment('note', { x: 500, y: 100 }),
+                node('a1', { x: 150, y: 200, wires: [['a2']] }),
+                node('a2', { x: 400, y: 260 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            placed.get('a1').should.deepEqual({ x: 150, y: 200 })
+            placed.get('note').x.should.equal(150)
+            placed.get('note').y.should.be.below(200)
+        })
+
+        it('keeps several comments of one flow in the order they were from the top', () => {
+            const nodes = [
+                comment('second', { x: 500, y: 140 }),
+                comment('first', { x: 300, y: 80 }),
+                node('a1', { x: 150, y: 300, wires: [['a2']] }),
+                node('a2', { x: 400, y: 300 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            placed.get('first').y.should.be.below(placed.get('second').y)
+            placed.get('first').x.should.equal(placed.get('second').x)
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
+        it('puts a comment in a group above the left edge of the rest of the group', () => {
+            const nodes = [
+                comment('note', { x: 500, y: 120, g: 'g1' }),
+                node('a1', { x: 150, y: 200, g: 'g1', wires: [['a2']] }),
+                node('a2', { x: 400, y: 160, g: 'g1' })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['g1', ...nodes.map(n => n.id)] })
+            const a1 = placed.get('a1')
+            left(placed.get('note'), nodes[0]).should.equal(left(a1, nodes[1]))
+            bottom(placed.get('note'), nodes[0]).should.be.belowOrEqual(top(a1, nodes[1]))
+            bottom(placed.get('note'), nodes[0]).should.be.belowOrEqual(top(placed.get('a2'), nodes[2]))
+        })
+
+        it('lays out a tab that only holds comments', () => {
+            const nodes = [comment('c1', { x: 100, y: 100 }), comment('c2', { x: 400, y: 100 })]
+            const placed = layoutNodes({ nodes, movableIds: ['c1', 'c2'] })
+            placed.size.should.equal(2)
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+    })
+
     describe('findOverlaps', () => {
         it('reports pairs that overlap, counting buttons', () => {
             const nodes = [

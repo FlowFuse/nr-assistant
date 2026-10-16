@@ -3355,6 +3355,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
             wires[port].push(link.target.id)
         }
         const measured = { id: node.id, x: node.x, y: node.y, w, h, g: node.g, wires: Array.from(wires, p => p || []) }
+        if (node.type === 'comment') {
+            measured.comment = true
+        }
         if (node._def?.button) {
             measured.button = node._def.align === 'right' ? 'right' : 'left'
         }
