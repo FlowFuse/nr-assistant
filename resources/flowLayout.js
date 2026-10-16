@@ -109,15 +109,12 @@ export function findOverlaps (nodes) {
  *   each flow where its first node was. Otherwise nothing else moves: the nodes go to free space
  *   and the flows of a whole tab are stacked from its top-left corner
  * @param {number} [options.maxWidth] - a flow wider than this carries on in a new row below; 0 never wraps
- * @param {number} [options.rowSpacing] - grid cells between a wrapped row and the next, from the last
- *   grid line the upper row touches to the first the lower row touches; by default enough for a
- *   node to fit halfway between them with space above and below it
  * @param {{width: number, height: number}} [options.canvas] - size of the editor canvas; nothing is
  *   placed past its right or bottom edge, and a flow wider than it wraps whatever maxWidth is
  * @returns {Map<string, {x: number, y: number}>}
  * @throws when the nodes fit nowhere inside the canvas
  */
-export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, anchor = true, maxWidth = 1600, rowSpacing, canvas = { width: 8000, height: 8000 } }) {
+export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, anchor = true, maxWidth = 1600, canvas = { width: 8000, height: 8000 } }) {
     const grid = gridSize > 0 ? gridSize : 20
     // Unit of every gap: whole grid cells at least as wide as a default grid cell, so a
     // fine grid does not pack the nodes against each other.
@@ -125,15 +122,10 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
     const spacing = { grid, columnGap: step * 4, rowGap: step * 1.5, clearance: step }
     const { columnGap, rowGap } = spacing
     const wrapWidth = Math.min(maxWidth > 0 ? maxWidth : Infinity, canvas.width - step * 2)
-    // Highest a wrapped row's top may be, below a row ending at `bottom`. rowSpacing counts
-    // grid cells from the last grid line the upper row touches to the first one the lower row
-    // touches. By default a node fits halfway between the rows, centred on a grid line, with
-    // space clear above and below it: three cells of a grid finer than 10px, otherwise a grid
-    // cell up to 10px.
+    // Highest a wrapped row's top may be, below a row ending at `bottom`. A node fits halfway
+    // between the rows, centred on a grid line, with space clear above and below it: three
+    // cells of a grid finer than 10px, otherwise a grid cell up to 10px.
     const nextRowTop = (bottom) => {
-        if (rowSpacing !== undefined) {
-            return Math.max(bottom, Math.floor(bottom / grid) * grid + Math.max(rowSpacing - 1, 0) * grid) + 1
-        }
         const clear = grid < 10 ? grid * 3 : Math.min(grid, 10)
         const middle = Math.ceil((bottom + clear + NODE_HEIGHT / 2) / grid) * grid
         return middle + NODE_HEIGHT / 2 + clear
