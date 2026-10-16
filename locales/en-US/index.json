@@ -35,6 +35,32 @@
             "too-many-nodes-selected": "Too many nodes selected. Please select less than 100 nodes to explain."
         }
     },
+    "layout-flows": {
+        "action": {
+            "label": "FlowFuse Expert: Lay out Flows",
+            "label-no-wrap": "FlowFuse Expert: Lay out Flows (no wrap)",
+            "label-no-anchor": "FlowFuse Expert: Lay out Flows (into free space)",
+            "label-no-anchor-no-wrap": "FlowFuse Expert: Lay out Flows (into free space, no wrap)",
+            "label-with-options": "FlowFuse Expert: Lay out Flows..."
+        },
+        "menu": {
+            "label": "Layout Flows",
+            "description": "Tidy the selected nodes or flow"
+        },
+        "dialog": {
+            "title": "FlowFuse Expert: Lay out Flows",
+            "wrap": "Wrap flows wider than",
+            "anchor": "Keep in place and move other nodes out of the way",
+            "anchor-tip": "Each flow keeps its first node where it is and other nodes are pushed down or right to make room. Unticked, other nodes never move and the laid out nodes go into free space. A whole tab is stacked from its top left",
+            "row-spacing": "Row spacing",
+            "auto": "Auto",
+            "grid-cells": "grid cells",
+            "apply-button": "Lay out"
+        },
+        "errors": {
+            "failed": "Layout failed:"
+        }
+    },
     "notifications": {
         "busy": "Busy processing your request. Please wait..."
     },
