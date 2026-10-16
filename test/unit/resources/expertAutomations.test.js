@@ -4430,6 +4430,34 @@ describeMain('expertAutomations', () => {
                 event.nodes.map(e => e.n.id).sort().should.deepEqual(['b1', 'n1'])
                 event.nodes.find(e => e.n === blocker).should.have.properties({ ox: 300, oy: 100 })
             })
+            it('lays out the junctions wired only between the given nodes', async () => {
+                const a = { id: 'a', type: 'function', x: 150, y: 100, z: 'tab1' }
+                const b = { id: 'b', type: 'function', x: 150, y: 300, z: 'tab1' }
+                const c = { id: 'c', type: 'function', x: 150, y: 500, z: 'tab1' }
+                const j1 = { id: 'j1', type: 'junction', x: 900, y: 700, z: 'tab1' }
+                const j2 = { id: 'j2', type: 'junction', x: 40, y: 700, z: 'tab1' }
+                // j3 also feeds a node that is not laid out, so it is not laid out either
+                const other = { id: 'other', type: 'function', x: 600, y: 900, z: 'tab1' }
+                const j3 = { id: 'j3', type: 'junction', x: 500, y: 900, z: 'tab1' }
+                tabNodes.push(a, b, c, other)
+                mockRED.nodes.junction = sinon.stub().callsFake(id => [j1, j2, j3].find(j => j.id === id) || null)
+                mockRED.nodes.junctions = sinon.stub().returns([j1, j2, j3])
+                wire(a, 0, j1)
+                wire(j1, 0, j2)
+                wire(j2, 0, b)
+                wire(j2, 0, c)
+                wire(a, 0, j3)
+                wire(j3, 0, other)
+                const result = {}
+                await expertAutomations.invokeAction('automation/layout-nodes', {
+                    params: { ids: ['a', 'b', 'c'] }
+                }, result)
+                result.data.placedNodes.map(n => n.id).should.deepEqual(['a', 'b', 'c', 'j1', 'j2'])
+                j1.x.should.be.above(a.x)
+                j2.x.should.be.above(j1.x)
+                b.x.should.be.above(j2.x)
+                c.x.should.be.above(j2.x)
+            })
             it('leaves every other node alone when not anchored', async () => {
                 const existing = { id: 'e1', type: 'function', x: 150, y: 100, z: 'tab1' }
                 const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1' }

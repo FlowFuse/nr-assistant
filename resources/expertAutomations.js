@@ -3162,8 +3162,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Lay out the given nodes, groups and tabs. A tab or group stands for every node in it.
-     * One undoable move for the whole call, including nodes moved to make room.
+     * Lay out the given nodes, groups and tabs. A tab or group stands for every node in it, and
+     * junctions wired only between the given nodes come with them. One undoable move for the whole call, including nodes moved to make room.
      * @param {string[]} ids - node, group or tab IDs, on any number of tabs
      * @param {Object} [options]
      * @param {boolean} [options.anchor=true] - keep what is laid out where it is and move other nodes out
@@ -3198,6 +3198,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 throw new Error(`${id} is not a node, group or tab`)
             }
         }
+        this._junctionsBetween(selected).forEach(add)
         if (selected.length === 0) throw new Error('No workspace nodes to lay out')
 
         const byTab = new Map()
@@ -3270,6 +3271,39 @@ export class ExpertAutomations extends ExpertActionsInterface {
             // fall through to the smallest canvas Node-RED has had
         }
         return { width: 5000, height: 5000 }
+    }
+
+    /**
+     * Junctions wired only to `nodes`, directly or through each other. They only route the
+     * wires between those nodes, so they are laid out with them.
+     * @param {object[]} nodes
+     */
+    _junctionsBetween (nodes) {
+        const neighbours = (n) => [
+            ...this.RED.nodes.getNodeLinks(n.id, 0).map(l => l.target),
+            ...this.RED.nodes.getNodeLinks(n.id, 1).map(l => l.source)
+        ]
+        const found = new Set()
+        const queue = [...nodes]
+        while (queue.length) {
+            for (const other of neighbours(queue.shift())) {
+                if (other?.type === 'junction' && !nodes.includes(other) && !found.has(other)) {
+                    found.add(other)
+                    queue.push(other)
+                }
+            }
+        }
+        let dropped = true
+        while (dropped) {
+            dropped = false
+            for (const j of found) {
+                if (neighbours(j).some(o => !nodes.includes(o) && !found.has(o))) {
+                    found.delete(j)
+                    dropped = true
+                }
+            }
+        }
+        return [...found]
     }
 
     /** Every node and junction on a tab or subflow, without config nodes. */
