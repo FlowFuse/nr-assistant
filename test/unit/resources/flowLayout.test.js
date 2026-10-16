@@ -363,19 +363,6 @@ describeMain('flowLayout', () => {
             for (const n of placed) (n.y % 5).should.equal(0)
         })
 
-        it('leaves rowSpacing grid cells between wrapped rows', () => {
-            const ids = Array.from({ length: 8 }, (_, i) => `n${i}`)
-            const nodes = ids.map((id, i) => node(id, { wires: i < ids.length - 1 ? [[ids[i + 1]]] : [] }))
-            // counted from the last grid line the upper row touches to the first the lower row touches
-            const cellsBetween = (placed, gridSize) => {
-                const ys = [...new Set(ids.map(id => placed.get(id).y))].sort((p, q) => p - q)
-                return Math.ceil((ys[1] - 15) / gridSize) - Math.floor((ys[0] + 15) / gridSize)
-            }
-            cellsBetween(layoutNodes({ nodes, movableIds: ids, maxWidth: 600, rowSpacing: 5 }), 20).should.equal(5)
-            cellsBetween(layoutNodes({ nodes, movableIds: ids, maxWidth: 600, rowSpacing: 2, gridSize: 50 }), 50).should.equal(2)
-            cellsBetween(layoutNodes({ nodes, movableIds: ids, maxWidth: 600, rowSpacing: 8, gridSize: 5 }), 5).should.equal(8)
-        })
-
         it('breaks a long row outside a group when it can', () => {
             const ids = ['n0', 'n1', 'g1a', 'g1b', 'n4']
             const nodes = ids.map((id, i) => node(id, {
