@@ -29,6 +29,7 @@ const NO_ROOM = 'There is no free space on the canvas for these nodes, so nothin
  * @property {number} h
  * @property {string} [g] - id of the innermost group the node is in
  * @property {'left'|'right'} [button] - side of the node a button is drawn on
+ * @property {boolean} [comment] - a comment node, kept above the left edge of what it sits nearest to
  * @property {string[][]} [wires]
  */
 
@@ -72,6 +73,11 @@ function union (a, b) {
 
 function intersects (a, b) {
     return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+// Distance between the closest edges of two rectangles; 0 when they overlap.
+function gapBetween (a, b) {
+    return Math.hypot(Math.max(0, a.left - b.right, b.left - a.right), Math.max(0, a.top - b.bottom, b.top - a.bottom))
 }
 
 function isFiniteRect (r) {
@@ -284,6 +290,16 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 }
             }
         }
+        // A comment goes with the unit it sits nearest to.
+        const isComment = (u) => byId.get(u)?.comment
+        const hosts = units.filter(u => !isComment(u) && isFiniteRect(originalRect(u)))
+        for (const unit of units.filter(isComment)) {
+            const rect = originalRect(unit)
+            if (!isFiniteRect(rect) || hosts.length === 0) continue
+            const host = hosts.reduce((best, u) => (gapBetween(rect, originalRect(u)) < gapBetween(rect, originalRect(best)) ? u : best))
+            succ.get(unit).add(host)
+            pred.get(host).add(unit)
+        }
         return {
             succs: (u) => [...succ.get(u)],
             preds: (u) => [...pred.get(u)]
@@ -298,20 +314,23 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
     // including their padding.
     const arrangeSet = (units, width = wrapWidth) => {
         const clusterParent = new Map()
-        const nodeIds = []
+        const allIds = []
         const addGroup = (gid, parent) => {
             if (clusterParent.has(gid)) return
             clusterParent.set(gid, parent)
-            nodeIds.push(...(childNodes.get(gid) || []))
+            allIds.push(...(childNodes.get(gid) || []))
             for (const child of childGroups.get(gid) || []) addGroup(child, gid)
         }
         for (const unit of units) {
             if (byId.has(unit)) {
-                nodeIds.push(unit)
+                allIds.push(unit)
             } else {
                 addGroup(unit, null)
             }
         }
+        // Comments are placed once the rest is laid out, unless there is nothing else.
+        const comments = allIds.filter(id => byId.get(id).comment)
+        const nodeIds = comments.length < allIds.length ? allIds.filter(id => !comments.includes(id)) : allIds
         const inSet = new Set(nodeIds)
         const clusterOf = (id) => {
             const c = containerOf(byId.get(id))
@@ -563,6 +582,11 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
 
         const members = new Map([...clusterParent.keys()].map(c => [c, nodeIds.filter(id => clustersOf(id).includes(c))]))
+        const depth = (c) => {
+            let levels = 0
+            for (let p = clusterParent.get(c); p; p = clusterParent.get(p)) levels++
+            return levels
+        }
         const clusterRect = (c) => {
             let rect = null
             for (const id of members.get(c)) rect = union(rect, nodeAt(id))
@@ -575,11 +599,6 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             // Each group wraps inside itself first, innermost first. What lies below it moves
             // down by as much as it grew, and what lies beside it moves left by as much as it
             // narrowed. Then the whole set wraps.
-            const depth = (c) => {
-                let levels = 0
-                for (let p = clusterParent.get(c); p; p = clusterParent.get(p)) levels++
-                return levels
-            }
             const boundsOf = (ids) => ids.map(nodeAt).reduce(union)
             const clusters = [...clusterParent.keys()].filter(c => members.get(c).length)
             for (const c of clusters.sort((a, b) => depth(b) - depth(a))) {
@@ -628,12 +647,41 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             wrapRows(nodeIds)
         }
 
+        // Comments go above the top-left corner of what else is in their group, or of the
+        // whole set, in the order they were from the top, innermost groups first.
+        if (nodeIds !== allIds) {
+            const contentRect = (c) => {
+                let rect = null
+                for (const [id] of positions) {
+                    const chain = clustersOf(id)
+                    const inner = c === null ? chain.length : chain.indexOf(c)
+                    if (inner >= 0) rect = union(rect, inflate(nodeAt(id), inner * GROUP_PADDING))
+                }
+                return rect
+            }
+            const fromTop = (a, b) => (byId.get(a).y ?? Infinity) - (byId.get(b).y ?? Infinity) || (byId.get(a).x ?? Infinity) - (byId.get(b).x ?? Infinity)
+            const levels = [...clusterParent.keys()].sort((a, b) => depth(b) - depth(a))
+            for (const c of [...levels, null]) {
+                const own = comments.filter(id => clusterOf(id) === c).sort(fromTop)
+                if (own.length === 0) continue
+                const box = contentRect(c) || { left: 0, top: 0 }
+                let bottom = box.top - step
+                for (const id of own.reverse()) {
+                    const s = byId.get(id)
+                    const y = Math.floor((bottom - s.h / 2) / grid) * grid
+                    positions.set(id, { x: Math.ceil((box.left + leftExtra(s)) / grid) * grid + s.w / 2, y })
+                    bottom = y - s.h / 2 - step
+                    for (const cc of clustersOf(id)) members.get(cc).push(id)
+                }
+            }
+        }
+
         // Snapping can still bring a group against something beside it; move the lower one
         // down until they are apart.
         for (let attempt = 0; attempt < 100; attempt++) {
             const items = []
             for (const [c, parent] of clusterParent) items.push({ parent, ids: members.get(c), rect: clusterRect(c) })
-            for (const id of nodeIds) items.push({ parent: clusterOf(id), ids: [id], rect: nodeAt(id) })
+            for (const id of allIds) items.push({ parent: clusterOf(id), ids: [id], rect: nodeAt(id) })
             let moved = false
             for (let i = 0; i < items.length && !moved; i++) {
                 for (let j = i + 1; j < items.length && !moved; j++) {
@@ -1007,7 +1055,9 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 }
             }
             let first = null
+            const onlyComments = [...arranged.positions.keys()].every(id => byId.get(id).comment)
             for (const [id, p] of arranged.positions) {
+                if (byId.get(id).comment && !onlyComments) continue
                 const r = nodeRect(byId.get(id), p.x, p.y)
                 if (!first || r.left < first.left || (r.left === first.left && r.top < first.top)) first = { id, left: r.left, top: r.top }
             }
