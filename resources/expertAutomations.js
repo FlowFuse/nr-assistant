@@ -2732,7 +2732,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
 
         case LAYOUT_NODES: {
-            const { placed, pushed, excluded } = this.layoutNodes(params.ids, { anchor: params.anchor, maxWidth: params.maxWidth, rowSpacing: params.rowSpacing })
+            const { placed, pushed, excluded } = this.layoutNodes(params.ids, { anchor: params.anchor, maxWidth: params.maxWidth })
             result.data = {
                 placedNodes: placed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
                 movedToMakeRoom: pushed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
@@ -3169,12 +3169,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {boolean} [options.anchor=true] - keep what is laid out where it is and move other nodes out
      *   of its way; false leaves every other node where it is and finds free space instead
      * @param {number} [options.maxWidth=1600] - a flow wider than this carries on in a new row below; 0 never wraps
-     * @param {number} [options.rowSpacing] - grid cells between a wrapped row and the next, from the last grid
-     *   line the upper row touches to the first the lower row touches; by default enough for a node to fit
-     *   halfway between them with space above and below it
      * @throws when the nodes of a tab fit nowhere inside the canvas; nothing moves on any tab then
      */
-    layoutNodes (ids, { anchor = true, maxWidth = 1600, rowSpacing } = {}) {
+    layoutNodes (ids, { anchor = true, maxWidth = 1600 } = {}) {
         if (!ids || ids.length === 0) throw new Error('ids array must not be empty')
         const selected = []
         const excluded = []
@@ -3234,7 +3231,6 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 gridSize,
                 anchor,
                 maxWidth,
-                rowSpacing,
                 canvas
             })
             layouts.push({ tabNodes, tabSelection, positions })

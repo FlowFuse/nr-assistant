@@ -4571,18 +4571,6 @@ describeMain('expertAutomations', () => {
                 b.y.should.be.above(a.y)
                 c.x.should.equal(a.x)
             })
-            it('passes rowSpacing on to the layout in grid cells', async () => {
-                mockRED.view.gridSize = sinon.stub().returns(10)
-                const a = { id: 'a', type: 'function', x: 150, y: 100, z: 'tab1' }
-                const b = { id: 'b', type: 'function', x: 350, y: 100, z: 'tab1' }
-                tabNodes.push(a, b)
-                wire(a, 0, b)
-                await expertAutomations.invokeAction('automation/layout-nodes', {
-                    params: { ids: ['tab1'], maxWidth: 200, rowSpacing: 6 }
-                }, {})
-                // six 10px cells from the last grid line a touches to the first one b touches
-                ;(Math.ceil((b.y - 15) / 10) - Math.floor((a.y + 15) / 10)).should.equal(6)
-            })
             it('keeps nodes inside the canvas size the editor reports', async () => {
                 mockRED.view.dimensions = sinon.stub().returns({ width: 1000, height: 1000 })
                 const chain = ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => ({ id, type: 'function', x: 610 + i * 180, y: 100, z: 'tab1' }))
