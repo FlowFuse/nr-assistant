@@ -4458,6 +4458,16 @@ describeMain('expertAutomations', () => {
                 b.x.should.be.above(j2.x)
                 c.x.should.be.above(j2.x)
             })
+            it('puts a comment above the flow it sits nearest to', async () => {
+                const note = { id: 'note', type: 'comment', x: 600, y: 300, z: 'tab1' }
+                const a = { id: 'a', type: 'function', x: 150, y: 300, z: 'tab1' }
+                const b = { id: 'b', type: 'function', x: 400, y: 300, z: 'tab1' }
+                tabNodes.push(note, a, b)
+                wire(a, 0, b)
+                await expertAutomations.invokeAction('automation/layout-nodes', { params: { ids: ['tab1'] } }, {})
+                note.x.should.equal(a.x)
+                note.y.should.be.below(a.y)
+            })
             it('leaves every other node alone when not anchored', async () => {
                 const existing = { id: 'e1', type: 'function', x: 150, y: 100, z: 'tab1' }
                 const added = { id: 'n1', type: 'function', x: 0, y: 0, z: 'tab1' }
