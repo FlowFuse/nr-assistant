@@ -1104,12 +1104,13 @@ describeMain('expertComms', function () {
                 events = []
                 mockRED.history = {
                     list: () => events,
-                    depth: () => events.length,
-                    peek: () => events[events.length - 1],
                     pop: () => events.pop()
                 }
+                mockRED.view.state = sinon.stub().returns(1)
+                mockRED.state = { DEFAULT: 1 }
+                mockRED.user = { hasPermission: sinon.stub().returns(true) }
                 eventSource = { postMessage: sinon.stub() }
-                sinon.stub(expertComms.nrAutomations, 'importFlow').callsFake(() => events.push({ t: 'add' }))
+                sinon.stub(expertComms.nrAutomations, 'importFlow').callsFake(() => events.push({ t: 'add' }, { t: 'add' }))
             })
             function invoke (action, params) {
                 return expertComms.handleActionInvocation({
@@ -1120,19 +1121,14 @@ describeMain('expertComms', function () {
                 })
             }
 
-            it('undoes the changes made by the previous action', async () => {
-                await invoke('custom:import-flow', { flow: '[]' })
-                events.should.have.length(1)
-                await invoke('automation/undo')
-                events.should.have.length(0)
-                eventSource.postMessage.lastCall.args[0].should.have.property('success', true)
-            })
-            it('does not undo a change made outside an action', async () => {
-                await invoke('custom:import-flow', { flow: '[]' })
+            it('treats the changes of one action as one entry made by the assistant', async () => {
                 events.push({ t: 'move' })
-                await invoke('automation/undo')
-                events.should.have.length(2)
-                eventSource.postMessage.lastCall.args[0].should.have.property('success', false)
+                await invoke('custom:import-flow', { flow: '[]' })
+                await invoke('automation/get-undo-history', {})
+                const reply = eventSource.postMessage.lastCall.args[0]
+                reply.data.entries.map(e => e.by).should.eql(['assistant', 'user'])
+                await invoke('automation/undo', {})
+                events.should.have.length(1)
             })
         })
 

@@ -40,6 +40,7 @@ const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
 const UNDO = 'automation/undo'
+const GET_UNDO_HISTORY = 'automation/get-undo-history'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -80,6 +81,10 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-.
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
+
+// Caps on what get-undo-history and undo report, to keep replies small
+const UNDO_HISTORY_MAX_ENTRIES = 50
+const UNDO_ENTRY_MAX_ITEMS = 20
 
 // Long enough to catch fast install failures (registry 404), short enough to fit
 // the transport window when the install is slow.
@@ -134,7 +139,8 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |SHOW_SIDEBAR_PANEL
  *   |TOGGLE_SIDEBAR
  *   |GET_DEBUG_MESSAGES
- *   |UNDO} ExpertAutomationsActionsEnum
+ *   |UNDO
+ *   |GET_UNDO_HISTORY} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -731,13 +737,43 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [UNDO]: { params: null }
+        [GET_UNDO_HISTORY]: {
+            params: {
+                type: 'object',
+                properties: {
+                    count: {
+                        type: 'number',
+                        default: 10,
+                        description: `Maximum number of entries to return, newest first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
+                    }
+                }
+            }
+        },
+        [UNDO]: {
+            params: {
+                type: 'object',
+                properties: {
+                    steps: {
+                        type: 'number',
+                        default: 1,
+                        description: 'Number of undo history entries to undo, newest first. Defaults to 1.'
+                    },
+                    expect: {
+                        type: 'string',
+                        description: 'Optional. The id of the newest entry as listed by get-undo-history. Nothing is undone if the newest entry is now a different one.'
+                    }
+                }
+            }
+        }
     })
 
     // Maps each history event pushed while handling an assistant request to that request's
-    // number, so undo reverts every event of one request and never one the user made.
+    // number, so all the events of one request form a single undo history entry.
     assistantChanges = new WeakMap()
     assistantRequestCount = 0
+    // Entry ids stay the same for as long as the entry's newest event is in the history.
+    undoEntryIds = new WeakMap()
+    undoEntryCount = 0
 
     /**
      * Get node or nodes by id
@@ -809,25 +845,190 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Undo every history event of the most recent assistant request, as long as it is the
-     * latest change in the editor
-     * @returns {{canUndoMore: boolean}} whether the request before it can be undone next
-     * @throws when the history is empty or its latest change was not made by the assistant
+     * The editor's undo history as entries, newest first. Each event the user made is an entry of
+     * its own, and the events of one assistant request together make one entry.
+     * @returns {{request: number|undefined, events: Object[]}[]} each entry's events, newest first
      */
-    undoAssistantChange () {
-        const history = this.RED.history
-        if (history.depth() === 0) {
+    _undoEntries () {
+        const events = this.RED.history.list()
+        const entries = []
+        for (let i = events.length - 1; i >= 0; i--) {
+            const request = this.assistantChanges.get(events[i])
+            const last = entries[entries.length - 1]
+            if (request !== undefined && last?.request === request) {
+                last.events.push(events[i])
+            } else {
+                entries.push({ request, events: [events[i]] })
+            }
+        }
+        return entries
+    }
+
+    /**
+     * Find a node that a later change in the history deleted, so an entry that added it can
+     * still say what it was
+     */
+    _deletedNode (id) {
+        const find = (ev) => {
+            if (ev.t === 'multi') {
+                for (const child of ev.events) {
+                    const found = find(child)
+                    if (found) return found
+                }
+            } else if (ev.t === 'delete') {
+                return ev.nodes?.find(n => n.id === id)
+            }
+            return undefined
+        }
+        for (const ev of this.RED.history.list()) {
+            const found = find(ev)
+            if (found) return found
+        }
+        return undefined
+    }
+
+    _undoEntryId (entry) {
+        const newest = entry.events[0]
+        if (!this.undoEntryIds.has(newest)) {
+            this.undoEntryIds.set(newest, `u${++this.undoEntryCount}`)
+        }
+        return this.undoEntryIds.get(newest)
+    }
+
+    /**
+     * Describe what undoing an entry would revert. Must run before the entry is undone, while
+     * the nodes it added can still be looked up by id.
+     */
+    _summarizeUndoEntry (entry) {
+        const lists = { added: new Map(), removed: new Map(), moved: new Map(), edited: new Map() }
+        const wires = { wiresAdded: [], wiresRemoved: [] }
+        const other = new Set()
+        const describe = (item) => {
+            const node = typeof item === 'string' ? (this._resolveNode(item) || this.RED.nodes.workspace(item) || this._deletedNode(item) || { id: item }) : item
+            const name = node.name || node.label
+            return { id: node.id, type: node.type, ...(name && { name }), ...(node.z && { z: node.z }) }
+        }
+        const addWires = (list, links = []) => {
+            for (const link of links) {
+                list.push({ source: link.source?.id, output: link.sourcePort, target: link.target?.id })
+            }
+        }
+        const addTo = (list, items = []) => {
+            for (const item of items) {
+                if (!item) continue
+                const description = describe(item)
+                list.set(description.id, description)
+            }
+        }
+        const collect = (ev) => {
+            switch (ev.t) {
+            case 'multi':
+                ev.events.forEach(collect)
+                break
+            case 'add':
+            case 'delete': {
+                const list = ev.t === 'add' ? lists.added : lists.removed
+                for (const key of ['workspaces', 'subflows', 'groups', 'nodes', 'junctions']) {
+                    addTo(list, ev[key])
+                }
+                addWires(wires.wiresAdded, ev.t === 'add' ? ev.links : ev.createdLinks)
+                addWires(wires.wiresRemoved, ev.t === 'add' ? ev.removedLinks : ev.links)
+                break
+            }
+            case 'move':
+                addTo(lists.moved, ev.nodes?.map(m => m.n))
+                addWires(wires.wiresAdded, ev.links)
+                addWires(wires.wiresRemoved, ev.removedLinks)
+                break
+            case 'edit': {
+                const description = describe(ev.node)
+                const previous = lists.edited.get(description.id)
+                const properties = new Set([...(previous?.properties || []), ...Object.keys(ev.changes || {})])
+                lists.edited.set(description.id, { ...description, properties: [...properties] })
+                break
+            }
+            case 'createGroup':
+                addTo(lists.added, ev.groups)
+                break
+            case 'ungroup':
+                addTo(lists.removed, ev.groups)
+                break
+            default:
+                other.add(ev.t)
+            }
+        }
+        entry.events.forEach(collect)
+
+        const summary = { id: this._undoEntryId(entry), by: entry.request === undefined ? 'user' : 'assistant' }
+        for (const [key, list] of Object.entries(lists)) {
+            if (list.size > 0) {
+                summary[key] = [...list.values()].slice(0, UNDO_ENTRY_MAX_ITEMS)
+                if (list.size > UNDO_ENTRY_MAX_ITEMS) {
+                    summary[`${key}Total`] = list.size
+                }
+            }
+        }
+        for (const [key, list] of Object.entries(wires)) {
+            if (list.length > 0) {
+                summary[key] = list.slice(0, UNDO_ENTRY_MAX_ITEMS)
+                if (list.length > UNDO_ENTRY_MAX_ITEMS) {
+                    summary[`${key}Total`] = list.length
+                }
+            }
+        }
+        if (other.size > 0) summary.other = [...other]
+        return summary
+    }
+
+    /**
+     * List the editor's undo history, newest first
+     * @param {Object} [params]
+     * @param {number} [params.count=10] - maximum number of entries to return
+     * @returns {{entries: Object[], total: number, dirty: boolean}}
+     */
+    getUndoHistory ({ count = 10 } = {}) {
+        const entries = this._undoEntries()
+        const max = Math.min(Math.max(Math.floor(count) || 10, 1), UNDO_HISTORY_MAX_ENTRIES)
+        return {
+            entries: entries.slice(0, max).map(entry => this._summarizeUndoEntry(entry)),
+            total: entries.length,
+            dirty: this.RED.nodes.dirty()
+        }
+    }
+
+    /**
+     * Undo the newest entries of the editor's undo history, the same as pressing undo
+     * @param {Object} [params]
+     * @param {number} [params.steps=1] - number of entries to undo
+     * @param {string} [params.expect] - id of the newest entry; nothing is undone if it differs
+     * @returns {{undone: Object[], dirty: boolean, remaining: number, next: Object|null}}
+     * @throws when there is nothing to undo, the newest entry is not `expect`, or the editor is busy
+     */
+    undo ({ steps = 1, expect } = {}) {
+        this._assertWritePermission()
+        if (this.RED.view.state() !== this.RED.state.DEFAULT) {
+            throw new Error('Cannot undo while a node is being edited or the canvas is busy. Close the edit tray first')
+        }
+        const entries = this._undoEntries()
+        if (entries.length === 0) {
             throw new Error('There are no changes to undo')
         }
-        const request = this.assistantChanges.get(history.peek())
-        if (request === undefined) {
-            throw new Error('The latest change in the editor was not made by the assistant, so nothing was undone')
+        if (expect !== undefined && this._undoEntryId(entries[0]) !== expect) {
+            throw new Error(`The newest change is no longer ${expect}, so nothing was undone. Check the undo history again`)
         }
-        while (history.depth() > 0 && this.assistantChanges.get(history.peek()) === request) {
-            history.pop()
+        const toUndo = entries.slice(0, Math.max(Math.floor(steps) || 1, 1))
+        const undone = toUndo.map(entry => this._summarizeUndoEntry(entry))
+        for (const entry of toUndo) {
+            for (let i = 0; i < entry.events.length; i++) {
+                this.RED.history.pop()
+            }
         }
+        const remaining = this._undoEntries()
         return {
-            canUndoMore: history.depth() > 0 && this.assistantChanges.has(history.peek())
+            undone,
+            dirty: this.RED.nodes.dirty(),
+            remaining: remaining.length,
+            next: remaining.length > 0 ? this._summarizeUndoEntry(remaining[0]) : null
         }
     }
 
@@ -2886,8 +3087,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.messages = this.getDebugMessages(params)
             result.success = true
             break
+        case GET_UNDO_HISTORY:
+            result.data = this.getUndoHistory(params)
+            result.success = true
+            break
         case UNDO:
-            result.data = this.undoAssistantChange()
+            result.data = this.undo(params)
             result.success = true
             break
         default:

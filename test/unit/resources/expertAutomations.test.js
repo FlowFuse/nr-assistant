@@ -128,7 +128,8 @@ describeMain('expertAutomations', () => {
                 'automation/show-sidebar-panel',
                 'automation/toggle-sidebar',
                 'automation/get-debug-messages',
-                'automation/undo'
+                'automation/undo',
+                'automation/get-undo-history'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -4780,50 +4781,91 @@ describeMain('expertAutomations', () => {
             })
         })
 
-        describe('undo action', () => {
+        describe('undo actions', () => {
             let events
             beforeEach(() => {
                 events = []
                 mockRED.history = {
                     list: () => events,
-                    depth: () => events.length,
-                    peek: () => events[events.length - 1],
-                    push: (ev) => events.push(ev),
                     pop: sinon.spy(() => events.pop())
                 }
+                mockRED.nodes.dirty.returns(true)
+                mockRED.nodes.node.callsFake(id => ({ id, type: 'inject', name: `node ${id}`, z: 't1' }))
+                expertAutomations.init(mockExpertComms, mockRED)
             })
             function assistantRequest (...pushed) {
                 const before = expertAutomations.historySnapshot()
-                pushed.forEach(ev => mockRED.history.push(ev))
+                events.push(...pushed)
                 expertAutomations.recordAssistantChanges(before)
             }
 
-            it('undoes every change of the latest assistant request', async () => {
-                assistantRequest({ t: 'add' })
-                assistantRequest({ t: 'add' }, { t: 'move' })
+            it('lists the history newest first, with one entry per assistant request', async () => {
+                events.push({ t: 'move', nodes: [{ n: { id: 'n0', type: 'debug', z: 't1' }, ox: 0, oy: 0 }] })
+                assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', links: [{ source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }] })
+                assistantRequest({ t: 'edit', node: { id: 'n1', type: 'inject', z: 't1' }, changes: { name: 'a', repeat: '' } })
                 const result = {}
-                await expertAutomations.invokeAction('automation/undo', {}, result)
+                await expertAutomations.invokeAction('automation/get-undo-history', { params: {} }, result)
+                result.data.total.should.equal(3)
+                result.data.dirty.should.be.true()
+                const [edit, add, move] = result.data.entries
+                edit.should.have.properties({ by: 'assistant', edited: [{ id: 'n1', type: 'inject', z: 't1', properties: ['name', 'repeat'] }] })
+                add.should.have.properties({ by: 'assistant', added: [{ id: 'n1', type: 'inject', name: 'node n1', z: 't1' }], wiresAdded: [{ source: 'n1', output: 0, target: 'n2' }] })
+                move.should.have.properties({ by: 'user', moved: [{ id: 'n0', type: 'debug', z: 't1' }] })
+                const ids = new Set([edit.id, add.id, move.id])
+                ids.size.should.equal(3)
+            })
+            it('describes an added node that a later change deleted', async () => {
+                mockRED.nodes.node.returns(null)
+                mockRED.nodes.workspace.returns(null)
+                assistantRequest({ t: 'add', nodes: ['n1'] })
+                events.push({ t: 'multi', events: [{ t: 'delete', nodes: [{ id: 'n1', type: 'debug', z: 't1' }] }] })
+                const [deleted, added] = expertAutomations.getUndoHistory().entries
+                deleted.removed.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
+                added.added.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
+            })
+            it('keeps entry ids between calls and limits the count', async () => {
+                events.push({ t: 'move', nodes: [] }, { t: 'move', nodes: [] })
+                const first = expertAutomations.getUndoHistory({ count: 1 })
+                first.entries.should.have.length(1)
+                expertAutomations.getUndoHistory().entries[0].id.should.equal(first.entries[0].id)
+            })
+            it('undoes a whole assistant request and reports what is next', async () => {
+                events.push({ t: 'move', nodes: [] })
+                assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', links: [{ source: { id: 'n1' }, sourcePort: 1, target: { id: 'n2' } }] })
+                const result = {}
+                await expertAutomations.invokeAction('automation/undo', { params: {} }, result)
                 mockRED.history.pop.callCount.should.equal(2)
-                events.should.have.length(1)
                 result.should.have.property('success', true)
-                result.data.should.eql({ canUndoMore: true })
+                result.data.undone.should.have.length(1)
+                result.data.undone[0].should.have.properties({ by: 'assistant', wiresAdded: [{ source: 'n1', output: 1, target: 'n2' }] })
+                result.data.should.have.properties({ dirty: true, remaining: 1 })
+                result.data.next.should.have.property('by', 'user')
             })
-            it('reports when the request before was not made by the assistant', async () => {
-                mockRED.history.push({ t: 'edit' })
-                assistantRequest({ t: 'add' })
-                const result = {}
-                await expertAutomations.invokeAction('automation/undo', {}, result)
-                events.should.have.length(1)
-                result.data.should.eql({ canUndoMore: false })
+            it('undoes changes made by the user and several steps at once', async () => {
+                assistantRequest({ t: 'add', nodes: ['n1'] })
+                events.push({ t: 'move', nodes: [] })
+                const result = expertAutomations.undo({ steps: 2 })
+                events.should.have.length(0)
+                result.undone.map(e => e.by).should.eql(['user', 'assistant'])
+                result.should.have.properties({ remaining: 0, next: null })
             })
-            it('does not undo a change the user made after the assistant', async () => {
-                assistantRequest({ t: 'add' })
-                mockRED.history.push({ t: 'move' })
-                await should(expertAutomations.invokeAction('automation/undo', {}, {})).rejectedWith(/not made by the assistant/)
+            it('undoes nothing when the newest entry is not the expected one', async () => {
+                assistantRequest({ t: 'add', nodes: ['n1'] })
+                const { id } = expertAutomations.getUndoHistory().entries[0]
+                events.push({ t: 'move', nodes: [] })
+                should.throws(() => expertAutomations.undo({ expect: id }), /no longer/)
                 mockRED.history.pop.called.should.be.false()
+                events.pop()
+                expertAutomations.undo({ expect: id }).undone[0].id.should.equal(id)
             })
             it('fails when there is nothing to undo', async () => {
-                await should(expertAutomations.invokeAction('automation/undo', {}, {})).rejectedWith(/no changes to undo/)
+                await should(expertAutomations.invokeAction('automation/undo', { params: {} }, {})).rejectedWith(/no changes to undo/)
+            })
+            it('fails while a node is being edited', async () => {
+                events.push({ t: 'move', nodes: [] })
+                mockRED.view.state.returns(2)
+                should.throws(() => expertAutomations.undo(), /Close the edit tray/)
+                mockRED.history.pop.called.should.be.false()
             })
         })
 
