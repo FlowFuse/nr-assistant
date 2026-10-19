@@ -748,12 +748,13 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 line = Math.floor(line / grid) * grid
                 const shift = Math.ceil(height / grid) * grid
                 // What starts below the cut moves down. A group the comments are not in moves
-                // as a whole or not at all, so a group beside them does not grow.
-                const outline = (id) => {
+                // as a whole when its content starts below the cut, or not at all, so a group
+                // beside them does not grow.
+                const contentTop = (id) => {
                     const outer = clustersOf(id).filter(g => !clustersOf(own[0]).includes(g))
-                    return outer.length ? clusterRect(outer[outer.length - 1]) : nodeAt(id)
+                    return outer.length ? clusterRect(outer[outer.length - 1]).top + GROUP_PADDING : nodeAt(id).top
                 }
-                const below = [...nodeIds, ...laid].filter(id => outline(id).top >= line)
+                const below = [...nodeIds, ...laid].filter(id => contentTop(id) >= line)
                 for (const id of below) positions.get(id).y += shift
                 let top = line
                 for (const id of own) {
