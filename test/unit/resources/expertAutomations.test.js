@@ -130,7 +130,8 @@ describeMain('expertAutomations', () => {
                 'automation/get-debug-messages',
                 'automation/undo',
                 'automation/get-history',
-                'automation/redo'
+                'automation/redo',
+                'automation/inject-message'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -5110,6 +5111,64 @@ describeMain('expertAutomations', () => {
                 result.should.have.property('code', 'DEPLOY_NOT_CONFIRMED')
                 result.should.not.have.property('message')
             })
+        })
+
+        describe('inject-message action', () => {
+            let node
+            beforeEach(() => {
+                node = { id: 'n1', type: 'function', z: 'tab-1', inputs: 1 }
+                mockRED.nodes.node.callsFake(id => id === 'n1' ? node : null)
+                mockRED.nodes.subflow = sinon.stub().returns(null)
+                global.$ = { ajax: sinon.stub().resolves({ status: 'ok', injected: true, msgid: 'm1' }) }
+            })
+            afterEach(() => {
+                delete global.$
+            })
+            it('posts the msg to the runtime and returns the new msgid', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/inject-message', { params: { id: 'n1', msg: { payload: 42 } } }, result)
+                global.$.ajax.calledOnce.should.be.true()
+                const request = global.$.ajax.firstCall.args[0]
+                request.should.have.properties({ url: 'nr-assistant/inject', method: 'POST' })
+                JSON.parse(request.data).should.eql({ id: 'n1', msg: { payload: 42 } })
+                result.should.have.properties({ success: true, injected: true, msgid: 'm1' })
+            })
+            it('sends an empty msg when none is provided', async () => {
+                const result = {}
+                await expertAutomations.invokeAction('automation/inject-message', { params: { id: 'n1' } }, result)
+                JSON.parse(global.$.ajax.firstCall.args[0].data).should.eql({ id: 'n1', msg: {} })
+            })
+            it('reports injected: false when the runtime refuses (agent deploy not enabled)', async () => {
+                global.$.ajax.resolves({ status: 'ok', injected: false, code: 'INJECT_NOT_ALLOWED' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/inject-message', { params: { id: 'n1' } }, result)
+                result.should.have.properties({ success: true, injected: false, code: 'INJECT_NOT_ALLOWED' })
+                result.should.not.have.property('msgid')
+            })
+            it('reports the runtime error message when the request fails', async () => {
+                global.$.ajax.rejects({ responseJSON: { message: 'Node n1 not found in the deployed flows' } })
+                const result = {}
+                await expertAutomations.invokeAction('automation/inject-message', { params: { id: 'n1' } }, result)
+                result.should.have.properties({ success: false, error: 'Node n1 not found in the deployed flows' })
+            })
+            const refusals = [
+                ['an unknown node', () => { node = null }, /not found/],
+                ['a node with no input port', () => { node.inputs = 0 }, /no input port/],
+                ['a disabled node', () => { node.d = true }, /disabled/],
+                ['a node on a disabled tab', () => { mockRED.nodes.workspace.returns({ id: 'tab-1', disabled: true }) }, /disabled/],
+                ['a node inside a subflow definition', () => { mockRED.nodes.subflow.withArgs('tab-1').returns({ id: 'tab-1' }) }, /subflow/],
+                ['a node with undeployed changes', () => { node.changed = true }, /deploy first/]
+            ]
+            for (const [label, setup, error] of refusals) {
+                it(`refuses ${label} without calling the runtime`, async () => {
+                    setup()
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/inject-message', { params: { id: 'n1' } }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('error').which.match(error)
+                    global.$.ajax.called.should.be.false()
+                })
+            }
         })
 
         describe('export-flow action', () => {
