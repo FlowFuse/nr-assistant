@@ -91,6 +91,35 @@ describeMain('flowLayout', () => {
             y('c').should.be.below(y('a'))
         })
 
+        it('centres the nodes on one output on the node feeding them', () => {
+            const nodes = [
+                node('in', { x: 100, y: 200, wires: [['a', 'b']] }),
+                node('a', { x: 300, y: 100 }),
+                node('b', { x: 300, y: 300 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            const y = (id) => placed.get(id).y
+            ;(y('a') + y('b')).should.equal(y('in') * 2)
+        })
+
+        it('keeps flows that join into one node in the order they were from the top', () => {
+            const nodes = [
+                node('err', { x: 100, y: 400, wires: [['out']] }),
+                node('a1', { x: 100, y: 100, wires: [['a2']] }),
+                node('a2', { x: 300, y: 100, wires: [['out']] }),
+                node('b1', { x: 100, y: 200, wires: [['b2']] }),
+                node('b2', { x: 300, y: 200, wires: [['out']] }),
+                node('c1', { x: 100, y: 300, wires: [['c2']] }),
+                node('c2', { x: 300, y: 300, wires: [['out']] }),
+                node('out', { x: 500, y: 250 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            const y = (id) => placed.get(id).y
+            y('a1').should.be.below(y('b1'))
+            y('b1').should.be.below(y('c1'))
+            y('c1').should.be.below(y('err'))
+        })
+
         it('puts new nodes wired to the same output in wire order', () => {
             const nodes = [node('in', { x: 100, y: 200, wires: [['a', 'b', 'c']] }), node('a'), node('b'), node('c')]
             const placed = layoutNodes({ nodes, movableIds: ['a', 'b', 'c'] })
@@ -1125,6 +1154,29 @@ describeMain('flowLayout', () => {
             const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
             placed.get('first').y.should.be.below(placed.get('second').y)
             placed.get('first').x.should.equal(placed.get('second').x)
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
+        it('keeps each comment above its own row when the rows join into one flow', () => {
+            const nodes = [
+                comment('noteA', { x: 300, y: 60 }),
+                node('a1', { x: 150, y: 100, wires: [['a2']] }),
+                node('a2', { x: 400, y: 100, wires: [['out']] }),
+                comment('noteB', { x: 300, y: 160 }),
+                node('b1', { x: 150, y: 200, wires: [['b2']] }),
+                node('b2', { x: 400, y: 200, wires: [['out']] }),
+                comment('noteC', { x: 300, y: 260 }),
+                node('c1', { x: 150, y: 300, wires: [['out']] }),
+                node('out', { x: 650, y: 200 })
+            ]
+            const placed = layoutNodes({ nodes, movableIds: nodes.map(n => n.id) })
+            const at = (id) => placed.get(id)
+            const n = (id) => nodes.find(x => x.id === id)
+            const order = ['noteA', 'a1', 'noteB', 'b1', 'noteC', 'c1']
+            for (let i = 1; i < order.length; i++) {
+                top(at(order[i]), n(order[i])).should.be.aboveOrEqual(bottom(at(order[i - 1]), n(order[i - 1])))
+            }
+            for (const id of ['noteB', 'noteC']) left(at(id), n(id)).should.equal(left(at('noteA'), n('noteA')))
             findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
         })
 

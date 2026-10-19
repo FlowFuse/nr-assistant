@@ -80,6 +80,13 @@ function gapBetween (a, b) {
     return Math.hypot(Math.max(0, a.left - b.right, b.left - a.right), Math.max(0, a.top - b.bottom, b.top - a.bottom))
 }
 
+// What a comment at `rect` describes: the nearest item level with it or below it, or the
+// nearest item when there is none.
+function commentHost (rect, items, rectOf) {
+    const nearest = (list) => list.reduce((best, u) => (best === null || gapBetween(rect, rectOf(u)) < gapBetween(rect, rectOf(best)) ? u : best), null)
+    return nearest(items.filter(u => rectOf(u).top >= rect.top)) ?? nearest(items)
+}
+
 function isFiniteRect (r) {
     return !!r && [r.left, r.right, r.top, r.bottom].every(Number.isFinite)
 }
@@ -290,13 +297,13 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 }
             }
         }
-        // A comment goes with the unit it sits nearest to.
+        // A comment goes with the unit it describes.
         const isComment = (u) => byId.get(u)?.comment
         const hosts = units.filter(u => !isComment(u) && isFiniteRect(originalRect(u)))
         for (const unit of units.filter(isComment)) {
             const rect = originalRect(unit)
             if (!isFiniteRect(rect) || hosts.length === 0) continue
-            const host = hosts.reduce((best, u) => (gapBetween(rect, originalRect(u)) < gapBetween(rect, originalRect(best)) ? u : best))
+            const host = commentHost(rect, hosts, originalRect)
             succ.get(unit).add(host)
             pred.get(host).add(unit)
         }
@@ -374,7 +381,15 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 outgoing.get(id).set(to, Math.min(outgoing.get(id).get(to) ?? Infinity, port))
             }
         }
+        // Every node nothing feeds starts in the first column, as a heavy wire from one start
+        // node keeps them all next to it.
+        const starts = nodeIds.filter(id => g.predecessors(id).length === 0)
+        if (starts.length > 1) {
+            g.setNode('start:', { width: 0, height: 0 })
+            for (const id of starts) g.setEdge('start:', id, { weight: nodeIds.length * 10 })
+        }
         dagre.layout(g)
+        if (g.hasNode('start:')) g.removeNode('start:')
 
         // Units in the same rank share dagre's x.
         const rankXs = [...new Set(g.nodes().filter(v => !v.startsWith('group:')).map(v => Math.round(g.node(v).x)))].sort((a, b) => a - b)
@@ -387,8 +402,7 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         // order, first port on top, on the rows dagre gave them, and nodes on the same port
         // in the order they had before. A wire that reaches further
         // than the next column keeps its row there, and only nodes fed by that one node and
-        // in the same group move. A column after one that changed is re-sorted, within each
-        // group, by the average row of what feeds each node.
+        // in the same group move.
         const rowAt = (from, to, x) => {
             if (Math.round(g.node(to).x) === x) return y.get(to)
             let best = null
@@ -397,7 +411,14 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             }
             return best ? best.y : y.get(to)
         }
-        const changedRanks = new Set()
+        // The first column keeps the order its nodes had from the top, and every column
+        // after it follows what feeds it, so flows stay in the order they were.
+        const changedRanks = new Set([0])
+        const before = (id) => (Number.isFinite(byId.get(id).y) ? byId.get(id).y : Infinity)
+        // Where each node comes in that order: its row in the first column, then the average of
+        // what feeds it, so a column holding a single node does not lose the order.
+        const place = new Map()
+        const fedFrom = (id) => g.predecessors(id).filter(p => place.has(p))
         for (let rank = 0; rank < columns.length; rank++) {
             if (changedRanks.has(rank)) {
                 const byCluster = new Map()
@@ -408,8 +429,9 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 }
                 for (const ids of byCluster.values()) {
                     const key = (id) => {
-                        const from = g.predecessors(id).filter(p => inSet.has(p))
-                        return from.length ? from.reduce((sum, p) => sum + y.get(p), 0) / from.length : y.get(id)
+                        if (rank === 0) return before(id)
+                        const from = fedFrom(id)
+                        return from.length ? from.reduce((sum, p) => sum + place.get(p), 0) / from.length : y.get(id)
                     }
                     const keys = new Map(ids.map(id => [id, key(id)]))
                     const rows = ids.map(id => y.get(id)).sort((a, b) => a - b)
@@ -417,6 +439,11 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                     sorted.forEach((id, i) => y.set(id, rows[i]))
                 }
                 changedRanks.add(rank + 1)
+            }
+            for (const id of columns[rank]) {
+                const from = fedFrom(id)
+                // Nodes fed by the same nodes keep the rows they were given between them.
+                place.set(id, rank > 0 && from.length ? from.reduce((sum, p) => sum + place.get(p), 0) / from.length + y.get(id) / 1e6 : y.get(id))
             }
             for (const id of columns[rank]) {
                 const outs = [...outgoing.get(id)]
@@ -458,9 +485,22 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
         }
         for (const column of columns) {
             column.sort((a, b) => y.get(a) - y.get(b))
+            const fedBy = (id) => g.predecessors(id).filter(p => positions.has(p))
             const wanted = column.map(id => {
-                const from = g.predecessors(id).filter(p => positions.has(p))
-                if (from.length === 1 && g.successors(from[0]).length === 1) return positions.get(from[0]).y
+                const from = fedBy(id)
+                // Nodes fed only by one node that feeds nothing else are centred on it together.
+                if (from.length === 1 && g.successors(from[0]).every(s => column.includes(s) && fedBy(s).length === 1)) {
+                    const block = column.filter(s => g.successors(from[0]).includes(s))
+                    const height = block.reduce((sum, s) => sum + byId.get(s).h + step, -step)
+                    const centre = positions.get(from[0]).y
+                    let top = centre - height / 2
+                    for (const s of block) {
+                        // Whole grid cells either side, so the block stays centred once snapped.
+                        const offset = top + byId.get(s).h / 2 - centre
+                        if (s === id) return centre + Math.sign(offset) * Math.ceil(Math.abs(offset) / grid) * grid
+                        top += byId.get(s).h + step
+                    }
+                }
                 if (from.length > 1) return from.reduce((sum, p) => sum + portY(p, id), 0) / from.length
                 return y.get(id)
             })
@@ -647,12 +687,13 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
             wrapRows(nodeIds)
         }
 
-        // Comments go above the top-left corner of what else is in their group, or of the
-        // whole set, in the order they were from the top, innermost groups first.
+        // Each comment goes above the row of the node it sat nearest to, against the left edge
+        // of what else is in its group, or of the whole set. Everything from that row down
+        // moves down to make room, so comments and rows keep the order they had.
         if (nodeIds !== allIds) {
             const contentRect = (c) => {
                 let rect = null
-                for (const [id] of positions) {
+                for (const id of nodeIds) {
                     const chain = clustersOf(id)
                     const inner = c === null ? chain.length : chain.indexOf(c)
                     if (inner >= 0) rect = union(rect, inflate(nodeAt(id), inner * GROUP_PADDING))
@@ -660,18 +701,64 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 return rect
             }
             const fromTop = (a, b) => (byId.get(a).y ?? Infinity) - (byId.get(b).y ?? Infinity) || (byId.get(a).x ?? Infinity) - (byId.get(b).x ?? Infinity)
-            const levels = [...clusterParent.keys()].sort((a, b) => depth(b) - depth(a))
-            for (const c of [...levels, null]) {
-                const own = comments.filter(id => clusterOf(id) === c).sort(fromTop)
-                if (own.length === 0) continue
+            const hostOf = (id) => {
+                const rect = nodeRect(byId.get(id))
+                const c = clusterOf(id)
+                const inside = nodeIds.filter(n => c === null || clustersOf(n).includes(c))
+                const candidates = (inside.length ? inside : nodeIds).filter(n => isFiniteRect(nodeRect(byId.get(n))))
+                if (!isFiniteRect(rect) || candidates.length === 0) return inside[0] ?? nodeIds[0]
+                return commentHost(rect, candidates, (n) => nodeRect(byId.get(n)))
+            }
+            // The outline of the host as seen from the comment's group: the host itself, or
+            // the outermost group between them.
+            const hostRect = (id, host) => {
+                const inner = clustersOf(host)
+                const outer = inner.slice(0, inner.indexOf(clusterOf(id)) >= 0 ? inner.indexOf(clusterOf(id)) : inner.length)
+                return outer.length ? clusterRect(outer[outer.length - 1]) : nodeAt(host)
+            }
+            const byHost = new Map()
+            // Comments in different groups go above different outlines of the same host.
+            for (const id of [...comments].sort(fromTop)) {
+                const host = hostOf(id)
+                const key = `${host}\n${clusterOf(id)}`
+                if (!byHost.has(key)) byHost.set(key, { host, own: [] })
+                byHost.get(key).own.push(id)
+            }
+            const laid = []
+            const blocks = [...byHost.values()].sort((a, b) => hostRect(a.own[0], a.host).top - hostRect(b.own[0], b.host).top)
+            for (const { host, own } of blocks) {
+                const c = clusterOf(own[0])
                 const box = contentRect(c) || { left: 0, top: 0 }
-                let bottom = box.top - step
-                for (const id of own.reverse()) {
+                const left = box.left
+                const width = Math.max(...own.map(id => fullWidth(byId.get(id))))
+                const height = own.reduce((sum, id) => sum + byId.get(id).h + step, 0)
+                // Cut above the host, and above anything that would sit beside the comments.
+                // Only what is in the comments' group moves; the group grows to make room.
+                const scope = [...nodeIds, ...laid].filter(id => c === null || clustersOf(id).includes(c))
+                let line = hostRect(own[0], host).top
+                for (let moved = true; moved;) {
+                    moved = false
+                    for (const id of scope) {
+                        const r = nodeAt(id)
+                        if (r.top < line && r.bottom > line && r.left < left + width + step && r.right + step > left) {
+                            line = r.top
+                            moved = true
+                        }
+                    }
+                }
+                line = Math.floor(line / grid) * grid
+                const shift = Math.ceil(height / grid) * grid
+                for (const id of scope) {
+                    if (nodeAt(id).top >= line) positions.get(id).y += shift
+                }
+                let top = line
+                for (const id of own) {
                     const s = byId.get(id)
-                    const y = Math.floor((bottom - s.h / 2) / grid) * grid
+                    const y = Math.ceil((top + s.h / 2) / grid) * grid
                     positions.set(id, { x: Math.ceil((box.left + leftExtra(s)) / grid) * grid + s.w / 2, y })
-                    bottom = y - s.h / 2 - step
+                    top = y + s.h / 2 + step
                     for (const cc of clustersOf(id)) members.get(cc).push(id)
+                    laid.push(id)
                 }
             }
         }
