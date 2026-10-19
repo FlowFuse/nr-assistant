@@ -127,7 +127,8 @@ describeMain('expertAutomations', () => {
                 'automation/deploy-flows',
                 'automation/show-sidebar-panel',
                 'automation/toggle-sidebar',
-                'automation/get-debug-messages'
+                'automation/get-debug-messages',
+                'automation/undo'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -4776,6 +4777,53 @@ describeMain('expertAutomations', () => {
                     params: { ids: ['n1'] }
                 }, {})).rejectedWith(/Permission denied.*write permission/)
                 n1.should.have.properties({ x: 10, y: 20 })
+            })
+        })
+
+        describe('undo action', () => {
+            let events
+            beforeEach(() => {
+                events = []
+                mockRED.history = {
+                    list: () => events,
+                    depth: () => events.length,
+                    peek: () => events[events.length - 1],
+                    push: (ev) => events.push(ev),
+                    pop: sinon.spy(() => events.pop())
+                }
+            })
+            function assistantRequest (...pushed) {
+                const before = expertAutomations.historySnapshot()
+                pushed.forEach(ev => mockRED.history.push(ev))
+                expertAutomations.recordAssistantChanges(before)
+            }
+
+            it('undoes every change of the latest assistant request', async () => {
+                assistantRequest({ t: 'add' })
+                assistantRequest({ t: 'add' }, { t: 'move' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/undo', {}, result)
+                mockRED.history.pop.callCount.should.equal(2)
+                events.should.have.length(1)
+                result.should.have.property('success', true)
+                result.data.should.eql({ canUndoMore: true })
+            })
+            it('reports when the request before was not made by the assistant', async () => {
+                mockRED.history.push({ t: 'edit' })
+                assistantRequest({ t: 'add' })
+                const result = {}
+                await expertAutomations.invokeAction('automation/undo', {}, result)
+                events.should.have.length(1)
+                result.data.should.eql({ canUndoMore: false })
+            })
+            it('does not undo a change the user made after the assistant', async () => {
+                assistantRequest({ t: 'add' })
+                mockRED.history.push({ t: 'move' })
+                await should(expertAutomations.invokeAction('automation/undo', {}, {})).rejectedWith(/not made by the assistant/)
+                mockRED.history.pop.called.should.be.false()
+            })
+            it('fails when there is nothing to undo', async () => {
+                await should(expertAutomations.invokeAction('automation/undo', {}, {})).rejectedWith(/no changes to undo/)
             })
         })
 

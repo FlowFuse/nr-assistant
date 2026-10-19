@@ -39,6 +39,7 @@ const DEPLOY_FLOWS = 'automation/deploy-flows'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
+const UNDO = 'automation/undo'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -131,7 +132,9 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |SET_DEPLOY_MODE
  *   |DEPLOY_FLOWS
  *   |SHOW_SIDEBAR_PANEL
- *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
+ *   |TOGGLE_SIDEBAR
+ *   |GET_DEBUG_MESSAGES
+ *   |UNDO} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -727,9 +730,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     trace: { type: 'boolean', default: true, description: 'Include "trace" level messages. Defaults to true.' }
                 }
             }
-        }
-
+        },
+        [UNDO]: { params: null }
     })
+
+    // Maps each history event pushed while handling an assistant request to that request's
+    // number, so undo reverts every event of one request and never one the user made.
+    assistantChanges = new WeakMap()
+    assistantRequestCount = 0
 
     /**
      * Get node or nodes by id
@@ -777,6 +785,50 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.view.select({ nodes })
         }
         return nodes
+    }
+
+    /**
+     * @returns {Set<Object>} the events currently in the editor's undo history
+     */
+    historySnapshot () {
+        return new Set(this.RED?.history?.list?.() || [])
+    }
+
+    /**
+     * Mark the history events added since `before` as one assistant request
+     * @param {Set<Object>} before - a historySnapshot taken before the request was handled
+     */
+    recordAssistantChanges (before) {
+        const events = this.RED?.history?.list?.() || []
+        const request = ++this.assistantRequestCount
+        for (const event of events) {
+            if (!before.has(event)) {
+                this.assistantChanges.set(event, request)
+            }
+        }
+    }
+
+    /**
+     * Undo every history event of the most recent assistant request, as long as it is the
+     * latest change in the editor
+     * @returns {{canUndoMore: boolean}} whether the request before it can be undone next
+     * @throws when the history is empty or its latest change was not made by the assistant
+     */
+    undoAssistantChange () {
+        const history = this.RED.history
+        if (history.depth() === 0) {
+            throw new Error('There are no changes to undo')
+        }
+        const request = this.assistantChanges.get(history.peek())
+        if (request === undefined) {
+            throw new Error('The latest change in the editor was not made by the assistant, so nothing was undone')
+        }
+        while (history.depth() > 0 && this.assistantChanges.get(history.peek()) === request) {
+            history.pop()
+        }
+        return {
+            canUndoMore: history.depth() > 0 && this.assistantChanges.has(history.peek())
+        }
     }
 
     /**
@@ -2832,6 +2884,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         case GET_DEBUG_MESSAGES:
             result.messages = this.getDebugMessages(params)
+            result.success = true
+            break
+        case UNDO:
+            result.data = this.undoAssistantChange()
             result.success = true
             break
         default:

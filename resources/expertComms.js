@@ -578,6 +578,15 @@ export class ExpertComms {
             }
         }
 
+        const historyBefore = this.nrAutomations.historySnapshot()
+        try {
+            await this.dispatchAction({ event, type, action, params, correlationId })
+        } finally {
+            this.nrAutomations.recordAssistantChanges(historyBefore)
+        }
+    }
+
+    async dispatchAction ({ event, type, action, params, correlationId }) {
         const actionNamespace = action.split('/')[0]
         switch (action) {
         case 'custom:close-search':
