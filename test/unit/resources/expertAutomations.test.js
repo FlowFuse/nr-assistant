@@ -129,7 +129,7 @@ describeMain('expertAutomations', () => {
                 'automation/toggle-sidebar',
                 'automation/get-debug-messages',
                 'automation/undo',
-                'automation/get-undo-history',
+                'automation/get-history',
                 'automation/redo'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
@@ -4805,10 +4805,10 @@ describeMain('expertAutomations', () => {
                 assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', links: [{ source: { id: 'n1' }, sourcePort: 0, target: { id: 'n2' } }] })
                 assistantRequest({ t: 'edit', node: { id: 'n1', type: 'inject', z: 't1' }, changes: { name: 'a', repeat: '' } })
                 const result = {}
-                await expertAutomations.invokeAction('automation/get-undo-history', { params: {} }, result)
-                result.data.total.should.equal(3)
+                await expertAutomations.invokeAction('automation/get-history', { params: {} }, result)
+                result.data.undoTotal.should.equal(3)
                 result.data.dirty.should.be.true()
-                const [edit, add, move] = result.data.entries
+                const [edit, add, move] = result.data.undo
                 edit.should.have.properties({ by: 'assistant', edited: [{ id: 'n1', type: 'inject', z: 't1', properties: ['name', 'repeat'] }] })
                 add.should.have.properties({ by: 'assistant', added: [{ id: 'n1', type: 'inject', name: 'node n1', z: 't1' }], wiresAdded: [{ source: 'n1', output: 0, target: 'n2' }] })
                 move.should.have.properties({ by: 'user', moved: [{ id: 'n0', type: 'debug', z: 't1' }] })
@@ -4820,7 +4820,7 @@ describeMain('expertAutomations', () => {
                 mockRED.nodes.workspace.returns(null)
                 assistantRequest({ t: 'add', nodes: ['n1'] })
                 events.push({ t: 'multi', events: [{ t: 'delete', nodes: [{ id: 'n1', type: 'debug', z: 't1' }] }] })
-                const [deleted, added] = expertAutomations.getUndoHistory().entries
+                const [deleted, added] = expertAutomations.getHistory().undo
                 deleted.removed.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
                 added.added.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
             })
@@ -4847,7 +4847,7 @@ describeMain('expertAutomations', () => {
                 for (const [event, expected] of cases) {
                     events.length = 0
                     events.push(event)
-                    const { id, by, ...summary } = expertAutomations.getUndoHistory().entries[0]
+                    const { id, by, ...summary } = expertAutomations.getHistory().undo[0]
                     summary.should.eql(expected)
                 }
             })
@@ -4855,13 +4855,13 @@ describeMain('expertAutomations', () => {
                 const before = expertAutomations.historySnapshot()
                 events.push({ t: 'move', nodes: [] })
                 expertAutomations.recordAssistantChanges(before, 'automation/layout-nodes')
-                expertAutomations.getUndoHistory().entries[0].should.have.properties({ by: 'assistant', action: 'automation/layout-nodes' })
+                expertAutomations.getHistory().undo[0].should.have.properties({ by: 'assistant', action: 'automation/layout-nodes' })
             })
             it('keeps entry ids between calls and limits the count', async () => {
                 events.push({ t: 'move', nodes: [] }, { t: 'move', nodes: [] })
-                const first = expertAutomations.getUndoHistory({ count: 1 })
-                first.entries.should.have.length(1)
-                expertAutomations.getUndoHistory().entries[0].id.should.equal(first.entries[0].id)
+                const first = expertAutomations.getHistory({ count: 1 })
+                first.undo.should.have.length(1)
+                expertAutomations.getHistory().undo[0].id.should.equal(first.undo[0].id)
             })
             it('undoes a whole assistant request and reports what is next', async () => {
                 events.push({ t: 'move', nodes: [] })
@@ -4885,7 +4885,7 @@ describeMain('expertAutomations', () => {
             })
             it('undoes nothing when the newest entry is not the expected one', async () => {
                 assistantRequest({ t: 'add', nodes: ['n1'] })
-                const { id } = expertAutomations.getUndoHistory().entries[0]
+                const { id } = expertAutomations.getHistory().undo[0]
                 events.push({ t: 'move', nodes: [] })
                 should.throws(() => expertAutomations.undo({ expect: id }), /no longer/)
                 mockRED.history.pop.called.should.be.false()
@@ -4923,11 +4923,11 @@ describeMain('expertAutomations', () => {
                 actions['core:undo']()
                 actions['core:redo']()
                 actions['core:redo']()
-                expertAutomations.getUndoHistory().entries.map(e => e.by).should.eql(['assistant', 'user'])
+                expertAutomations.getHistory().undo.map(e => e.by).should.eql(['assistant', 'user'])
                 expertAutomations.undo()
                 mockRED.history.redo()
                 mockRED.history.redo()
-                expertAutomations.getUndoHistory().entries.map(e => e.by).should.eql(['assistant', 'user'])
+                expertAutomations.getHistory().undo.map(e => e.by).should.eql(['assistant', 'user'])
             })
         })
 
@@ -4966,8 +4966,8 @@ describeMain('expertAutomations', () => {
                 mockRED.history.push({ t: 'delete', nodes: [{ id: 'n3', type: 'debug', z: 't1' }] })
                 const undone = expertAutomations.undo({ steps: 2 })
                 undone.should.have.property('redoable', 2)
-                const history = expertAutomations.getUndoHistory()
-                history.should.have.properties({ total: 0, redoTotal: 2 })
+                const history = expertAutomations.getHistory()
+                history.should.have.properties({ undoTotal: 0, redoTotal: 2 })
                 const [addition, removal] = history.redo
                 removal.should.have.properties({ by: 'user', removed: [{ id: 'n3', type: 'inject', z: 't1' }] })
                 addition.should.have.properties({ by: 'assistant', action: 'automation/add-nodes' })
@@ -4977,7 +4977,7 @@ describeMain('expertAutomations', () => {
                 assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', nodes: ['n2'] })
                 mockRED.history.push({ t: 'add', nodes: ['n0'] })
                 expertAutomations.undo({ steps: 2 })
-                const { id } = expertAutomations.getUndoHistory().redo[0]
+                const { id } = expertAutomations.getHistory().redo[0]
                 const result = {}
                 await expertAutomations.invokeAction('automation/redo', { params: { expect: id } }, result)
                 redo.callCount.should.equal(2)
@@ -4985,7 +4985,7 @@ describeMain('expertAutomations', () => {
                 result.data.redone.should.have.length(1)
                 result.data.redone[0].should.have.properties({ by: 'assistant', action: 'automation/add-nodes' })
                 result.data.redone[0].added.map(n => n.id).should.eql(['n2', 'n1'])
-                result.data.redone[0].id.should.equal(expertAutomations.getUndoHistory().entries[0].id)
+                result.data.redone[0].id.should.equal(expertAutomations.getHistory().undo[0].id)
                 result.data.should.have.properties({ dirty: true, remaining: 1 })
                 result.data.next.should.have.properties({ by: 'user', added: [{ id: 'n0', type: 'inject', z: 't1' }] })
             })
@@ -5002,7 +5002,7 @@ describeMain('expertAutomations', () => {
                 mockRED.history.push({ t: 'add', nodes: ['n0'] })
                 mockRED.history.push({ t: 'add', nodes: ['n1'] })
                 expertAutomations.undo()
-                const { id } = expertAutomations.getUndoHistory().redo[0]
+                const { id } = expertAutomations.getHistory().redo[0]
                 expertAutomations.undo()
                 should.throws(() => expertAutomations.redo({ expect: id }), /no longer/)
                 redo.called.should.be.false()

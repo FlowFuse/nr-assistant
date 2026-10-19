@@ -40,7 +40,7 @@ const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
 const UNDO = 'automation/undo'
-const GET_UNDO_HISTORY = 'automation/get-undo-history'
+const GET_HISTORY = 'automation/get-history'
 const REDO = 'automation/redo'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
@@ -83,7 +83,7 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-.
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
 
-// Caps on what get-undo-history, undo and redo report, to keep replies small
+// Caps on what get-history, undo and redo report, to keep replies small
 const UNDO_HISTORY_MAX_ENTRIES = 50
 const UNDO_ENTRY_MAX_ITEMS = 20
 
@@ -141,7 +141,7 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |TOGGLE_SIDEBAR
  *   |GET_DEBUG_MESSAGES
  *   |UNDO
- *   |GET_UNDO_HISTORY} ExpertAutomationsActionsEnum
+ *   |GET_HISTORY} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -738,14 +738,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 }
             }
         },
-        [GET_UNDO_HISTORY]: {
+        [GET_HISTORY]: {
             params: {
                 type: 'object',
                 properties: {
                     count: {
                         type: 'number',
                         default: 10,
-                        description: `Maximum number of entries to return, newest first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
+                        description: `Maximum number of entries to return in each of undo and redo, next to undo or redo first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
                     }
                 }
             }
@@ -761,7 +761,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     },
                     expect: {
                         type: 'string',
-                        description: 'Optional. The id of the newest entry as listed by get-undo-history. Nothing is undone if the newest entry is now a different one.'
+                        description: 'Optional. The id of the first entry in undo as listed by get-history. Nothing is undone if the newest entry is now a different one.'
                     }
                 }
             }
@@ -777,7 +777,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     },
                     expect: {
                         type: 'string',
-                        description: 'Optional. The id of the first entry in redo as listed by get-undo-history. Nothing is redone if the first entry is now a different one.'
+                        description: 'Optional. The id of the first entry in redo as listed by get-history. Nothing is redone if the first entry is now a different one.'
                     }
                 }
             }
@@ -1128,18 +1128,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * List the editor's undo history, newest first
+     * List the entries of the editor's history that can be undone, newest first, and those that
+     * can be redone, the next to redo first
      * @param {Object} [params]
-     * @param {number} [params.count=10] - maximum number of entries to return
-     * @returns {{entries: Object[], total: number, redo: Object[], redoTotal: number, dirty: boolean}}
+     * @param {number} [params.count=10] - maximum number of entries to return in each list
+     * @returns {{undo: Object[], undoTotal: number, redo: Object[], redoTotal: number, dirty: boolean}}
      */
-    getUndoHistory ({ count = 10 } = {}) {
-        const entries = this._undoEntries()
+    getHistory ({ count = 10 } = {}) {
+        const undoEntries = this._undoEntries()
         const redoEntries = this._redoEntries()
         const max = Math.min(Math.max(Math.floor(count) || 10, 1), UNDO_HISTORY_MAX_ENTRIES)
         return {
-            entries: entries.slice(0, max).map(entry => this._summarizeUndoEntry(entry)),
-            total: entries.length,
+            undo: undoEntries.slice(0, max).map(entry => this._summarizeUndoEntry(entry)),
+            undoTotal: undoEntries.length,
             redo: redoEntries.slice(0, max).map(entry => this._summarizeUndoEntry(entry, { redo: true })),
             redoTotal: redoEntries.length,
             dirty: this.RED.nodes.dirty()
@@ -1168,7 +1169,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('There are no changes to undo')
         }
         if (expect !== undefined && this._undoEntryId(entries[0]) !== expect) {
-            throw new Error(`The newest change is no longer ${expect}, so nothing was undone. Check the undo history again`)
+            throw new Error(`The newest change is no longer ${expect}, so nothing was undone. Check the history again`)
         }
         const toUndo = entries.slice(0, Math.max(Math.floor(steps) || 1, 1))
         const undone = toUndo.map(entry => this._summarizeUndoEntry(entry))
@@ -1202,7 +1203,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
             throw new Error('There are no undone changes to redo')
         }
         if (expect !== undefined && this._undoEntryId(entries[0]) !== expect) {
-            throw new Error(`The next change to redo is no longer ${expect}, so nothing was redone. Check the undo history again`)
+            throw new Error(`The next change to redo is no longer ${expect}, so nothing was redone. Check the history again`)
         }
         const toRedo = entries.slice(0, Math.max(Math.floor(steps) || 1, 1))
         const depth = this.RED.history.list().length
@@ -3286,8 +3287,8 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.messages = this.getDebugMessages(params)
             result.success = true
             break
-        case GET_UNDO_HISTORY:
-            result.data = this.getUndoHistory(params)
+        case GET_HISTORY:
+            result.data = this.getHistory(params)
             result.success = true
             break
         case UNDO:

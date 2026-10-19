@@ -1124,9 +1124,9 @@ describeMain('expertComms', function () {
             it('treats the changes of one action as one entry made by the assistant', async () => {
                 events.push({ t: 'move' })
                 await invoke('custom:import-flow', { flow: '[]' })
-                await invoke('automation/get-undo-history', {})
+                await invoke('automation/get-history', {})
                 const reply = eventSource.postMessage.lastCall.args[0]
-                reply.data.entries.map(e => e.by).should.eql(['assistant', 'user'])
+                reply.data.undo.map(e => e.by).should.eql(['assistant', 'user'])
                 await invoke('automation/undo', {})
                 events.should.have.length(1)
             })
@@ -1135,9 +1135,9 @@ describeMain('expertComms', function () {
                 const before = expertComms.nrAutomations.historySnapshot()
                 events.push({ t: 'add' })
                 expertComms.nrAutomations.recordAssistantChanges(before, 'automation/redo')
-                await invoke('automation/get-undo-history', {})
+                await invoke('automation/get-history', {})
                 const reply = eventSource.postMessage.lastCall.args[0]
-                reply.data.entries.map(e => e.by).should.eql(['user', 'user'])
+                reply.data.undo.map(e => e.by).should.eql(['user', 'user'])
             })
         })
 
