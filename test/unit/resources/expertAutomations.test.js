@@ -4900,6 +4900,34 @@ describeMain('expertAutomations', () => {
                 should.throws(() => expertAutomations.undo(), /Close the edit tray/)
                 mockRED.history.pop.called.should.be.false()
             })
+            it('keeps assistant entries through undo and redo', async () => {
+                // like Node-RED, undo and redo each replace the event with a new one
+                const redoEvents = []
+                const actions = { 'core:undo': () => {}, 'core:redo': () => {} }
+                mockRED.history = {
+                    list: () => events,
+                    listRedo: () => redoEvents,
+                    pop: () => redoEvents.push({ ...events.pop() }),
+                    redo: () => events.push({ ...redoEvents.pop() })
+                }
+                mockRED.actions = {
+                    get: name => actions[name].call,
+                    remove: name => delete actions[name],
+                    add: (name, handler) => { actions[name] = handler }
+                }
+                expertAutomations.init(mockExpertComms, mockRED)
+                events.push({ t: 'move', nodes: [] })
+                assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', nodes: ['n2'] })
+                actions['core:undo']()
+                actions['core:undo']()
+                actions['core:redo']()
+                actions['core:redo']()
+                expertAutomations.getUndoHistory().entries.map(e => e.by).should.eql(['assistant', 'user'])
+                expertAutomations.undo()
+                mockRED.history.redo()
+                mockRED.history.redo()
+                expertAutomations.getUndoHistory().entries.map(e => e.by).should.eql(['assistant', 'user'])
+            })
         })
 
         describe('set-deploy-mode action', () => {

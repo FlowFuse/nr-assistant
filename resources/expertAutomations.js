@@ -774,6 +774,46 @@ export class ExpertAutomations extends ExpertActionsInterface {
     undoEntryIds = new WeakMap()
     undoEntryCount = 0
 
+    init (expertComms, RED) {
+        super.init(expertComms, RED)
+        this._keepTagsThroughUndoRedo()
+    }
+
+    /**
+     * Undo and redo replace a history event with a new one, so give the new event the same
+     * assistant request as the one it replaced
+     */
+    _keepTagsThroughUndoRedo () {
+        const history = this.RED?.history
+        if (typeof history?.redo !== 'function' || typeof history.listRedo !== 'function' || history.keepsAssistantTags) {
+            return
+        }
+        const carry = (from, move, to) => (...args) => {
+            const source = from()
+            const request = this.assistantChanges.get(source[source.length - 1])
+            const depth = to().length
+            const result = move(...args)
+            const target = to()
+            if (request && target.length > depth) {
+                this.assistantChanges.set(target[target.length - 1], request)
+            }
+            return result
+        }
+        history.pop = carry(history.list, history.pop, history.listRedo)
+        history.redo = carry(history.listRedo, history.redo, history.list)
+        history.keepsAssistantTags = true
+        // The editor registered these actions with the original functions
+        for (const [name, handler] of [['core:undo', () => history.pop()], ['core:redo', () => history.redo()]]) {
+            try {
+                this.RED.actions.get(name)
+                this.RED.actions.remove(name)
+                this.RED.actions.add(name, handler)
+            } catch (_err) {
+                // the action is not there to replace
+            }
+        }
+    }
+
     /**
      * Get node or nodes by id
      * @param {string|string[]} nodeId - the id or ids of the nodes to retrieve
