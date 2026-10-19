@@ -733,7 +733,6 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 const width = Math.max(...own.map(id => fullWidth(byId.get(id))))
                 const height = own.reduce((sum, id) => sum + byId.get(id).h + step, 0)
                 // Cut above the host, and above anything that would sit beside the comments.
-                // Only what is in the comments' group moves; the group grows to make room.
                 const scope = [...nodeIds, ...laid].filter(id => c === null || clustersOf(id).includes(c))
                 let line = hostRect(own[0], host).top
                 for (let moved = true; moved;) {
@@ -748,9 +747,14 @@ export function layoutNodes ({ nodes, groups = [], movableIds, gridSize = 20, an
                 }
                 line = Math.floor(line / grid) * grid
                 const shift = Math.ceil(height / grid) * grid
-                for (const id of scope) {
-                    if (nodeAt(id).top >= line) positions.get(id).y += shift
+                // What starts below the cut moves down. A group the comments are not in moves
+                // as a whole or not at all, so a group beside them does not grow.
+                const outline = (id) => {
+                    const outer = clustersOf(id).filter(g => !clustersOf(own[0]).includes(g))
+                    return outer.length ? clusterRect(outer[outer.length - 1]) : nodeAt(id)
                 }
+                const below = [...nodeIds, ...laid].filter(id => outline(id).top >= line)
+                for (const id of below) positions.get(id).y += shift
                 let top = line
                 for (const id of own) {
                     const s = byId.get(id)
