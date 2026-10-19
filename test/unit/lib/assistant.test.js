@@ -380,7 +380,10 @@ describe('assistant', () => {
             await assistant.init(RED, options)
             node = { id: 'node-1', type: 'function', name: 'double payload', z: 'tab-1', receive: sinon.stub() }
             RED.nodes = { getNode: sinon.stub().callsFake(id => id === 'node-1' ? node : null) }
-            RED.util = { generateId: sinon.stub().returns('new-msg-id') }
+            RED.util = {
+                generateId: sinon.stub().returns('new-msg-id'),
+                evaluateEnvProperty: sinon.stub().callsFake((name, n) => name === 'NR_FLOW_NAME' && n === node ? 'API' : undefined)
+            }
             RED.log.audit = sinon.stub()
             sinon.stub(assistant, 'getAutoDeployPolicy').resolves(true)
             res = {
@@ -412,6 +415,7 @@ describe('assistant', () => {
                 type: 'function',
                 name: 'double payload',
                 z: 'tab-1',
+                flowName: 'API',
                 msgid: 'new-msg-id',
                 msgSummary: {
                     properties: { payload: 'number', topic: 'string' },
@@ -420,6 +424,13 @@ describe('assistant', () => {
                 }
             })
             auditReq.should.equal(req)
+        })
+        it('audits without a flow name when the flow has no label', async () => {
+            RED.util.evaluateEnvProperty = sinon.stub()
+            await assistant.handlePostInjectRequest({ body: { id: 'node-1' } }, res)
+            const [entry] = RED.log.audit.firstCall.args
+            entry.z.should.equal('tab-1')
+            should.not.exist(entry.flowName)
         })
         it('injects an empty msg when none is provided', async () => {
             await assistant.handlePostInjectRequest({ body: { id: 'node-1' } }, res)
