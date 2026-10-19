@@ -4823,6 +4823,39 @@ describeMain('expertAutomations', () => {
                 deleted.removed.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
                 added.added.should.eql([{ id: 'n1', type: 'debug', z: 't1' }])
             })
+            it('describes each kind of history event', async () => {
+                const link = (source, target) => ({ source: { id: source }, sourcePort: 0, target: { id: target } })
+                mockRED.nodes.subflow = sinon.stub().returns(null)
+                const cases = [
+                    [{ t: 'edit', node: { id: 'a', type: 'switch' }, changes: { outputs: 2 }, links: [link('a', 'b')], createdLinks: [link('a', 'c')] },
+                        { edited: [{ id: 'a', type: 'switch', properties: ['outputs'] }], wiresAdded: [{ source: 'a', output: 0, target: 'c' }], wiresRemoved: [{ source: 'a', output: 0, target: 'b' }] }],
+                    [{ t: 'delete', nodes: [{ id: 'a', type: 'link out' }], changes: { b: { links: [] } } },
+                        { removed: [{ id: 'a', type: 'link out' }], edited: [{ id: 'b', type: 'inject', name: 'node b', z: 't1', properties: ['links'] }] }],
+                    [{ t: 'createSubflow', subflow: { subflow: { id: 's', type: 'subflow', name: 'sub' } }, nodes: ['i'], links: [], removedLinks: [] },
+                        { added: [{ id: 's', type: 'subflow', name: 'sub' }, { id: 'i', type: 'inject', name: 'node i', z: 't1' }], other: ['nodes moved into a new subflow'] }],
+                    [{ t: 'move', nodes: [{ n: { id: 'a', type: 'inject' } }], addToGroup: { id: 'g', type: 'group' } },
+                        { moved: [{ id: 'a', type: 'inject' }], edited: [{ id: 'g', type: 'group', properties: ['nodes'] }] }],
+                    [{ t: 'multi', events: [], tabMoves: [{ id: 'a', type: 'inject', z: 't2' }], callback: () => {} },
+                        { edited: [{ id: 'a', type: 'inject', z: 't2', properties: ['z'] }] }],
+                    [{ t: 'multi', events: [], callback: () => {} }, { other: ['change with no details recorded'] }],
+                    [{ t: 'replace', complete: true, config: [] }, { other: ['all flows replaced'] }],
+                    [{ t: 'reorder', workspaces: { from: [], to: [] } }, { other: ['tabs reordered'] }],
+                    [{ t: 'somethingNew' }, { other: ['somethingNew change'] }],
+                    [{ t: 'multi', events: null, get tabMoves () { throw new Error('bad') } }, { other: ['multi change'] }]
+                ]
+                for (const [event, expected] of cases) {
+                    events.length = 0
+                    events.push(event)
+                    const { id, by, ...summary } = expertAutomations.getUndoHistory().entries[0]
+                    summary.should.eql(expected)
+                }
+            })
+            it('names the action that made an assistant entry', async () => {
+                const before = expertAutomations.historySnapshot()
+                events.push({ t: 'move', nodes: [] })
+                expertAutomations.recordAssistantChanges(before, 'automation/layout-nodes')
+                expertAutomations.getUndoHistory().entries[0].should.have.properties({ by: 'assistant', action: 'automation/layout-nodes' })
+            })
             it('keeps entry ids between calls and limits the count', async () => {
                 events.push({ t: 'move', nodes: [] }, { t: 'move', nodes: [] })
                 const first = expertAutomations.getUndoHistory({ count: 1 })

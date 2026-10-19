@@ -767,10 +767,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
     })
 
-    // Maps each history event pushed while handling an assistant request to that request's
-    // number, so all the events of one request form a single undo history entry.
+    // Maps each history event pushed while handling an assistant request to that request,
+    // so all the events of one request form a single undo history entry.
     assistantChanges = new WeakMap()
-    assistantRequestCount = 0
     // Entry ids stay the same for as long as the entry's newest event is in the history.
     undoEntryIds = new WeakMap()
     undoEntryCount = 0
@@ -833,10 +832,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
     /**
      * Mark the history events added since `before` as one assistant request
      * @param {Set<Object>} before - a historySnapshot taken before the request was handled
+     * @param {string} action - the action the request invoked
      */
-    recordAssistantChanges (before) {
+    recordAssistantChanges (before, action) {
         const events = this.RED?.history?.list?.() || []
-        const request = ++this.assistantRequestCount
+        const request = { action }
         for (const event of events) {
             if (!before.has(event)) {
                 this.assistantChanges.set(event, request)
@@ -847,7 +847,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
     /**
      * The editor's undo history as entries, newest first. Each event the user made is an entry of
      * its own, and the events of one assistant request together make one entry.
-     * @returns {{request: number|undefined, events: Object[]}[]} each entry's events, newest first
+     * @returns {{request: Object|undefined, events: Object[]}[]} each entry's events, newest first
      */
     _undoEntries () {
         const events = this.RED.history.list()
@@ -904,14 +904,9 @@ export class ExpertAutomations extends ExpertActionsInterface {
         const wires = { wiresAdded: [], wiresRemoved: [] }
         const other = new Set()
         const describe = (item) => {
-            const node = typeof item === 'string' ? (this._resolveNode(item) || this.RED.nodes.workspace(item) || this._deletedNode(item) || { id: item }) : item
+            const node = typeof item === 'string' ? (this._resolveNode(item) || this.RED.nodes.workspace(item) || this.RED.nodes.subflow?.(item) || this._deletedNode(item) || { id: item }) : item
             const name = node.name || node.label
             return { id: node.id, type: node.type, ...(name && { name }), ...(node.z && { z: node.z }) }
-        }
-        const addWires = (list, links = []) => {
-            for (const link of links) {
-                list.push({ source: link.source?.id, output: link.sourcePort, target: link.target?.id })
-            }
         }
         const addTo = (list, items = []) => {
             for (const item of items) {
@@ -920,59 +915,116 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 list.set(description.id, description)
             }
         }
+        const addEdited = (item, properties = []) => {
+            if (!item) return
+            const description = describe(item)
+            const previous = lists.edited.get(description.id)
+            lists.edited.set(description.id, { ...description, properties: [...new Set([...(previous?.properties || []), ...properties])] })
+        }
+        // Each event type keeps the wires it added and removed under its own field names
+        const addWires = (added, removed) => {
+            for (const [list, links] of [[wires.wiresAdded, added], [wires.wiresRemoved, removed]]) {
+                for (const link of links || []) {
+                    list.push({ source: link.source?.id, output: link.sourcePort, target: link.target?.id })
+                }
+            }
+        }
         const collect = (ev) => {
             switch (ev.t) {
             case 'multi':
-                ev.events.forEach(collect)
+                ev.events?.forEach(collect)
+                ev.tabMoves?.forEach(n => addEdited(n, ['z']))
                 break
             case 'add':
-            case 'delete': {
-                const list = ev.t === 'add' ? lists.added : lists.removed
                 for (const key of ['workspaces', 'subflows', 'groups', 'nodes', 'junctions']) {
-                    addTo(list, ev[key])
+                    addTo(lists.added, ev[key])
                 }
-                addWires(wires.wiresAdded, ev.t === 'add' ? ev.links : ev.createdLinks)
-                addWires(wires.wiresRemoved, ev.t === 'add' ? ev.removedLinks : ev.links)
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.links, ev.removedLinks)
                 break
-            }
+            case 'delete':
+                for (const key of ['workspaces', 'subflows', 'groups', 'nodes', 'junctions']) {
+                    addTo(lists.removed, ev[key])
+                }
+                for (const [id, changes] of Object.entries(ev.changes || {})) {
+                    addEdited(id, Object.keys(changes || {}))
+                }
+                if (ev.subflowInputs?.length || ev.subflowOutputs?.length) {
+                    addEdited((ev.subflowInputs?.[0] || ev.subflowOutputs[0]).z, ['ports'])
+                }
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.createdLinks, ev.links)
+                break
             case 'move':
                 addTo(lists.moved, ev.nodes?.map(m => m.n))
-                addWires(wires.wiresAdded, ev.links)
-                addWires(wires.wiresRemoved, ev.removedLinks)
+                if (ev.addToGroup) addEdited(ev.addToGroup, ['nodes'])
+                if (ev.removeFromGroup) addEdited(ev.removeFromGroup, ['nodes'])
+                addWires(ev.links, ev.removedLinks)
                 break
-            case 'edit': {
-                const description = describe(ev.node)
-                const previous = lists.edited.get(description.id)
-                const properties = new Set([...(previous?.properties || []), ...Object.keys(ev.changes || {})])
-                lists.edited.set(description.id, { ...description, properties: [...properties] })
+            case 'edit':
+                addEdited(ev.node, Object.keys(ev.changes || {}))
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.createdLinks, ev.links)
                 break
-            }
+            case 'createSubflow':
+                addTo(lists.added, [ev.subflow?.subflow])
+                addTo(lists.added, ev.nodes)
+                other.add('nodes moved into a new subflow')
+                addWires(ev.links, ev.removedLinks)
+                break
+            case 'deleteSubflow':
+                addTo(lists.removed, [ev.subflow?.subflow])
+                addTo(lists.removed, ev.subflows)
+                other.add('nodes moved out of a subflow')
+                addWires(ev.createdLinks, ev.links)
+                break
             case 'createGroup':
                 addTo(lists.added, ev.groups)
                 break
             case 'ungroup':
                 addTo(lists.removed, ev.groups)
                 break
-            default:
-                other.add(ev.t)
-            }
-        }
-        entry.events.forEach(collect)
-
-        const summary = { id: this._undoEntryId(entry), by: entry.request === undefined ? 'user' : 'assistant' }
-        for (const [key, list] of Object.entries(lists)) {
-            if (list.size > 0) {
-                summary[key] = [...list.values()].slice(0, UNDO_ENTRY_MAX_ITEMS)
-                if (list.size > UNDO_ENTRY_MAX_ITEMS) {
-                    summary[`${key}Total`] = list.size
+            case 'addToGroup':
+            case 'removeFromGroup':
+                addEdited(ev.group, ['nodes'])
+                break
+            case 'reorder':
+                if (ev.workspaces) other.add('tabs reordered')
+                if (ev.nodes) other.add(`nodes reordered on ${ev.nodes.z}`)
+                break
+            case 'replace':
+                if (ev.complete) {
+                    other.add('all flows replaced')
+                } else {
+                    ev.config?.forEach(n => addEdited(n))
                 }
+                break
+            default:
+                other.add(`${ev.t} change`)
+            }
+            // A callback runs code Node-RED cannot describe, such as moving nodes between tabs
+            if (typeof ev.callback === 'function' && !ev.events?.length && !ev.tabMoves) {
+                other.add('change with no details recorded')
             }
         }
-        for (const [key, list] of Object.entries(wires)) {
-            if (list.length > 0) {
-                summary[key] = list.slice(0, UNDO_ENTRY_MAX_ITEMS)
-                if (list.length > UNDO_ENTRY_MAX_ITEMS) {
-                    summary[`${key}Total`] = list.length
+        for (const ev of entry.events) {
+            try {
+                collect(ev)
+            } catch (_err) {
+                other.add(`${ev?.t} change`)
+            }
+        }
+
+        const summary = { id: this._undoEntryId(entry), by: entry.request ? 'assistant' : 'user' }
+        if (entry.request?.action) {
+            summary.action = entry.request.action
+        }
+        for (const [key, list] of Object.entries({ ...lists, ...wires })) {
+            const items = Array.isArray(list) ? list : [...list.values()]
+            if (items.length > 0) {
+                summary[key] = items.slice(0, UNDO_ENTRY_MAX_ITEMS)
+                if (items.length > UNDO_ENTRY_MAX_ITEMS) {
+                    summary[`${key}Total`] = items.length
                 }
             }
         }
@@ -1267,11 +1319,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Use a toggle callback on a multi event — RED.history has no native tab-move
         // event type, and multi is the only built-in type that safely supports callbacks.
         // The callback swaps oldZ/newZ after each invocation so that undo and redo
-        // alternate between moving nodes to their source and target tabs.
+        // alternate between moving nodes to their source and target tabs. tabMoves only
+        // lets the undo history list the moved nodes; Node-RED ignores it.
         this.RED.history.push({
             t: 'multi',
             events: [],
             dirty: wasDirty,
+            tabMoves: moves.map(item => item.node),
             callback: () => {
                 for (const item of moves) {
                     this.RED.nodes.moveNodeToTab(item.node, item.oldZ)

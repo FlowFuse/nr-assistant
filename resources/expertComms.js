@@ -582,7 +582,7 @@ export class ExpertComms {
         try {
             await this.dispatchAction({ event, type, action, params, correlationId })
         } finally {
-            this.nrAutomations.recordAssistantChanges(historyBefore)
+            this.nrAutomations.recordAssistantChanges(historyBefore, action)
         }
     }
 
