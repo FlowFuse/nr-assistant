@@ -1,4 +1,5 @@
 import { ExpertActionsInterface } from './expertActionsInterface.js'
+import { layoutNodes } from './flowLayout.js'
 
 // Actions supported by this module (namespace/action-name):
 const SELECT_NODES = 'automation/select-nodes'
@@ -31,6 +32,7 @@ const OPEN_PALETTE_MANAGER = 'automation/open-palette-manager'
 const INSTALL_MODULE = 'automation/install-module'
 const MANAGE_GROUPS = 'automation/manage-groups'
 const ARRANGE_NODES = 'automation/arrange-nodes'
+const LAYOUT_NODES = 'automation/layout-nodes'
 const EXPORT_FLOW = 'automation/export-flow'
 const SET_DEPLOY_MODE = 'automation/set-deploy-mode'
 const DEPLOY_FLOWS = 'automation/deploy-flows'
@@ -124,6 +126,7 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |INSTALL_MODULE
  *   |MANAGE_GROUPS
  *   |ARRANGE_NODES
+ *   |LAYOUT_NODES
  *   |EXPORT_FLOW
  *   |SET_DEPLOY_MODE
  *   |DEPLOY_FLOWS
@@ -630,6 +633,19 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 },
                 required: ['ids', 'direction']
+            }
+        },
+        [LAYOUT_NODES]: {
+            params: {
+                type: 'object',
+                properties: {
+                    ids: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'IDs of nodes, groups or tabs to lay out. A group or tab stands for every node in it'
+                    }
+                },
+                required: ['ids']
             }
         },
         [EXPORT_FLOW]: {
@@ -2715,6 +2731,17 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
             break
 
+        case LAYOUT_NODES: {
+            const { placed, pushed, excluded } = this.layoutNodes(params.ids, { anchor: params.anchor, maxWidth: params.maxWidth })
+            result.data = {
+                placedNodes: placed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
+                movedToMakeRoom: pushed.map(n => ({ id: n.id, z: n.z, x: n.x, y: n.y })),
+                excludedConfigNodes: excluded.map(n => ({ id: n.id, type: n.type }))
+            }
+            result.success = true
+        }
+            break
+
         case EXPORT_FLOW: {
             if (params.tabId) {
                 if (params.scope !== 'current-tab') {
@@ -3132,6 +3159,209 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         const excluded = allNodes.filter(n => !workspaceNodes.includes(n))
         return { aligned: workspaceNodes, excluded }
+    }
+
+    /**
+     * Lay out the given nodes, groups and tabs. A tab or group stands for every node in it, and
+     * junctions wired only between the given nodes come with them. One undoable move for the whole call, including nodes moved to make room.
+     * @param {string[]} ids - node, group or tab IDs, on any number of tabs
+     * @param {Object} [options]
+     * @param {boolean} [options.anchor=true] - keep what is laid out where it is and move other nodes out
+     *   of its way; false leaves every other node where it is and finds free space instead
+     * @param {number} [options.maxWidth=1600] - a flow wider than this carries on in a new row below; 0 never wraps
+     * @throws when the nodes of a tab fit nowhere inside the canvas; nothing moves on any tab then
+     */
+    layoutNodes (ids, { anchor = true, maxWidth = 1600 } = {}) {
+        if (!ids || ids.length === 0) throw new Error('ids array must not be empty')
+        const selected = []
+        const excluded = []
+        const add = (n) => {
+            if (!selected.includes(n) && !excluded.includes(n)) {
+                if (this.isConfigNode(n.id)) {
+                    excluded.push(n)
+                } else {
+                    selected.push(n)
+                }
+            }
+        }
+        for (const id of ids) {
+            const node = this._resolveNode(id)
+            const group = !node && this.RED.nodes.group(id)
+            const tab = !node && !group && (this.RED.nodes.workspace(id) || this.RED.nodes.subflow?.(id))
+            if (node) {
+                add(node)
+            } else if (group) {
+                this._groupMembers(group).forEach(add)
+            } else if (tab) {
+                this._tabMembers(tab.id).forEach(add)
+            } else {
+                throw new Error(`${id} is not a node, group or tab`)
+            }
+        }
+        this._junctionsBetween(selected).forEach(add)
+        if (selected.length === 0) throw new Error('No workspace nodes to lay out')
+
+        const byTab = new Map()
+        for (const n of selected) {
+            if (!byTab.has(n.z)) byTab.set(n.z, [])
+            byTab.get(n.z).push(n)
+        }
+        for (const z of byTab.keys()) {
+            this._assertWorkspaceIsEditable(z)
+        }
+
+        const gridSize = (this.RED.view.gridSize && this.RED.view.gridSize()) || 20
+        const canvas = this._canvasSize()
+        const wasDirty = this.RED.nodes.dirty()
+        // Every tab is laid out before anything moves, so a tab with no room leaves all of them as they were.
+        const layouts = []
+        for (const [z, tabSelection] of byTab) {
+            const tabNodes = this._tabMembers(z)
+            for (const n of tabSelection) {
+                if (!tabNodes.includes(n)) tabNodes.push(n)
+            }
+            const groups = (this.RED.nodes.groups ? this.RED.nodes.groups(z) : []).map(g => ({
+                id: g.id,
+                g: g.g,
+                bounds: { x: g.x, y: g.y, w: g.w, h: g.h }
+            }))
+            const positions = layoutNodes({
+                nodes: tabNodes.map(n => this._measureNode(n)),
+                groups,
+                movableIds: tabSelection.map(n => n.id),
+                gridSize,
+                anchor,
+                maxWidth,
+                canvas
+            })
+            layouts.push({ tabNodes, tabSelection, positions })
+        }
+        const movedNodes = []
+        const pushed = []
+        for (const { tabNodes, tabSelection, positions } of layouts) {
+            for (const n of tabNodes) {
+                const p = positions.get(n.id)
+                if (!p) continue
+                if (!tabSelection.includes(n)) pushed.push(n)
+                movedNodes.push({ n, ox: n.x, oy: n.y, moved: n.moved })
+                n.x = p.x
+                n.y = p.y
+                n.dirty = true
+                n.moved = true
+                if (n.g && this.RED.group?.markDirty) {
+                    this.RED.group.markDirty(this.RED.nodes.group(n.g))
+                }
+            }
+        }
+        if (movedNodes.length > 0) {
+            this.RED.history.push({ t: 'move', nodes: movedNodes, dirty: wasDirty })
+            this.RED.nodes.dirty(true)
+            this.RED.view.redraw(true)
+            this.RED.view.reveal(selected[0].id, false)
+        }
+        return { placed: selected, pushed, excluded }
+    }
+
+    /** Size of the editor canvas; Node-RED before 3.0 has no dimensions() and a 5000 square canvas. */
+    _canvasSize () {
+        try {
+            const { width, height } = this.RED.view.dimensions()
+            if (width > 0 && height > 0) return { width, height }
+        } catch (err) {
+            // fall through to the smallest canvas Node-RED has had
+        }
+        return { width: 5000, height: 5000 }
+    }
+
+    /**
+     * Junctions wired only to `nodes`, directly or through each other. They only route the
+     * wires between those nodes, so they are laid out with them.
+     * @param {object[]} nodes
+     */
+    _junctionsBetween (nodes) {
+        const neighbours = (n) => [
+            ...this.RED.nodes.getNodeLinks(n.id, 0).map(l => l.target),
+            ...this.RED.nodes.getNodeLinks(n.id, 1).map(l => l.source)
+        ]
+        const found = new Set()
+        const queue = [...nodes]
+        while (queue.length) {
+            for (const other of neighbours(queue.shift())) {
+                if (other?.type === 'junction' && !nodes.includes(other) && !found.has(other)) {
+                    found.add(other)
+                    queue.push(other)
+                }
+            }
+        }
+        let dropped = true
+        while (dropped) {
+            dropped = false
+            for (const j of found) {
+                if (neighbours(j).some(o => !nodes.includes(o) && !found.has(o))) {
+                    found.delete(j)
+                    dropped = true
+                }
+            }
+        }
+        return [...found]
+    }
+
+    /** Every node and junction on a tab or subflow, without config nodes. */
+    _tabMembers (z) {
+        return [
+            ...this.RED.nodes.filterNodes({ z }).filter(n => n._def?.category !== 'config'),
+            ...(this.RED.nodes.junctions ? this.RED.nodes.junctions(z) : [])
+        ]
+    }
+
+    /** Every node and junction in a group, including those in nested groups. */
+    _groupMembers (group, seen = new Set()) {
+        seen.add(group.id)
+        const members = []
+        for (const item of group.nodes || []) {
+            const n = typeof item === 'string' ? (this._resolveNode(item) || this.RED.nodes.group(item)) : item
+            if (!n) continue
+            if (n.type === 'group') {
+                if (!seen.has(n.id)) members.push(...this._groupMembers(n, seen))
+            } else {
+                members.push(n)
+            }
+        }
+        return members
+    }
+
+    /**
+     * Size a node the way the editor draws it. The width follows the node's current label,
+     * so it is measured fresh rather than read from n.w, which is only set once rendered.
+     * @param {object} node
+     */
+    _measureNode (node) {
+        let w = 100
+        let h = 30
+        if (node.type === 'junction') {
+            w = 10
+            h = 10
+        } else if (typeof this.RED.view.calculateNodeDimensions === 'function') {
+            [w, h] = this.RED.view.calculateNodeDimensions(node)
+        } else if (Number.isFinite(node.w) && Number.isFinite(node.h)) {
+            w = node.w
+            h = node.h
+        }
+        // Editor nodes do not keep a wires array; their links are held by RED.nodes.
+        const wires = []
+        for (const link of this.RED.nodes.getNodeLinks(node.id, 0)) {
+            const port = link.sourcePort || 0
+            wires[port] = wires[port] || []
+            wires[port].push(link.target.id)
+        }
+        const measured = { id: node.id, x: node.x, y: node.y, w, h, g: node.g, wires: Array.from(wires, p => p || []) }
+        if (node.type === 'comment') {
+            measured.comment = true
+        }
+        if (node._def?.button) {
+            measured.button = node._def.align === 'right' ? 'right' : 'left'
+        }
+        return measured
     }
 
     _summarizeNode (node) {
