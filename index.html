@@ -100,6 +100,7 @@
                             }
                             RED.menu.addItem('red-ui-header-button-ff-ai', menuEntry)
                             setMenuShortcutKey('ff-assistant-explain-flows', 'red-ui-workspace', 'ctrl-alt-e', 'flowfuse-nr-assistant:explain-flows')
+                            RED.menu.refreshShortcuts()
                         } else if (mcpReadyInterlock) {
                             if (msg?.enabled) {
                                 RED.menu.setVisible('ff-assistant-explain-flows', true)
@@ -236,6 +237,7 @@
                 RED.actions.add('flowfuse-nr-assistant:layout-flows-no-anchor-no-wrap', () => layoutFlows({ anchor: false, maxWidth: 0 }), { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:layout-flows.action.label-no-anchor-no-wrap' })
                 RED.actions.add('flowfuse-nr-assistant:layout-flows-with-options', showLayoutFlowsDialog, { label: '@flowfuse/nr-assistant/flowfuse-nr-assistant:layout-flows.action.label-with-options' })
                 setMenuShortcutKey('ff-assistant-layout-flows', 'red-ui-workspace', 'alt-shift-l', 'flowfuse-nr-assistant:layout-flows-with-options')
+                RED.menu.refreshShortcuts()
                 assistantInitialised = true
             }
         }
@@ -1536,7 +1538,7 @@
             const anchorRow = $('<div class="form-row" style="margin-bottom: 10px;"></div>').appendTo(form)
             const anchorCheck = $('<input type="checkbox" id="ff-layout-anchor" style="width: auto; margin: 0 6px 0 0;">').prop('checked', opts.anchor)
             $('<label for="ff-layout-anchor" style="width: auto;"></label>').append(anchorCheck).append(nls('layout-flows.dialog.anchor')).appendTo(anchorRow)
-            $('<div class="form-tips" style="margin: 4px 0 0 20px;"></div>').text(nls('layout-flows.dialog.anchor-tip')).appendTo(anchorRow)
+            $('<div style="margin: 4px 0 0 20px; font-size: 0.9em; color: var(--red-ui-secondary-text-color);"></div>').text(nls('layout-flows.dialog.anchor-tip')).appendTo(anchorRow)
 
             const refresh = () => {
                 maxWidthInput.prop('disabled', !wrapCheck.prop('checked'))
@@ -2089,7 +2091,8 @@
                 debug('setMenuShortcutKey: adding popover span to action item', { id, scope, key, action })
                 actionItem.append('<span class="red-ui-popover-key"></span>')
             }
-            RED.menu.refreshShortcuts()
+            // The caller refreshes the menu once every key is set: a refresh drops the shortcut
+            // of any menu item that has no key yet, and it does not come back.
         }
 
         function debug (...args) {
