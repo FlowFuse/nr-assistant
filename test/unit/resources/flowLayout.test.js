@@ -1207,6 +1207,19 @@ describeMain('flowLayout', () => {
             findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
         })
 
+        it('keeps a group on its row when a comment above the row makes room', () => {
+            const nodes = [
+                comment('row', { x: 150, y: 60 }),
+                node('a1', { x: 150, y: 100, wires: [['a2']] }),
+                comment('note', { x: 600, y: 60, g: 'g1' }),
+                node('a2', { x: 400, y: 100, g: 'g1' })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['g1', ...nodes.map(n => n.id)] })
+            placed.get('a2').y.should.equal(placed.get('a1').y)
+            bottom(placed.get('note'), nodes[2]).should.be.belowOrEqual(top(placed.get('a2'), nodes[3]))
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
         it('lays out a tab that only holds comments', () => {
             const nodes = [comment('c1', { x: 100, y: 100 }), comment('c2', { x: 400, y: 100 })]
             const placed = layoutNodes({ nodes, movableIds: ['c1', 'c2'] })
