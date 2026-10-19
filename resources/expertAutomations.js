@@ -745,7 +745,7 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     count: {
                         type: 'number',
                         default: 10,
-                        description: `Maximum number of entries to return in each of undo and redo, next to undo or redo first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
+                        description: `Maximum number of entries to return in each list. undo lists the newest change first, and redo the change it would redo first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
                     }
                 }
             }
