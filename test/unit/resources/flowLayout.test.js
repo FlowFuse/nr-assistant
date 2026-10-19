@@ -1193,6 +1193,20 @@ describeMain('flowLayout', () => {
             bottom(placed.get('note'), nodes[0]).should.be.belowOrEqual(top(placed.get('a2'), nodes[2]))
         })
 
+        it('keeps nodes outside a group level with the node a comment in the group sits above', () => {
+            const nodes = [
+                node('a1', { x: 150, y: 100, wires: [['a2']] }),
+                comment('note', { x: 400, y: 60, g: 'g1' }),
+                node('a2', { x: 400, y: 100, g: 'g1', wires: [['a3']] }),
+                node('a3', { x: 650, y: 100 })
+            ]
+            const placed = layoutNodes({ nodes, groups: [{ id: 'g1' }], movableIds: ['g1', ...nodes.map(n => n.id)] })
+            bottom(placed.get('note'), nodes[1]).should.be.belowOrEqual(top(placed.get('a2'), nodes[2]))
+            left(placed.get('note'), nodes[1]).should.equal(left(placed.get('a2'), nodes[2]))
+            placed.get('a3').y.should.equal(placed.get('a2').y)
+            findOverlaps(apply(nodes, placed)).should.have.lengthOf(0)
+        })
+
         it('lays out a tab that only holds comments', () => {
             const nodes = [comment('c1', { x: 100, y: 100 }), comment('c2', { x: 400, y: 100 })]
             const placed = layoutNodes({ nodes, movableIds: ['c1', 'c2'] })
