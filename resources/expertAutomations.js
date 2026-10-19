@@ -39,6 +39,8 @@ const DEPLOY_FLOWS = 'automation/deploy-flows'
 const SHOW_SIDEBAR_PANEL = 'automation/show-sidebar-panel'
 const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
+const UNDO = 'automation/undo'
+const GET_UNDO_HISTORY = 'automation/get-undo-history'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -79,6 +81,10 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-.
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
+
+// Caps on what get-undo-history and undo report, to keep replies small
+const UNDO_HISTORY_MAX_ENTRIES = 50
+const UNDO_ENTRY_MAX_ITEMS = 20
 
 // Long enough to catch fast install failures (registry 404), short enough to fit
 // the transport window when the install is slow.
@@ -131,7 +137,10 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |SET_DEPLOY_MODE
  *   |DEPLOY_FLOWS
  *   |SHOW_SIDEBAR_PANEL
- *   |TOGGLE_SIDEBAR} ExpertAutomationsActionsEnum
+ *   |TOGGLE_SIDEBAR
+ *   |GET_DEBUG_MESSAGES
+ *   |UNDO
+ *   |GET_UNDO_HISTORY} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -727,9 +736,83 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     trace: { type: 'boolean', default: true, description: 'Include "trace" level messages. Defaults to true.' }
                 }
             }
+        },
+        [GET_UNDO_HISTORY]: {
+            params: {
+                type: 'object',
+                properties: {
+                    count: {
+                        type: 'number',
+                        default: 10,
+                        description: `Maximum number of entries to return, newest first. Defaults to 10, capped at ${UNDO_HISTORY_MAX_ENTRIES}.`
+                    }
+                }
+            }
+        },
+        [UNDO]: {
+            params: {
+                type: 'object',
+                properties: {
+                    steps: {
+                        type: 'number',
+                        default: 1,
+                        description: 'Number of undo history entries to undo, newest first. Defaults to 1.'
+                    },
+                    expect: {
+                        type: 'string',
+                        description: 'Optional. The id of the newest entry as listed by get-undo-history. Nothing is undone if the newest entry is now a different one.'
+                    }
+                }
+            }
         }
-
     })
+
+    // Maps each history event pushed while handling an assistant request to that request,
+    // so all the events of one request form a single undo history entry.
+    assistantChanges = new WeakMap()
+    // Entry ids stay the same for as long as the entry's newest event is in the history.
+    undoEntryIds = new WeakMap()
+    undoEntryCount = 0
+
+    init (expertComms, RED) {
+        super.init(expertComms, RED)
+        this._keepTagsThroughUndoRedo()
+    }
+
+    /**
+     * Undo and redo replace a history event with a new one, so give the new event the same
+     * assistant request as the one it replaced
+     */
+    _keepTagsThroughUndoRedo () {
+        const history = this.RED?.history
+        if (typeof history?.redo !== 'function' || typeof history.listRedo !== 'function' || history.keepsAssistantTags) {
+            return
+        }
+        const carry = (from, move, to) => (...args) => {
+            const source = from()
+            const request = this.assistantChanges.get(source[source.length - 1])
+            const depth = to().length
+            const result = move(...args)
+            const target = to()
+            if (request && target.length > depth) {
+                this.assistantChanges.set(target[target.length - 1], request)
+            }
+            return result
+        }
+        history.pop = carry(history.list, history.pop, history.listRedo)
+        history.redo = carry(history.listRedo, history.redo, history.list)
+        history.keepsAssistantTags = true
+        // The editor registered these actions with the original functions
+        for (const [name, handler] of [['core:undo', () => history.pop()], ['core:redo', () => history.redo()]]) {
+            try {
+                this.RED.actions.get(name)
+                this.RED.actions.remove(name)
+                this.RED.actions.add(name, handler)
+            } catch (_err) {
+                // the action is not there to replace
+            }
+        }
+    }
 
     /**
      * Get node or nodes by id
@@ -777,6 +860,268 @@ export class ExpertAutomations extends ExpertActionsInterface {
             this.RED.view.select({ nodes })
         }
         return nodes
+    }
+
+    /**
+     * @returns {Set<Object>} the events currently in the editor's undo history
+     */
+    historySnapshot () {
+        return new Set(this.RED?.history?.list?.() || [])
+    }
+
+    /**
+     * Mark the history events added since `before` as one assistant request
+     * @param {Set<Object>} before - a historySnapshot taken before the request was handled
+     * @param {string} action - the action the request invoked
+     */
+    recordAssistantChanges (before, action) {
+        const events = this.RED?.history?.list?.() || []
+        const request = { action }
+        for (const event of events) {
+            if (!before.has(event)) {
+                this.assistantChanges.set(event, request)
+            }
+        }
+    }
+
+    /**
+     * The editor's undo history as entries, newest first. Each event the user made is an entry of
+     * its own, and the events of one assistant request together make one entry.
+     * @returns {{request: Object|undefined, events: Object[]}[]} each entry's events, newest first
+     */
+    _undoEntries () {
+        const events = this.RED.history.list()
+        const entries = []
+        for (let i = events.length - 1; i >= 0; i--) {
+            const request = this.assistantChanges.get(events[i])
+            const last = entries[entries.length - 1]
+            if (request !== undefined && last?.request === request) {
+                last.events.push(events[i])
+            } else {
+                entries.push({ request, events: [events[i]] })
+            }
+        }
+        return entries
+    }
+
+    /**
+     * Find a node that a later change in the history deleted, so an entry that added it can
+     * still say what it was
+     */
+    _deletedNode (id) {
+        const find = (ev) => {
+            if (ev.t === 'multi') {
+                for (const child of ev.events) {
+                    const found = find(child)
+                    if (found) return found
+                }
+            } else if (ev.t === 'delete') {
+                return ev.nodes?.find(n => n.id === id)
+            }
+            return undefined
+        }
+        for (const ev of this.RED.history.list()) {
+            const found = find(ev)
+            if (found) return found
+        }
+        return undefined
+    }
+
+    _undoEntryId (entry) {
+        const newest = entry.events[0]
+        if (!this.undoEntryIds.has(newest)) {
+            this.undoEntryIds.set(newest, `u${++this.undoEntryCount}`)
+        }
+        return this.undoEntryIds.get(newest)
+    }
+
+    /**
+     * Describe what undoing an entry would revert. Must run before the entry is undone, while
+     * the nodes it added can still be looked up by id.
+     */
+    _summarizeUndoEntry (entry) {
+        const lists = { added: new Map(), removed: new Map(), moved: new Map(), edited: new Map() }
+        const wires = { wiresAdded: [], wiresRemoved: [] }
+        const other = new Set()
+        const describe = (item) => {
+            const node = typeof item === 'string' ? (this._resolveNode(item) || this.RED.nodes.workspace(item) || this.RED.nodes.subflow?.(item) || this._deletedNode(item) || { id: item }) : item
+            const name = node.name || node.label
+            return { id: node.id, type: node.type, ...(name && { name }), ...(node.z && { z: node.z }) }
+        }
+        const addTo = (list, items = []) => {
+            for (const item of items) {
+                if (!item) continue
+                const description = describe(item)
+                list.set(description.id, description)
+            }
+        }
+        const addEdited = (item, properties = []) => {
+            if (!item) return
+            const description = describe(item)
+            const previous = lists.edited.get(description.id)
+            lists.edited.set(description.id, { ...description, properties: [...new Set([...(previous?.properties || []), ...properties])] })
+        }
+        // Each event type keeps the wires it added and removed under its own field names
+        const addWires = (added, removed) => {
+            for (const [list, links] of [[wires.wiresAdded, added], [wires.wiresRemoved, removed]]) {
+                for (const link of links || []) {
+                    list.push({ source: link.source?.id, output: link.sourcePort, target: link.target?.id })
+                }
+            }
+        }
+        const collect = (ev) => {
+            switch (ev.t) {
+            case 'multi':
+                ev.events?.forEach(collect)
+                ev.tabMoves?.forEach(n => addEdited(n, ['z']))
+                break
+            case 'add':
+                for (const key of ['workspaces', 'subflows', 'groups', 'nodes', 'junctions']) {
+                    addTo(lists.added, ev[key])
+                }
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.links, ev.removedLinks)
+                break
+            case 'delete':
+                for (const key of ['workspaces', 'subflows', 'groups', 'nodes', 'junctions']) {
+                    addTo(lists.removed, ev[key])
+                }
+                for (const [id, changes] of Object.entries(ev.changes || {})) {
+                    addEdited(id, Object.keys(changes || {}))
+                }
+                if (ev.subflowInputs?.length || ev.subflowOutputs?.length) {
+                    addEdited((ev.subflowInputs?.[0] || ev.subflowOutputs[0]).z, ['ports'])
+                }
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.createdLinks, ev.links)
+                break
+            case 'move':
+                addTo(lists.moved, ev.nodes?.map(m => m.n))
+                if (ev.addToGroup) addEdited(ev.addToGroup, ['nodes'])
+                if (ev.removeFromGroup) addEdited(ev.removeFromGroup, ['nodes'])
+                addWires(ev.links, ev.removedLinks)
+                break
+            case 'edit':
+                addEdited(ev.node, Object.keys(ev.changes || {}))
+                ev.subflow?.instances?.forEach(n => addEdited(n))
+                addWires(ev.createdLinks, ev.links)
+                break
+            case 'createSubflow':
+                addTo(lists.added, [ev.subflow?.subflow])
+                addTo(lists.added, ev.nodes)
+                other.add('nodes moved into a new subflow')
+                addWires(ev.links, ev.removedLinks)
+                break
+            case 'deleteSubflow':
+                addTo(lists.removed, [ev.subflow?.subflow])
+                addTo(lists.removed, ev.subflows)
+                other.add('nodes moved out of a subflow')
+                addWires(ev.createdLinks, ev.links)
+                break
+            case 'createGroup':
+                addTo(lists.added, ev.groups)
+                break
+            case 'ungroup':
+                addTo(lists.removed, ev.groups)
+                break
+            case 'addToGroup':
+            case 'removeFromGroup':
+                addEdited(ev.group, ['nodes'])
+                break
+            case 'reorder':
+                if (ev.workspaces) other.add('tabs reordered')
+                if (ev.nodes) other.add(`nodes reordered on ${ev.nodes.z}`)
+                break
+            case 'replace':
+                if (ev.complete) {
+                    other.add('all flows replaced')
+                } else {
+                    ev.config?.forEach(n => addEdited(n))
+                }
+                break
+            default:
+                other.add(`${ev.t} change`)
+            }
+            // A callback runs code Node-RED cannot describe, such as moving nodes between tabs
+            if (typeof ev.callback === 'function' && !ev.events?.length && !ev.tabMoves) {
+                other.add('change with no details recorded')
+            }
+        }
+        for (const ev of entry.events) {
+            try {
+                collect(ev)
+            } catch (_err) {
+                other.add(`${ev?.t} change`)
+            }
+        }
+
+        const summary = { id: this._undoEntryId(entry), by: entry.request ? 'assistant' : 'user' }
+        if (entry.request?.action) {
+            summary.action = entry.request.action
+        }
+        for (const [key, list] of Object.entries({ ...lists, ...wires })) {
+            const items = Array.isArray(list) ? list : [...list.values()]
+            if (items.length > 0) {
+                summary[key] = items.slice(0, UNDO_ENTRY_MAX_ITEMS)
+                if (items.length > UNDO_ENTRY_MAX_ITEMS) {
+                    summary[`${key}Total`] = items.length
+                }
+            }
+        }
+        if (other.size > 0) summary.other = [...other]
+        return summary
+    }
+
+    /**
+     * List the editor's undo history, newest first
+     * @param {Object} [params]
+     * @param {number} [params.count=10] - maximum number of entries to return
+     * @returns {{entries: Object[], total: number, dirty: boolean}}
+     */
+    getUndoHistory ({ count = 10 } = {}) {
+        const entries = this._undoEntries()
+        const max = Math.min(Math.max(Math.floor(count) || 10, 1), UNDO_HISTORY_MAX_ENTRIES)
+        return {
+            entries: entries.slice(0, max).map(entry => this._summarizeUndoEntry(entry)),
+            total: entries.length,
+            dirty: this.RED.nodes.dirty()
+        }
+    }
+
+    /**
+     * Undo the newest entries of the editor's undo history, the same as pressing undo
+     * @param {Object} [params]
+     * @param {number} [params.steps=1] - number of entries to undo
+     * @param {string} [params.expect] - id of the newest entry; nothing is undone if it differs
+     * @returns {{undone: Object[], dirty: boolean, remaining: number, next: Object|null}}
+     * @throws when there is nothing to undo, the newest entry is not `expect`, or the editor is busy
+     */
+    undo ({ steps = 1, expect } = {}) {
+        this._assertWritePermission()
+        if (this.RED.view.state() !== this.RED.state.DEFAULT) {
+            throw new Error('Cannot undo while a node is being edited or the canvas is busy. Close the edit tray first')
+        }
+        const entries = this._undoEntries()
+        if (entries.length === 0) {
+            throw new Error('There are no changes to undo')
+        }
+        if (expect !== undefined && this._undoEntryId(entries[0]) !== expect) {
+            throw new Error(`The newest change is no longer ${expect}, so nothing was undone. Check the undo history again`)
+        }
+        const toUndo = entries.slice(0, Math.max(Math.floor(steps) || 1, 1))
+        const undone = toUndo.map(entry => this._summarizeUndoEntry(entry))
+        for (const entry of toUndo) {
+            for (let i = 0; i < entry.events.length; i++) {
+                this.RED.history.pop()
+            }
+        }
+        const remaining = this._undoEntries()
+        return {
+            undone,
+            dirty: this.RED.nodes.dirty(),
+            remaining: remaining.length,
+            next: remaining.length > 0 ? this._summarizeUndoEntry(remaining[0]) : null
+        }
     }
 
     /**
@@ -1014,11 +1359,13 @@ export class ExpertAutomations extends ExpertActionsInterface {
         // Use a toggle callback on a multi event — RED.history has no native tab-move
         // event type, and multi is the only built-in type that safely supports callbacks.
         // The callback swaps oldZ/newZ after each invocation so that undo and redo
-        // alternate between moving nodes to their source and target tabs.
+        // alternate between moving nodes to their source and target tabs. tabMoves only
+        // lets the undo history list the moved nodes; Node-RED ignores it.
         this.RED.history.push({
             t: 'multi',
             events: [],
             dirty: wasDirty,
+            tabMoves: moves.map(item => item.node),
             callback: () => {
                 for (const item of moves) {
                     this.RED.nodes.moveNodeToTab(item.node, item.oldZ)
@@ -2832,6 +3179,14 @@ export class ExpertAutomations extends ExpertActionsInterface {
         }
         case GET_DEBUG_MESSAGES:
             result.messages = this.getDebugMessages(params)
+            result.success = true
+            break
+        case GET_UNDO_HISTORY:
+            result.data = this.getUndoHistory(params)
+            result.success = true
+            break
+        case UNDO:
+            result.data = this.undo(params)
             result.success = true
             break
         default:

@@ -1097,6 +1097,41 @@ describeMain('expertComms', function () {
             reply.error.should.be.a.String()
         })
 
+        describe('undo', () => {
+            let events
+            let eventSource
+            beforeEach(() => {
+                events = []
+                mockRED.history = {
+                    list: () => events,
+                    pop: () => events.pop()
+                }
+                mockRED.view.state = sinon.stub().returns(1)
+                mockRED.state = { DEFAULT: 1 }
+                mockRED.user = { hasPermission: sinon.stub().returns(true) }
+                eventSource = { postMessage: sinon.stub() }
+                sinon.stub(expertComms.nrAutomations, 'importFlow').callsFake(() => events.push({ t: 'add' }, { t: 'add' }))
+            })
+            function invoke (action, params) {
+                return expertComms.handleActionInvocation({
+                    event: { source: eventSource, origin: 'http://example.com' },
+                    type: 'invoke-action',
+                    action,
+                    params
+                })
+            }
+
+            it('treats the changes of one action as one entry made by the assistant', async () => {
+                events.push({ t: 'move' })
+                await invoke('custom:import-flow', { flow: '[]' })
+                await invoke('automation/get-undo-history', {})
+                const reply = eventSource.postMessage.lastCall.args[0]
+                reply.data.entries.map(e => e.by).should.eql(['assistant', 'user'])
+                await invoke('automation/undo', {})
+                events.should.have.length(1)
+            })
+        })
+
         it('dismisses onboarding dialogs before dispatching, even for an unknown action', () => {
             const eventSource = { postMessage: sinon.stub() }
             const event = {
