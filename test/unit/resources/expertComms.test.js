@@ -1130,6 +1130,15 @@ describeMain('expertComms', function () {
                 await invoke('automation/undo', {})
                 events.should.have.length(1)
             })
+            it('keeps who made a change when the assistant redoes it', async () => {
+                events.push({ t: 'move' })
+                const before = expertComms.nrAutomations.historySnapshot()
+                events.push({ t: 'add' })
+                expertComms.nrAutomations.recordAssistantChanges(before, 'automation/redo')
+                await invoke('automation/get-undo-history', {})
+                const reply = eventSource.postMessage.lastCall.args[0]
+                reply.data.entries.map(e => e.by).should.eql(['user', 'user'])
+            })
         })
 
         it('dismisses onboarding dialogs before dispatching, even for an unknown action', () => {

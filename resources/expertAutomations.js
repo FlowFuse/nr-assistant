@@ -41,6 +41,7 @@ const TOGGLE_SIDEBAR = 'automation/toggle-sidebar'
 const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
 const UNDO = 'automation/undo'
 const GET_UNDO_HISTORY = 'automation/get-undo-history'
+const REDO = 'automation/redo'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -82,7 +83,7 @@ const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-.
 // community catalogues, which say nothing about vetting.
 const VETTED_CATALOGUE_DOMAINS = ['flowfuse.com', 'flowfuse.cloud']
 
-// Caps on what get-undo-history and undo report, to keep replies small
+// Caps on what get-undo-history, undo and redo report, to keep replies small
 const UNDO_HISTORY_MAX_ENTRIES = 50
 const UNDO_ENTRY_MAX_ITEMS = 20
 
@@ -764,6 +765,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                     }
                 }
             }
+        },
+        [REDO]: {
+            params: {
+                type: 'object',
+                properties: {
+                    steps: {
+                        type: 'number',
+                        default: 1,
+                        description: 'Number of undone entries to redo, most recently undone first. Defaults to 1.'
+                    },
+                    expect: {
+                        type: 'string',
+                        description: 'Optional. The id of the first entry in redo as listed by get-undo-history. Nothing is redone if the first entry is now a different one.'
+                    }
+                }
+            }
         }
     })
 
@@ -875,6 +892,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {string} action - the action the request invoked
      */
     recordAssistantChanges (before, action) {
+        // Redone events are changes made before, and keep who made them
+        if (action === REDO) {
+            return
+        }
         const events = this.RED?.history?.list?.() || []
         const request = { action }
         for (const event of events) {
@@ -887,10 +908,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
     /**
      * The editor's undo history as entries, newest first. Each event the user made is an entry of
      * its own, and the events of one assistant request together make one entry.
+     * @param {Object[]} [events] - the history events, oldest first. Defaults to the undo history
      * @returns {{request: Object|undefined, events: Object[]}[]} each entry's events, newest first
      */
-    _undoEntries () {
-        const events = this.RED.history.list()
+    _undoEntries (events = this.RED.history.list()) {
         const entries = []
         for (let i = events.length - 1; i >= 0; i--) {
             const request = this.assistantChanges.get(events[i])
@@ -936,10 +957,21 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
+     * The entries that can be redone, the next one to redo first
+     */
+    _redoEntries () {
+        return this._undoEntries(this.RED.history.listRedo?.() || [])
+    }
+
+    /**
      * Describe what undoing an entry would revert. Must run before the entry is undone, while
      * the nodes it added can still be looked up by id.
+     * @param {Object} entry - an entry from _undoEntries or _redoEntries
+     * @param {Object} [options]
+     * @param {boolean} [options.redo] - the entry is from the redo history. Its events record how
+     * to redo the change, the reverse of it, so the description is turned back around.
      */
-    _summarizeUndoEntry (entry) {
+    _summarizeUndoEntry (entry, { redo = false } = {}) {
         const lists = { added: new Map(), removed: new Map(), moved: new Map(), edited: new Map() }
         const wires = { wiresAdded: [], wiresRemoved: [] }
         const other = new Set()
@@ -1069,22 +1101,55 @@ export class ExpertAutomations extends ExpertActionsInterface {
             }
         }
         if (other.size > 0) summary.other = [...other]
-        return summary
+        return redo ? this._reverseSummary(summary) : summary
+    }
+
+    _reverseSummary (summary) {
+        const opposite = {
+            added: 'removed',
+            removed: 'added',
+            wiresAdded: 'wiresRemoved',
+            wiresRemoved: 'wiresAdded',
+            'nodes moved into a new subflow': 'nodes moved out of a subflow',
+            'nodes moved out of a subflow': 'nodes moved into a new subflow'
+        }
+        const reversed = {}
+        for (const [key, value] of Object.entries(summary)) {
+            const total = key.endsWith('Total') && key.slice(0, -'Total'.length)
+            if (total && opposite[total]) {
+                reversed[`${opposite[total]}Total`] = value
+            } else if (key === 'other') {
+                reversed.other = value.map(text => opposite[text] || text)
+            } else {
+                reversed[opposite[key] || key] = value
+            }
+        }
+        return reversed
     }
 
     /**
      * List the editor's undo history, newest first
      * @param {Object} [params]
      * @param {number} [params.count=10] - maximum number of entries to return
-     * @returns {{entries: Object[], total: number, dirty: boolean}}
+     * @returns {{entries: Object[], total: number, redo: Object[], redoTotal: number, dirty: boolean}}
      */
     getUndoHistory ({ count = 10 } = {}) {
         const entries = this._undoEntries()
+        const redoEntries = this._redoEntries()
         const max = Math.min(Math.max(Math.floor(count) || 10, 1), UNDO_HISTORY_MAX_ENTRIES)
         return {
             entries: entries.slice(0, max).map(entry => this._summarizeUndoEntry(entry)),
             total: entries.length,
+            redo: redoEntries.slice(0, max).map(entry => this._summarizeUndoEntry(entry, { redo: true })),
+            redoTotal: redoEntries.length,
             dirty: this.RED.nodes.dirty()
+        }
+    }
+
+    _assertCanChangeHistory () {
+        this._assertWritePermission()
+        if (this.RED.view.state() !== this.RED.state.DEFAULT) {
+            throw new Error('Cannot undo or redo while a node is being edited or the canvas is busy. Close the edit tray first')
         }
     }
 
@@ -1093,14 +1158,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
      * @param {Object} [params]
      * @param {number} [params.steps=1] - number of entries to undo
      * @param {string} [params.expect] - id of the newest entry; nothing is undone if it differs
-     * @returns {{undone: Object[], dirty: boolean, remaining: number, next: Object|null}}
+     * @returns {{undone: Object[], dirty: boolean, remaining: number, next: Object|null, redoable: number}}
      * @throws when there is nothing to undo, the newest entry is not `expect`, or the editor is busy
      */
     undo ({ steps = 1, expect } = {}) {
-        this._assertWritePermission()
-        if (this.RED.view.state() !== this.RED.state.DEFAULT) {
-            throw new Error('Cannot undo while a node is being edited or the canvas is busy. Close the edit tray first')
-        }
+        this._assertCanChangeHistory()
         const entries = this._undoEntries()
         if (entries.length === 0) {
             throw new Error('There are no changes to undo')
@@ -1120,7 +1182,50 @@ export class ExpertAutomations extends ExpertActionsInterface {
             undone,
             dirty: this.RED.nodes.dirty(),
             remaining: remaining.length,
-            next: remaining.length > 0 ? this._summarizeUndoEntry(remaining[0]) : null
+            next: remaining.length > 0 ? this._summarizeUndoEntry(remaining[0]) : null,
+            redoable: this._redoEntries().length
+        }
+    }
+
+    /**
+     * Redo the entries undone most recently, the same as pressing redo
+     * @param {Object} [params]
+     * @param {number} [params.steps=1] - number of entries to redo
+     * @param {string} [params.expect] - id of the first entry to redo; nothing is redone if it differs
+     * @returns {{redone: Object[], dirty: boolean, remaining: number, next: Object|null}}
+     * @throws when there is nothing to redo, the first entry is not `expect`, or the editor is busy
+     */
+    redo ({ steps = 1, expect } = {}) {
+        this._assertCanChangeHistory()
+        const entries = this._redoEntries()
+        if (entries.length === 0) {
+            throw new Error('There are no undone changes to redo')
+        }
+        if (expect !== undefined && this._undoEntryId(entries[0]) !== expect) {
+            throw new Error(`The next change to redo is no longer ${expect}, so nothing was redone. Check the undo history again`)
+        }
+        const toRedo = entries.slice(0, Math.max(Math.floor(steps) || 1, 1))
+        const depth = this.RED.history.list().length
+        for (const entry of toRedo) {
+            for (let i = 0; i < entry.events.length; i++) {
+                this.RED.history.redo()
+            }
+        }
+        // Redoing replaces each event with a new one, so describe the entries as they are now in
+        // the undo history, with the ids an undo would expect
+        let redoneEvents = this.RED.history.list().length - depth
+        const redone = []
+        for (const entry of this._undoEntries()) {
+            if (redoneEvents <= 0) break
+            redone.push(this._summarizeUndoEntry(entry))
+            redoneEvents -= entry.events.length
+        }
+        const remaining = this._redoEntries()
+        return {
+            redone,
+            dirty: this.RED.nodes.dirty(),
+            remaining: remaining.length,
+            next: remaining.length > 0 ? this._summarizeUndoEntry(remaining[0], { redo: true }) : null
         }
     }
 
@@ -3187,6 +3292,10 @@ export class ExpertAutomations extends ExpertActionsInterface {
             break
         case UNDO:
             result.data = this.undo(params)
+            result.success = true
+            break
+        case REDO:
+            result.data = this.redo(params)
             result.success = true
             break
         default:

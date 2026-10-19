@@ -129,7 +129,8 @@ describeMain('expertAutomations', () => {
                 'automation/toggle-sidebar',
                 'automation/get-debug-messages',
                 'automation/undo',
-                'automation/get-undo-history'
+                'automation/get-undo-history',
+                'automation/redo'
             ]
             supportedActions.should.only.have.keys(...expectedKeys)
         })
@@ -4927,6 +4928,97 @@ describeMain('expertAutomations', () => {
                 mockRED.history.redo()
                 mockRED.history.redo()
                 expertAutomations.getUndoHistory().entries.map(e => e.by).should.eql(['assistant', 'user'])
+            })
+        })
+
+        describe('redo action', () => {
+            let events
+            let redoEvents
+            let redo
+            beforeEach(() => {
+                events = []
+                redoEvents = []
+                // like Node-RED, undoing or redoing an event records its reverse as a new event
+                const reverse = ev => ev.t === 'add'
+                    ? { t: 'delete', nodes: ev.nodes.map(id => ({ id, type: 'inject', z: 't1' })) }
+                    : { t: 'add', nodes: ev.nodes.map(n => n.id) }
+                mockRED.history = {
+                    list: () => events,
+                    listRedo: () => redoEvents,
+                    push: ev => { events.push(ev); redoEvents.length = 0 },
+                    pop: () => redoEvents.push(reverse(events.pop())),
+                    redo: () => events.push(reverse(redoEvents.pop()))
+                }
+                redo = sinon.spy(mockRED.history, 'redo')
+                mockRED.actions = { get: () => { throw new Error('not registered') } }
+                mockRED.nodes.dirty.returns(true)
+                mockRED.nodes.node.callsFake(id => ({ id, type: 'inject', z: 't1' }))
+                expertAutomations.init(mockExpertComms, mockRED)
+            })
+            function assistantRequest (...pushed) {
+                const before = expertAutomations.historySnapshot()
+                pushed.forEach(ev => mockRED.history.push(ev))
+                expertAutomations.recordAssistantChanges(before, 'automation/add-nodes')
+            }
+
+            it('lists undone entries as the change redoing them makes', async () => {
+                assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', nodes: ['n2'] })
+                mockRED.history.push({ t: 'delete', nodes: [{ id: 'n3', type: 'debug', z: 't1' }] })
+                const undone = expertAutomations.undo({ steps: 2 })
+                undone.should.have.property('redoable', 2)
+                const history = expertAutomations.getUndoHistory()
+                history.should.have.properties({ total: 0, redoTotal: 2 })
+                const [addition, removal] = history.redo
+                removal.should.have.properties({ by: 'user', removed: [{ id: 'n3', type: 'inject', z: 't1' }] })
+                addition.should.have.properties({ by: 'assistant', action: 'automation/add-nodes' })
+                addition.added.map(n => n.id).should.eql(['n1', 'n2'])
+            })
+            it('redoes a whole assistant request with the ids an undo would expect', async () => {
+                assistantRequest({ t: 'add', nodes: ['n1'] }, { t: 'add', nodes: ['n2'] })
+                mockRED.history.push({ t: 'add', nodes: ['n0'] })
+                expertAutomations.undo({ steps: 2 })
+                const { id } = expertAutomations.getUndoHistory().redo[0]
+                const result = {}
+                await expertAutomations.invokeAction('automation/redo', { params: { expect: id } }, result)
+                redo.callCount.should.equal(2)
+                result.should.have.property('success', true)
+                result.data.redone.should.have.length(1)
+                result.data.redone[0].should.have.properties({ by: 'assistant', action: 'automation/add-nodes' })
+                result.data.redone[0].added.map(n => n.id).should.eql(['n2', 'n1'])
+                result.data.redone[0].id.should.equal(expertAutomations.getUndoHistory().entries[0].id)
+                result.data.should.have.properties({ dirty: true, remaining: 1 })
+                result.data.next.should.have.properties({ by: 'user', added: [{ id: 'n0', type: 'inject', z: 't1' }] })
+            })
+            it('redoes several steps at once', async () => {
+                mockRED.history.push({ t: 'add', nodes: ['n0'] })
+                assistantRequest({ t: 'add', nodes: ['n1'] })
+                expertAutomations.undo({ steps: 2 })
+                const result = expertAutomations.redo({ steps: 5 })
+                result.redone.map(e => e.by).should.eql(['assistant', 'user'])
+                result.should.have.properties({ remaining: 0, next: null })
+                events.should.have.length(2)
+            })
+            it('redoes nothing when the first entry is not the expected one', async () => {
+                mockRED.history.push({ t: 'add', nodes: ['n0'] })
+                mockRED.history.push({ t: 'add', nodes: ['n1'] })
+                expertAutomations.undo()
+                const { id } = expertAutomations.getUndoHistory().redo[0]
+                expertAutomations.undo()
+                should.throws(() => expertAutomations.redo({ expect: id }), /no longer/)
+                redo.called.should.be.false()
+            })
+            it('fails when there is nothing to redo', async () => {
+                mockRED.history.push({ t: 'add', nodes: ['n0'] })
+                expertAutomations.undo()
+                mockRED.history.push({ t: 'add', nodes: ['n1'] })
+                await should(expertAutomations.invokeAction('automation/redo', { params: {} }, {})).rejectedWith(/no undone changes to redo/)
+            })
+            it('fails while a node is being edited', async () => {
+                mockRED.history.push({ t: 'add', nodes: ['n0'] })
+                expertAutomations.undo()
+                mockRED.view.state.returns(2)
+                should.throws(() => expertAutomations.redo(), /Close the edit tray/)
+                redo.called.should.be.false()
             })
         })
 
