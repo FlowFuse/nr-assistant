@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## [0.21.0](https://github.com/FlowFuse/nr-assistant/compare/v0.20.0...v0.21.0) (2026-10-20)
+
+
+### Features
+
+* add editor actions and menu entry for laying out flows ([#434](https://github.com/FlowFuse/nr-assistant/issues/434)) ([04fef7b](https://github.com/FlowFuse/nr-assistant/commit/04fef7b4833bc1068bc75cf1f3a02015d3c0cd92))
+* add inject-message action for testing deployed flows ([#441](https://github.com/FlowFuse/nr-assistant/issues/441)) ([f71c55f](https://github.com/FlowFuse/nr-assistant/commit/f71c55fa69c980da41ede2dfd7359928f9c3be86))
+* add layout-nodes action to arrange nodes with dagre ([#433](https://github.com/FlowFuse/nr-assistant/issues/433)) ([dc3faf8](https://github.com/FlowFuse/nr-assistant/commit/dc3faf880387b09d154ed5b8b2ae89817a09328e))
+* add redo action for undone changes ([#440](https://github.com/FlowFuse/nr-assistant/issues/440)) ([6c9fbd9](https://github.com/FlowFuse/nr-assistant/commit/6c9fbd979c2588c6304300dd4f4707f8814515e0))
+* add undo action for changes made through the assistant ([#438](https://github.com/FlowFuse/nr-assistant/issues/438)) ([de95ad7](https://github.com/FlowFuse/nr-assistant/commit/de95ad76b289e130af2b7220036b89f95ed61211))
+* support vue-sfc language in ui-template editor ([#426](https://github.com/FlowFuse/nr-assistant/issues/426)) ([7515f07](https://github.com/FlowFuse/nr-assistant/commit/7515f07db9a81a08322ecb27b83cb91e7a8e3ac6))
+
+
+### Bug Fixes
+
+* resolve junctions by id in group, select and align actions ([#430](https://github.com/FlowFuse/nr-assistant/issues/430)) ([49f6f74](https://github.com/FlowFuse/nr-assistant/commit/49f6f74775947c8e703888c0a53cf9c0744077ac))
+* send the catalogue version when installing a module ([#429](https://github.com/FlowFuse/nr-assistant/issues/429)) ([1422069](https://github.com/FlowFuse/nr-assistant/commit/1422069921289c79790e7a53df0dadfdd65b76ef))
+
 ## [0.20.0](https://github.com/FlowFuse/nr-assistant/compare/v0.19.0...v0.20.0) (2026-09-18)
 
 
