@@ -244,6 +244,7 @@ describe('assistant', () => {
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/fim/:nodeModule/:nodeType')
         RED.httpAdmin._getEndpoints.should.have.property('/nr-assistant/mcp/prompts')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/mcp/prompts/:promptId')
+        RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/inject')
         RED.httpAdmin._postEndpoints.should.have.property('/nr-assistant/:method')
     })
 
@@ -369,5 +370,94 @@ describe('assistant', () => {
         RED.comms.publish.calledTwice.should.be.true()
         RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
         RED.comms.publish.secondCall.args[0].should.equal('nr-assistant/mcp/ready')
+    })
+
+    describe('inject endpoint', () => {
+        let node
+        let res
+        beforeEach(async () => {
+            const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
+            await assistant.init(RED, options)
+            node = { id: 'node-1', type: 'function', name: 'double payload', z: 'tab-1', receive: sinon.stub() }
+            RED.nodes = { getNode: sinon.stub().callsFake(id => id === 'node-1' ? node : null) }
+            RED.util = {
+                generateId: sinon.stub().returns('new-msg-id'),
+                evaluateEnvProperty: sinon.stub().callsFake((name, n) => name === 'NR_FLOW_NAME' && n === node ? 'API' : undefined)
+            }
+            RED.log.audit = sinon.stub()
+            sinon.stub(assistant, 'getAutoDeployPolicy').resolves(true)
+            res = {
+                status: sinon.stub().returnsThis(),
+                json: sinon.stub().returnsThis(),
+                send: sinon.stub().returnsThis()
+            }
+        })
+        afterEach(() => {
+            delete RED.nodes
+            delete RED.util
+            delete RED.log.audit
+        })
+
+        it('injects the msg into the deployed node with a new _msgid', async () => {
+            await assistant.handlePostInjectRequest({ body: { id: 'node-1', msg: { payload: 'hello', _msgid: 'caller-id' } } }, res)
+            node.receive.calledOnce.should.be.true()
+            node.receive.firstCall.args[0].should.eql({ payload: 'hello', _msgid: 'new-msg-id' })
+            res.json.calledWith({ status: 'ok', injected: true, msgid: 'new-msg-id' }).should.be.true()
+            RED.log.audit.calledOnce.should.be.true()
+        })
+        it('audits the target node and a value-free summary of the msg', async () => {
+            const req = { body: { id: 'node-1', msg: { payload: 21, topic: 'sensors/line1' } } }
+            await assistant.handlePostInjectRequest(req, res)
+            const [entry, auditReq] = RED.log.audit.firstCall.args
+            entry.should.eql({
+                event: 'nr-assistant.inject',
+                node: 'node-1',
+                type: 'function',
+                name: 'double payload',
+                z: 'tab-1',
+                flowName: 'API',
+                msgid: 'new-msg-id',
+                msgSummary: {
+                    properties: { payload: 'number', topic: 'string' },
+                    topic: 'sensors/line1',
+                    size: Buffer.byteLength(JSON.stringify({ payload: 21, topic: 'sensors/line1', _msgid: 'new-msg-id' }))
+                }
+            })
+            auditReq.should.equal(req)
+        })
+        it('audits without a flow name when the flow has no label', async () => {
+            RED.util.evaluateEnvProperty = sinon.stub()
+            await assistant.handlePostInjectRequest({ body: { id: 'node-1' } }, res)
+            const [entry] = RED.log.audit.firstCall.args
+            entry.z.should.equal('tab-1')
+            should.not.exist(entry.flowName)
+        })
+        it('injects an empty msg when none is provided', async () => {
+            await assistant.handlePostInjectRequest({ body: { id: 'node-1' } }, res)
+            node.receive.firstCall.args[0].should.eql({ _msgid: 'new-msg-id' })
+        })
+        it('does not inject when the team has not enabled agent-initiated deploy', async () => {
+            assistant.getAutoDeployPolicy.resolves(false)
+            await assistant.handlePostInjectRequest({ body: { id: 'node-1', msg: {} } }, res)
+            node.receive.called.should.be.false()
+            res.json.calledWith({ status: 'ok', injected: false, code: 'INJECT_NOT_ALLOWED' }).should.be.true()
+        })
+        it('returns 404 when the node is not in the deployed flows', async () => {
+            await assistant.handlePostInjectRequest({ body: { id: 'missing', msg: {} } }, res)
+            res.status.calledWith(404).should.be.true()
+        })
+        it('returns 400 when id is missing', async () => {
+            await assistant.handlePostInjectRequest({ body: { msg: {} } }, res)
+            res.status.calledWith(400).should.be.true()
+            assistant.getAutoDeployPolicy.called.should.be.false()
+        })
+        it('returns 400 when msg is not an object', async () => {
+            for (const msg of ['text', [1, 2], null]) {
+                res.status.resetHistory()
+                await assistant.handlePostInjectRequest({ body: { id: 'node-1', msg } }, res)
+                res.status.calledWith(400).should.be.true()
+            }
+            node.receive.called.should.be.false()
+        })
     })
 })

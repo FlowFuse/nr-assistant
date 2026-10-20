@@ -42,6 +42,7 @@ const GET_DEBUG_MESSAGES = 'automation/get-debug-messages'
 const UNDO = 'automation/undo'
 const GET_HISTORY = 'automation/get-history'
 const REDO = 'automation/redo'
+const INJECT_MESSAGE = 'automation/inject-message'
 
 const ALIGNMENT_DIRECTIONS = ['grid', 'left', 'right', 'top', 'bottom', 'middle', 'center']
 const DISTRIBUTE_DIRECTIONS = ['horizontally', 'vertically']
@@ -64,7 +65,8 @@ const RESULT_CODES = Object.freeze({
     NO_UNDEPLOYED_CHANGES: 'NO_UNDEPLOYED_CHANGES',
     AUTO_DEPLOY_DISABLED: 'AUTO_DEPLOY_DISABLED',
     DEPLOY_NOT_CONFIRMED: 'DEPLOY_NOT_CONFIRMED',
-    INSTALL_STARTED: 'INSTALL_STARTED'
+    INSTALL_STARTED: 'INSTALL_STARTED',
+    INJECT_NOT_ALLOWED: 'INJECT_NOT_ALLOWED'
 })
 
 const LINK_NODE_TYPES = ['link in', 'link out', 'link call']
@@ -141,7 +143,8 @@ const DEPLOY_WAIT_TIMEOUT_MS = 10000
  *   |TOGGLE_SIDEBAR
  *   |GET_DEBUG_MESSAGES
  *   |UNDO
- *   |GET_HISTORY} ExpertAutomationsActionsEnum
+ *   |GET_HISTORY
+ *   |INJECT_MESSAGE} ExpertAutomationsActionsEnum
  */
 
 export class ExpertAutomations extends ExpertActionsInterface {
@@ -780,6 +783,22 @@ export class ExpertAutomations extends ExpertActionsInterface {
                         description: 'Optional. The id of the first entry in redo as listed by get-history. Nothing is redone if the first entry is now a different one.'
                     }
                 }
+            }
+        },
+        [INJECT_MESSAGE]: {
+            params: {
+                type: 'object',
+                properties: {
+                    id: {
+                        type: 'string',
+                        description: 'The ID of the deployed node to inject the message into. The node must have an input port and no undeployed changes.'
+                    },
+                    msg: {
+                        type: 'object',
+                        description: 'The message to inject, e.g. { "payload": "hello", "topic": "test" }. Defaults to {}. A new _msgid is always assigned.'
+                    }
+                },
+                required: ['id']
             }
         }
     })
@@ -1934,6 +1953,35 @@ export class ExpertAutomations extends ExpertActionsInterface {
      */
     _resolveNode (id) {
         return this.RED.nodes.node(id) || this.RED.nodes.junction(id)
+    }
+
+    /**
+     * Check a node can receive an injected message, using what only the editor knows (input ports,
+     * disabled state, undeployed changes). The runtime confirms the node is actually deployed.
+     * @param {string} id - the node id
+     * @returns {string|null} an error message, or null if the node is a valid inject target
+     */
+    _getInjectTargetError (id) {
+        const node = this._resolveNode(id)
+        if (!node) {
+            return `Node ${id} not found`
+        }
+        if (this.RED.nodes.subflow?.(node.z)) {
+            // the runtime instantiates subflow internals under generated ids, one set per instance
+            return `Node ${id} is inside a subflow definition - inject into the subflow instance instead`
+        }
+        const inputs = node.inputs ?? node._def?.inputs ?? 0
+        if (!inputs) {
+            return `Node ${id} (${node.type}) has no input port`
+        }
+        if (node.d || this.RED.nodes.workspace(node.z)?.disabled) {
+            return `Node ${id} is disabled so is not running`
+        }
+        if (node.changed) {
+            // the runtime still has the last deployed version of this node (or none at all)
+            return `Node ${id} has undeployed changes - deploy first, then inject`
+        }
+        return null
     }
 
     closeSearch () { this.RED.search.hide() }
@@ -3299,6 +3347,38 @@ export class ExpertAutomations extends ExpertActionsInterface {
             result.data = this.redo(params)
             result.success = true
             break
+        case INJECT_MESSAGE: {
+            const targetError = this._getInjectTargetError(params.id)
+            if (targetError) {
+                result.success = false
+                result.error = targetError
+                break
+            }
+            // The runtime is the enforcement point: it re-checks the team's agent deploy opt-in on
+            // every call, so the editor does not need to (and cannot be relied upon to) gate this.
+            let response
+            try {
+                response = await $.ajax({
+                    url: 'nr-assistant/inject',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ id: params.id, msg: params.msg || {} }),
+                    headers: { Accept: 'application/json' }
+                })
+            } catch (err) {
+                result.success = false
+                result.error = err?.responseJSON?.message || err?.message || 'Inject request failed'
+                break
+            }
+            result.success = true
+            result.injected = !!response?.injected
+            if (result.injected) {
+                result.msgid = response.msgid
+            } else {
+                result.code = response?.code || RESULT_CODES.INJECT_NOT_ALLOWED
+            }
+            break
+        }
         default:
             result.handled = false
             result.success = false
