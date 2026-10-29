@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [0.21.1](https://github.com/FlowFuse/nr-assistant/compare/v0.21.0...v0.21.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* Load got as ESM and accept Uint8Array model data ([#462](https://github.com/FlowFuse/nr-assistant/issues/462)) ([d6fd261](https://github.com/FlowFuse/nr-assistant/commit/d6fd2617006af684f3f29be71430bf04c1a8457e))
+* Remove invalid computed key from predict_next schema ([#456](https://github.com/FlowFuse/nr-assistant/issues/456)) ([8c66253](https://github.com/FlowFuse/nr-assistant/commit/8c66253a777666c09b9d22a11ad4c365dc9cae6a))
+
 ## [0.21.0](https://github.com/FlowFuse/nr-assistant/compare/v0.20.0...v0.21.0) (2026-10-20)
 
 
