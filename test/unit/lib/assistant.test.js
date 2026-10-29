@@ -249,7 +249,7 @@ describe('assistant', () => {
     })
 
     it('should initialize with inlineCompletionsEnabled', async () => {
-        const options = { ...RED.settings.flowforge.assistant }
+        const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
         options.completions.inlineEnabled = true
         await assistant.init(RED, options)
         RED.comms.publish.called.should.be.true()
