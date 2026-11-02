@@ -66,6 +66,23 @@ describe('got integration', () => {
         assistant.got.post.should.be.a.Function()
     })
 
+    it('loads got with retries disabled', () => {
+        assistant.got.defaults.options.retry.limit.should.equal(0)
+    })
+
+    it('rejects without an uncaught error when the server cannot be reached', async () => {
+        // find a port nothing is listening on
+        const closed = http.createServer()
+        await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve))
+        const port = closed.address().port
+        await new Promise(resolve => closed.close(resolve))
+
+        const error = await assistant.got(`http://127.0.0.1:${port}/settings`, { timeout: { request: 2000 } }).then(() => null, e => e)
+        should(error).be.ok()
+        // give a got retry timer the chance to fire, which would throw an uncaught error
+        await new Promise(resolve => setTimeout(resolve, 1500))
+    }).timeout(5000)
+
     it('loads the completions vocabulary as parsed JSON', async () => {
         await assistant._loadCompletionsLabels(`${baseUrl}/vocabulary.json`)
         assistant.labeller.should.be.ok()
