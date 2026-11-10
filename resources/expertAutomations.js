@@ -77,9 +77,10 @@ const FLOWFUSE_NODES_SCOPE = '@flowfuse-nodes/'
 const CERTIFIED_NODES_SCOPE = '@flowfuse-certified-nodes/'
 const INSTALLABLE_SCOPES = [FLOWFUSE_SCOPE, FLOWFUSE_NODES_SCOPE, CERTIFIED_NODES_SCOPE]
 
-// Loose but standards-compliant npm package name check (unscoped or @scope/name).
+// Loose but standards-compliant npm package name check (unscoped or @scope/name). The scope allows
+// upper case because team library scopes embed the mixed-case team hashid ('@flowfuse-<teamId>/').
 const CATALOGUE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
-const NPM_PACKAGE_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+const NPM_PACKAGE_NAME_RE = /^(?:@[A-Za-z0-9-~][A-Za-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 
 // Only catalogues on these domains count as FlowFuse-vetted; the configured list also carries
 // community catalogues, which say nothing about vetting.
@@ -1664,22 +1665,49 @@ export class ExpertAutomations extends ExpertActionsInterface {
     }
 
     /**
-     * Whether a package is listed in one of the instance's FlowFuse-vetted catalogues
-     * (RED.settings.theme('palette.catalogues'), filtered by isVettedCatalogueUrl).
+     * The scope of this instance's own team library packages ('@flowfuse-<teamId>/'), from the
+     * team id the runtime publishes - never from the caller.
+     * @returns {string|null}
+     */
+    getTeamLibraryScope () {
+        const teamId = this.expertComms?.assistantOptions?.teamLibrary?.teamId
+        return typeof teamId === 'string' && teamId ? `@flowfuse-${teamId}/` : null
+    }
+
+    // The team catalogue the platform injects alongside the npmrc entry that routes the team scope
+    // to the FlowFuse registry, matched by its path for the instance's own team. Its origin is the
+    // platform's public URL, which the runtime does not know (forgeURL can be an internal address).
+    isTeamCatalogueUrl (url) {
+        const teamId = this.expertComms?.assistantOptions?.teamLibrary?.teamId
+        if (!teamId) return false
+        try {
+            const { protocol, pathname } = new URL(url)
+            if (protocol !== 'https:' && protocol !== 'http:') return false
+            return pathname === `/api/v1/teams/${teamId}/npm/catalogue`
+        } catch (_err) {
+            return false
+        }
+    }
+
+    /**
+     * Whether a package is listed in one of the instance's trusted catalogues
+     * (RED.settings.theme('palette.catalogues'), filtered by isTrustedUrl - the FlowFuse-vetted
+     * domains by default).
      * No session credential leaks to the catalogue host: the editor's $.ajaxSetup beforeSend
-     * only attaches Authorization to non-absolute URLs, and catalogue entries are full https
+     * only attaches Authorization to non-absolute URLs, and catalogue entries are full
      * URLs - the same request shape core's palette manager uses.
      * @param {string} module - the package name to look up
+     * @param {(url: string) => boolean} [isTrustedUrl] - which catalogues count
      * @returns {Promise<{entitled: boolean, lookupFailed: boolean, version: (string|undefined)}>}
-     * lookupFailed marks a vetted catalogue that could not be loaded, so "not entitled" may be
+     * lookupFailed marks a trusted catalogue that could not be loaded, so "not entitled" may be
      * transient rather than a miss. version is the catalogue entry's version, when it is a plain semver.
      */
-    async isModuleEntitled (module) {
+    async isModuleEntitled (module, isTrustedUrl = url => this.isVettedCatalogueUrl(url)) {
         const catalogues = this.RED.settings.theme('palette.catalogues') || []
         let lookupFailed = false
         if (Array.isArray(catalogues)) {
             for (const url of catalogues) {
-                if (!this.isVettedCatalogueUrl(url)) continue
+                if (!isTrustedUrl(url)) continue
                 try {
                     const catalogue = await $.ajax({
                         url,
@@ -3094,8 +3122,11 @@ export class ExpertAutomations extends ExpertActionsInterface {
                 result.success = false
                 break
             }
-            if (!INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
-                result.error = `"${module}" is not in an installable scope - only ${INSTALLABLE_SCOPES.map(s => `'${s}'`).join(', ')} packages can be installed`
+            const teamLibraryScope = this.getTeamLibraryScope()
+            const isTeamLibraryModule = !!teamLibraryScope && module.startsWith(teamLibraryScope)
+            if (!isTeamLibraryModule && !INSTALLABLE_SCOPES.some(scope => module.startsWith(scope))) {
+                const scopes = teamLibraryScope ? [...INSTALLABLE_SCOPES, teamLibraryScope] : INSTALLABLE_SCOPES
+                result.error = `"${module}" is not in an installable scope - only ${scopes.map(s => `'${s}'`).join(', ')} packages can be installed`
                 result.errorCode = ERROR_CODES.MODULE_NOT_ALLOWED
                 result.success = false
                 break
@@ -3113,7 +3144,12 @@ export class ExpertAutomations extends ExpertActionsInterface {
             // listed in one of the instance's FlowFuse catalogues. The catalogue entry also
             // supplies the version to pin, as the palette manager does. A '@flowfuse/' package
             // missing from the catalogues installs without one.
-            const { entitled, lookupFailed, version } = await this.isModuleEntitled(module)
+            // A team library package must be listed in the team's own catalogue: the platform only
+            // injects it together with the npmrc entry that routes the team scope to the FlowFuse
+            // registry, so a listing guarantees npm does not resolve the scope on the public registry.
+            const { entitled, lookupFailed, version } = isTeamLibraryModule
+                ? await this.isModuleEntitled(module, url => this.isTeamCatalogueUrl(url))
+                : await this.isModuleEntitled(module)
             if (!entitled && !module.startsWith(FLOWFUSE_SCOPE)) {
                 if (lookupFailed) {
                     result.error = `Could not check "${module}" against this instance's FlowFuse catalogues - a catalogue failed to load, try again`
