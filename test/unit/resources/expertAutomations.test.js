@@ -3726,6 +3726,120 @@ describeMain('expertAutomations', () => {
                 const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
                 JSON.parse(installCall.args[0].data).should.deepEqual({ module: '@flowfuse/node-red-dashboard' })
             })
+
+            describe('team library packages', () => {
+                const TEAM_ID = 'aBc123XyZ'
+                const TEAM_MODULE = `@flowfuse-${TEAM_ID}/my-subflow`
+                const TEAM_CATALOGUE = `https://app.example.com/api/v1/teams/${TEAM_ID}/npm/catalogue?instance=0f6b5c5e-1111-2222-3333-444455556666`
+                beforeEach(() => {
+                    mockExpertComms.assistantOptions = { teamLibrary: { teamId: TEAM_ID } }
+                })
+
+                it('should POST the install, pinned to the catalogue version, for an own-team package listed in the team catalogue', async () => {
+                    mockRED.settings.theme = sinon.stub().returns(['https://catalogue.nodered.org/catalogue.json', TEAM_CATALOGUE])
+                    mockAjax.withArgs(sinon.match({ url: TEAM_CATALOGUE })).resolves({
+                        modules: [{ id: TEAM_MODULE, version: '0.2.0' }]
+                    })
+                    mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', true)
+                    result.should.have.property('code', 'INSTALL_STARTED')
+                    const installCall = mockAjax.getCalls().find(c => c.args[0].url === 'nodes')
+                    JSON.parse(installCall.args[0].data).should.deepEqual({ module: TEAM_MODULE, version: '0.2.0' })
+                    mockAjax.calledWith(sinon.match({ url: 'https://catalogue.nodered.org/catalogue.json' })).should.be.false()
+                })
+
+                it('should accept a team catalogue on a self-hosted http platform', async () => {
+                    const localCatalogue = `http://localhost:3000/api/v1/teams/${TEAM_ID}/npm/catalogue?device=dev123`
+                    mockRED.settings.theme = sinon.stub().returns([localCatalogue])
+                    mockAjax.withArgs(sinon.match({ url: localCatalogue })).resolves({ modules: [{ id: TEAM_MODULE }] })
+                    mockAjax.withArgs(sinon.match({ url: 'nodes' })).resolves({})
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', true)
+                })
+
+                it('should respond not-entitled when the team catalogue does not list the package', async () => {
+                    mockRED.settings.theme = sinon.stub().returns([TEAM_CATALOGUE])
+                    mockAjax.withArgs(sinon.match({ url: TEAM_CATALOGUE })).resolves({ modules: [{ id: `@flowfuse-${TEAM_ID}/other` }] })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                    mockAjax.calledWith(sinon.match({ url: 'nodes' })).should.be.false()
+                })
+
+                it('should respond not-entitled when the instance has no team catalogue (team npm disabled)', async () => {
+                    mockRED.settings.theme = sinon.stub().returns(['https://catalogue.nodered.org/catalogue.json'])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                    mockAjax.called.should.be.false()
+                })
+
+                it('should report the catalogue as unavailable when the team catalogue fails to load', async () => {
+                    mockRED.settings.theme = sinon.stub().returns([TEAM_CATALOGUE])
+                    mockAjax.withArgs(sinon.match({ url: TEAM_CATALOGUE })).rejects(new Error('Unauthorized'))
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'CATALOGUE_UNAVAILABLE')
+                    mockAjax.calledWith(sinon.match({ url: 'nodes' })).should.be.false()
+                })
+
+                it('should only trust the catalogue for its own team, not one listing the package under another path', async () => {
+                    mockRED.settings.theme = sinon.stub().returns([
+                        'https://app.example.com/api/v1/teams/otherTeam/npm/catalogue?instance=x',
+                        `https://app.example.com/api/v1/teams/${TEAM_ID}/npm/catalogue/extra`,
+                        `ftp://app.example.com/api/v1/teams/${TEAM_ID}/npm/catalogue`,
+                        'https://ff-certified-nodes.flowfuse.cloud/catalogue.json'
+                    ])
+                    mockAjax.resolves({ modules: [{ id: TEAM_MODULE }] })
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'MODULE_NOT_ENTITLED')
+                    mockAjax.called.should.be.false()
+                })
+
+                it('should reject another team\'s scope without checking catalogues', async () => {
+                    mockRED.settings.theme = sinon.stub().returns([TEAM_CATALOGUE])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: '@flowfuse-otherTeam/my-subflow' }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'MODULE_NOT_ALLOWED')
+                    result.error.should.containEql(`'@flowfuse-${TEAM_ID}/'`)
+                    mockAjax.called.should.be.false()
+                })
+
+                it('should reject a team scope package when the runtime publishes no team', async () => {
+                    mockExpertComms.assistantOptions = {}
+                    mockRED.settings.theme = sinon.stub().returns([TEAM_CATALOGUE])
+                    const result = {}
+                    await expertAutomations.invokeAction('automation/install-module', {
+                        params: { module: TEAM_MODULE }
+                    }, result)
+                    result.should.have.property('success', false)
+                    result.should.have.property('errorCode', 'MODULE_NOT_ALLOWED')
+                    mockAjax.called.should.be.false()
+                })
+            })
         })
 
         describe('automation/manage-groups', () => {
