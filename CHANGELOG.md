@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [0.22.0](https://github.com/FlowFuse/nr-assistant/compare/v0.21.0...v0.22.0) (2026-11-17)
+
+
+### Features
+
+* Install the team's own library packages without confirmation ([#469](https://github.com/FlowFuse/nr-assistant/issues/469)) ([8adc31f](https://github.com/FlowFuse/nr-assistant/commit/8adc31fc6cb28f6779b21acacb807a1c51ef5200))
+
+
+### Bug Fixes
+
+* **auth:** encode callback error details ([#473](https://github.com/FlowFuse/nr-assistant/issues/473)) ([c2e081f](https://github.com/FlowFuse/nr-assistant/commit/c2e081fa8a0995fcb88ee2d3acfae116d66e5775))
+* Disable got retries ([#464](https://github.com/FlowFuse/nr-assistant/issues/464)) ([d079538](https://github.com/FlowFuse/nr-assistant/commit/d079538f69189f15c8f23b3107ffc4fd60ea01bb))
+* Load got as ESM and accept Uint8Array model data ([#462](https://github.com/FlowFuse/nr-assistant/issues/462)) ([d6fd261](https://github.com/FlowFuse/nr-assistant/commit/d6fd2617006af684f3f29be71430bf04c1a8457e))
+* Remove invalid computed key from predict_next schema ([#456](https://github.com/FlowFuse/nr-assistant/issues/456)) ([8c66253](https://github.com/FlowFuse/nr-assistant/commit/8c66253a777666c09b9d22a11ad4c365dc9cae6a))
+
 ## [0.21.0](https://github.com/FlowFuse/nr-assistant/compare/v0.20.0...v0.21.0) (2026-10-20)
 
 
