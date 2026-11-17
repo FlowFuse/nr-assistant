@@ -48,7 +48,8 @@
             tablesEnabled: false,
             inlineCompletionsEnabled: false,
             requestTimeout: AI_TIMEOUT,
-            assistantVersion: null
+            assistantVersion: null,
+            teamLibrary: null
         }
         let initialisedInterlock = false
         let mcpReadyInterlock = false
@@ -81,6 +82,7 @@
                         assistantOptions.requestTimeout = msg?.requestTimeout || AI_TIMEOUT
                         assistantOptions.tablesEnabled = msg?.tablesEnabled === true
                         assistantOptions.inlineCompletionsEnabled = msg?.inlineCompletionsEnabled === true
+                        assistantOptions.teamLibrary = msg?.teamLibrary || null
                         initAssistant(msg)
                     }
                     if (topic === 'nr-assistant/mcp/ready') {

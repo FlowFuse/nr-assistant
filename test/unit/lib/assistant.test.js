@@ -267,6 +267,29 @@ describe('assistant', () => {
         RED.httpAdmin._postEndpoints['/nr-assistant/fim/:nodeModule/:nodeType'].handler.should.be.a.Function()
     })
 
+    it('should publish the runtime team id for team library installs', async () => {
+        RED.settings.flowforge.teamID = 'aBc123XyZ'
+        try {
+            const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
+            await assistant.init(RED, options)
+            RED.comms.publish.firstCall.args[0].should.equal('nr-assistant/initialise')
+            RED.comms.publish.firstCall.args[1].should.have.property('teamLibrary').eql({ teamId: 'aBc123XyZ' })
+        } finally {
+            delete RED.settings.flowforge.teamID
+        }
+    })
+
+    it('should not publish a team id that is not a plain hashid', async () => {
+        RED.settings.flowforge.teamID = 'abc/../x'
+        try {
+            const options = { ...RED.settings.flowforge.assistant, got: fakeGot }
+            await assistant.init(RED, options)
+            RED.comms.publish.firstCall.args[1].should.not.have.property('teamLibrary')
+        } finally {
+            delete RED.settings.flowforge.teamID
+        }
+    })
+
     it('should not be enabled if disabled in settings', async () => {
         const options = { ...RED.settings.flowforge.assistant, got: fakeGot, enabled: false }
         await assistant.init(RED, options)
